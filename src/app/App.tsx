@@ -162,9 +162,11 @@ export default function App() {
       {/* Header */}
       <header className="h-12 bg-white border-b border-gray-200 flex items-center justify-between px-2 shadow-sm">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">DB</span>
-          </div>
+          <img
+            src="/product-icon.png"
+            alt="DbPaw"
+            className="w-8 h-8 rounded-lg object-cover"
+          />
           <h1 className="font-semibold text-lg">DbPaw</h1>
         </div>
 

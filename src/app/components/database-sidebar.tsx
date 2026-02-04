@@ -160,35 +160,30 @@ export function DatabaseSidebar({
   }, [form, isSqlite]);
 
   useEffect(() => {
-    (async () => {
-      try {
-        // 初始不自动连接；等待用户点击“Test & Connect”
-        const tables: { schema: string; name: string; type: string }[] = [];
-        const db: DatabaseInfo = {
-          name: "public",
-          tables: tables.map((t) => ({
-            name: t.name,
-            columns: [],
-          })),
-        };
-        const conn: Connection = {
-          id: "1",
-          name: "Default",
-          type: "postgresql",
-          host: "localhost",
-          port: "5432",
-          username: "user",
-          isConnected: false,
-          databases: [db],
-        };
-        setConnections([conn]);
-        setExpandedConnections(new Set());
-        setExpandedDatabases(new Set());
-      } catch (e) {
-        console.error("listTables failed", e);
-      }
-    })();
+    fetchConnections();
   }, []);
+
+  const fetchConnections = async () => {
+    try {
+      const conns = await api.connections.list();
+      setConnections(
+        conns.map((c) => ({
+          id: String(c.id),
+          name: c.name || "Unknown",
+          type: c.dbType,
+          host: c.host,
+          port: String(c.port),
+          username: c.username,
+          isConnected: false,
+          databases: [],
+        })),
+      );
+      setExpandedConnections(new Set());
+      setExpandedDatabases(new Set());
+    } catch (e) {
+      console.error("listConnections failed", e);
+    }
+  };
 
   const toggleConnection = (id: string) => {
     const newExpanded = new Set(expandedConnections);
@@ -366,7 +361,12 @@ export function DatabaseSidebar({
       <div className="p-3 border-b border-gray-200 flex items-center justify-between">
         <h2 className="font-semibold text-sm">Database Connections</h2>
         <div className="flex gap-1">
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={fetchConnections}
+          >
             <RefreshCw className="w-4 h-4" />
           </Button>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
