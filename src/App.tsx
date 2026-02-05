@@ -4,12 +4,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DatabaseSidebar } from "@/components/business/Sidebar/DatabaseSidebar";
 import { SqlEditor } from "@/components/business/Editor/SqlEditor";
 import { TableView } from "@/components/business/DataGrid/TableView";
@@ -33,11 +28,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { api, isTauri } from "@/services/api";
 import type { ConnectionForm } from "@/services/api";
 import { listen } from "@tauri-apps/api/event";
@@ -89,8 +80,8 @@ export default function App() {
       });
     });
 
-    const unlistenProgress = listen("query.progress", () => { });
-    const unlistenDone = listen("query.done", () => { });
+    const unlistenProgress = listen("query.progress", () => {});
+    const unlistenDone = listen("query.done", () => {});
 
     // Cleanup function
     return () => {
@@ -288,7 +279,7 @@ export default function App() {
             />
           </ResizablePanel>
 
-          <ResizableHandle withHandle />
+          <ResizableHandle />
 
           {/* Main Panel - SQL Editor & Results */}
           <ResizablePanel defaultSize={60} minSize={40}>
@@ -310,6 +301,12 @@ export default function App() {
                         key={tab.id}
                         value={tab.id}
                         className="gap-2 group"
+                        onMouseDown={(e) => {
+                          if (e.button === 1) {
+                            e.preventDefault();
+                            handleCloseTab(tab.id);
+                          }
+                        }}
                       >
                         <Table className="w-3 h-3" />
                         {tab.title}
@@ -376,7 +373,7 @@ export default function App() {
             </Tabs>
           </ResizablePanel>
 
-          <ResizableHandle withHandle />
+          <ResizableHandle />
 
           {/* Right Sidebar - AI Assistant */}
           {aiVisible && (
