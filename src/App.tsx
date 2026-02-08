@@ -135,7 +135,7 @@ export default function App() {
         }),
       );
     } catch (e) {
-      console.error("execute_query failed", e);
+      console.error("execute_query failed:", e instanceof Error ? e.message : String(e));
       setTabs((prev) =>
         prev.map((t) => {
           if (t.id !== tabId) return t;
