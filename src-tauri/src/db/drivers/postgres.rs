@@ -135,6 +135,41 @@ impl DatabaseDriver for PostgresDriver {
         Ok(TableStructure { columns })
     }
 
+    async fn get_table_ddl(
+        &self,
+        schema: String,
+        table: String,
+    ) -> Result<String, String> {
+        let pool = self.get_pool().await?;
+        let query = r#"
+            SELECT
+                'CREATE TABLE ' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) || ' (' || E'\n' ||
+                array_to_string(array_agg(
+                    '    ' || quote_ident(a.attname) || ' ' ||
+                    format_type(a.atttypid, a.atttypmod) ||
+                    CASE WHEN a.attnotnull THEN ' NOT NULL' ELSE '' END ||
+                    CASE WHEN a.atthasdef THEN ' DEFAULT ' || pg_get_expr(d.adbin, d.adrelid) ELSE '' END
+                ), E',\n') || E'\n' ||
+                ');'
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_attribute a ON a.attrelid = c.oid
+            LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+            WHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped
+            AND n.nspname = $1 AND c.relname = $2
+            GROUP BY n.nspname, c.relname;
+        "#;
+
+        let row: (String,) = sqlx::query_as(query)
+            .bind(&schema)
+            .bind(&table)
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+
+        Ok(row.0)
+    }
+
     async fn get_table_data(
         &self,
         schema: String,

@@ -8,6 +8,7 @@ import {
   Copy,
   Table as TableIcon,
   Files,
+  FileCode,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import Editor from "@monaco-editor/react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { api } from "@/services/api";
 
 interface TableViewProps {
   data?: any[];
@@ -40,6 +49,12 @@ interface TableViewProps {
   pageSize?: number;
   executionTimeMs?: number;
   onPageChange?: (page: number) => void;
+  tableContext?: {
+    connectionId: number;
+    database: string;
+    schema: string;
+    table: string;
+  };
 }
 
 export function TableView({
@@ -51,9 +66,35 @@ export function TableView({
   pageSize = 50,
   executionTimeMs = 0,
   onPageChange,
+  tableContext,
 }: TableViewProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  const [isDDLModalOpen, setIsDDLModalOpen] = useState(false);
+  const [ddlContent, setDDLContent] = useState("");
+  const [isLoadingDDL, setIsLoadingDDL] = useState(false);
+
+  const handleShowDDL = async () => {
+    if (!tableContext) return;
+    setIsDDLModalOpen(true);
+    if (!ddlContent) {
+      setIsLoadingDDL(true);
+      try {
+        const ddl = await api.metadata.getTableDDL(
+          tableContext.connectionId,
+          tableContext.database,
+          tableContext.schema,
+          tableContext.table,
+        );
+        setDDLContent(ddl);
+      } catch (error) {
+        setDDLContent(`-- Error fetching DDL\n-- ${error}`);
+      } finally {
+        setIsLoadingDDL(false);
+      }
+    }
+  };
+
   const resizingRef = useRef<{
     column: string;
     startX: number;
@@ -141,6 +182,17 @@ export function TableView({
             <Button variant="outline" size="sm" className="gap-2">
               <Filter className="w-4 h-4" />
             </Button>
+            {tableContext && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={handleShowDDL}
+                title="View Table Structure (DDL)"
+              >
+                <FileCode className="w-4 h-4" />
+              </Button>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-600">
@@ -261,6 +313,27 @@ export function TableView({
           </Button>
         </div>
       </div>
+      <Dialog open={isDDLModalOpen} onOpenChange={setIsDDLModalOpen}>
+        <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0 gap-0">
+          <DialogHeader className="px-4 py-3 border-b border-gray-200">
+            <DialogTitle>Table Structure: {tableContext?.table}</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0 relative">
+            <Editor
+              height="100%"
+              defaultLanguage="sql"
+              value={isLoadingDDL ? "-- Loading..." : ddlContent}
+              options={{
+                readOnly: true,
+                minimap: { enabled: false },
+                fontSize: 13,
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+              }}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
