@@ -6,7 +6,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { Play, Square, Save, Download, Eraser, Trash2, Clock } from "lucide-react";
+import { Play, Save, Trash2, Clock, Database } from "lucide-react";
 import { TableView } from "@/components/business/DataGrid/TableView";
 
 interface SqlEditorProps {
@@ -17,16 +17,16 @@ interface SqlEditorProps {
   } | null;
   onExecute?: (sql: string) => void;
   onCancel?: () => void;
+  databaseName?: string;
 }
 
 export function SqlEditor({
   queryResults,
   onExecute,
   onCancel,
+  databaseName,
 }: SqlEditorProps) {
-  const [sql, setSql] = useState(
-    `-- Select all users\nSELECT id, email, name, created_at\nFROM users\nWHERE created_at > '2024-01-01'\nORDER BY created_at DESC\nLIMIT 100;`,
-  );
+  const [sql, setSql] = useState("-- Enter your SQL query here\n");
 
   const handleExecute = () => {
     if (onExecute) {
@@ -34,19 +34,27 @@ export function SqlEditor({
     }
   };
 
-  const queryHistory = [
-    'SELECT * FROM users WHERE email LIKE "%@gmail.com"',
-    'SELECT COUNT(*) FROM orders WHERE status = "completed"',
-    "UPDATE products SET stock = stock - 1 WHERE id = 123",
-  ];
-
   return (
     <div className="h-full flex flex-col bg-white">
       <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200">
         <div className="flex items-center gap-2">
-          <Button onClick={handleExecute} size="sm" className="gap-2">
+          {databaseName && (
+            <div className="flex items-center gap-2 px-3 py-1 bg-gray-100 rounded text-xs text-gray-600 border border-gray-200">
+              <Database className="w-3 h-3" />
+              <span>{databaseName}</span>
+            </div>
+          )}
+
+          <div className="w-px h-4 bg-gray-300 mx-2" />
+
+          <Button
+            onClick={handleExecute}
+            size="sm"
+            className="gap-2"
+            title="Run SQL (Cmd+Enter)"
+          >
             <Play className="w-4 h-4" />
-            Execute
+            Run
           </Button>
           <Button
             variant="outline"
@@ -58,11 +66,14 @@ export function SqlEditor({
           </Button>
           <Button variant="outline" size="sm" className="gap-2">
             <Save className="w-4 h-4" />
-            Save
           </Button>
-          <Button variant="outline" size="sm" className="gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => setSql("")}
+          >
             <Trash2 className="w-4 h-4" />
-            Clear
           </Button>
         </div>
         <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -70,7 +81,7 @@ export function SqlEditor({
           <span>
             {queryResults?.executionTime
               ? `Last executed: ${queryResults.executionTime}`
-              : "Ready to execute"}
+              : "Ready"}
           </span>
         </div>
       </div>
@@ -99,30 +110,6 @@ export function SqlEditor({
                   }}
                 />
               </div>
-
-              <div className="border-t border-gray-200 bg-gray-50">
-                <div className="px-4 py-2">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-gray-700">
-                      Query History
-                    </span>
-                    <Button variant="ghost" size="sm" className="h-6 text-xs">
-                      Clear All
-                    </Button>
-                  </div>
-                  <div className="space-y-1">
-                    {queryHistory.map((query, index) => (
-                      <div
-                        key={index}
-                        className="text-xs font-mono bg-white px-2 py-1 rounded border border-gray-200 hover:border-blue-300 cursor-pointer truncate"
-                        onClick={() => setSql(query)}
-                      >
-                        {query}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
             </div>
           </ResizablePanel>
 
@@ -134,7 +121,7 @@ export function SqlEditor({
                 <div className="h-full flex flex-col">
                   <div className="px-4 py-2 border-b border-gray-200 bg-gray-50">
                     <span className="text-sm font-semibold text-gray-700">
-                      Query Results
+                      Query Results ({queryResults.data.length} rows)
                     </span>
                   </div>
                   <div className="flex-1 overflow-hidden">

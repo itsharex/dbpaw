@@ -16,14 +16,25 @@ pub async fn get_table_data_by_conn(
 }
 
 #[tauri::command]
-pub async fn execute_query(app_handle: tauri::AppHandle, state: State<'_, AppState>, id: i64, query: String) -> Result<QueryResult, String> {
+pub async fn execute_query(app_handle: tauri::AppHandle, state: State<'_, AppState>, id: i64, query: String, database: Option<String>) -> Result<QueryResult, String> {
     let query_id = format!("q-{}", id);
     let _ = app_handle.emit("query.progress", serde_json::json!({"queryId": query_id, "phase": "prepare"}));
     
     let local_db = state.local_db.lock().await;
     let db = local_db.as_ref().ok_or("Local DB not initialized")?;
     
-    let form = db.get_connection_form_by_id(id).await?;
+    let mut form = db.get_connection_form_by_id(id).await?;
+    
+    // If a specific database is requested, override the default
+    if let Some(db_name) = database {
+        if !db_name.is_empty() {
+             // For PostgreSQL, 'database' field is used for DB name. 
+             // For MySQL, it is also 'database'.
+             // We update the form to connect to this specific DB.
+             form.database = Some(db_name);
+        }
+    }
+
     let driver = get_driver(&form)?;
     
     let result = driver.execute_query(query).await;

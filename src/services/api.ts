@@ -49,8 +49,8 @@ export interface TestConnectionResult {
 
 export const api = {
   query: {
-    execute: (uuid: string, query: string) =>
-      invoke<QueryResult>("execute_query", { uuid, query }),
+    execute: (id: number, query: string, database?: string) =>
+      invoke<QueryResult>("execute_query", { id, query, database }),
     cancel: (uuid: string, queryId: string) =>
       invoke<boolean>("cancel_query", { uuid, queryId }),
     executeByConn: (form: ConnectionForm, sql: string) =>

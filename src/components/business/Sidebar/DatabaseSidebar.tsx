@@ -8,10 +8,12 @@ import {
   Key,
   Plus,
   RefreshCw,
-  Settings,
-  Trash2,
   Play,
   Loader2,
+  Edit3,
+  Plug,
+  Trash2,
+  FileCode,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,6 +73,7 @@ interface TreeNodeProps {
   isExpanded?: boolean;
   onToggle?: () => void;
   onDoubleClick?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   actions?: React.ReactNode;
 }
 
@@ -82,6 +85,7 @@ const TreeNode = ({
   isExpanded,
   onToggle,
   onDoubleClick,
+  onContextMenu,
   actions,
 }: TreeNodeProps) => {
   const hasChildren = children !== null && children !== undefined;
@@ -93,6 +97,7 @@ const TreeNode = ({
         style={{ paddingLeft: `${level * 12 + 8}px` }}
         onClick={onToggle}
         onDoubleClick={onDoubleClick}
+        onContextMenu={onContextMenu}
       >
         {hasChildren && (
           <span className="text-gray-500">
@@ -124,11 +129,13 @@ interface DatabaseSidebarProps {
     driver: string,
   ) => void;
   onConnect?: (form: ConnectionForm) => void;
+  onCreateQuery?: (connectionId: number, databaseName: string) => void;
 }
 
 export function DatabaseSidebar({
   onTableSelect,
   onConnect,
+  onCreateQuery,
 }: DatabaseSidebarProps) {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(
@@ -138,6 +145,14 @@ export function DatabaseSidebar({
     new Set(),
   );
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    connectionId: string | null;
+    databaseName?: string | null;
+    type: "connection" | "database";
+  }>({ visible: false, x: 0, y: 0, connectionId: null, type: "connection" });
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -525,12 +540,10 @@ export function DatabaseSidebar({
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="grid gap-2">
-                        <Label htmlFor="database">
-                          Database <span className="text-red-600">*</span>
-                        </Label>
+                        <Label htmlFor="database">Database</Label>
                         <Input
                           id="database"
-                          placeholder="mydb（必填）"
+                          placeholder="mydb"
                           value={form.database || ""}
                           onChange={(e) =>
                             setForm((f) => ({ ...f, database: e.target.value }))
@@ -675,7 +688,10 @@ export function DatabaseSidebar({
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto">
+      <div
+        className="flex-1 overflow-auto"
+        onClick={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
+      >
         {connections.map((connection) => (
           <TreeNode
             key={connection.id}
@@ -684,16 +700,17 @@ export function DatabaseSidebar({
             label={`${connection.name} (${connection.type})`}
             isExpanded={expandedConnections.has(connection.id)}
             onToggle={() => toggleConnection(connection.id)}
-            actions={
-              <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                  <Settings className="w-3 h-3" />
-                </Button>
-                <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                  <Trash2 className="w-3 h-3" />
-                </Button>
-              </div>
-            }
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setContextMenu({
+                visible: true,
+                x: e.clientX,
+                y: e.clientY,
+                connectionId: connection.id,
+                type: "connection",
+              });
+            }}
           >
             {connection.isConnected ? (
               <>
@@ -707,6 +724,18 @@ export function DatabaseSidebar({
                       label={database.name}
                       isExpanded={expandedDatabases.has(dbKey)}
                       onToggle={() => toggleDatabase(dbKey)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setContextMenu({
+                          visible: true,
+                          x: e.clientX,
+                          y: e.clientY,
+                          connectionId: connection.id,
+                          databaseName: database.name,
+                          type: "database",
+                        });
+                      }}
                     >
                       {database.tables.map((table) => {
                         const tableKey = `${dbKey}-${table.name}`;
@@ -790,6 +819,69 @@ export function DatabaseSidebar({
           </TreeNode>
         ))}
       </div>
+
+      {contextMenu.visible && (
+        <div
+          className="fixed z-50 min-w-[140px] bg-white border border-gray-200 rounded-md shadow-lg py-1"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          {contextMenu.type === "connection" ? (
+            <>
+              <button
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+                onClick={() => {
+                  console.log("编辑连接", contextMenu.connectionId);
+                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                }}
+              >
+                <Edit3 className="w-4 h-4" />
+                编辑
+              </button>
+              <button
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+                onClick={() => {
+                  console.log("重新连接", contextMenu.connectionId);
+                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                }}
+              >
+                <Plug className="w-4 h-4" />
+                重新连接
+              </button>
+              <div className="h-px bg-gray-200 my-1" />
+              <button
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 text-red-600 flex items-center gap-2"
+                onClick={() => {
+                  console.log("删除连接", contextMenu.connectionId);
+                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                }}
+              >
+                <Trash2 className="w-4 h-4" />
+                删除
+              </button>
+            </>
+          ) : (
+            <button
+              className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+              onClick={() => {
+                if (
+                  onCreateQuery &&
+                  contextMenu.connectionId &&
+                  contextMenu.databaseName
+                ) {
+                  onCreateQuery(
+                    Number(contextMenu.connectionId),
+                    contextMenu.databaseName,
+                  );
+                }
+                setContextMenu((prev) => ({ ...prev, visible: false }));
+              }}
+            >
+              <FileCode className="w-4 h-4" />
+              新建查询
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
