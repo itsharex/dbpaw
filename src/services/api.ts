@@ -68,6 +68,12 @@ export const api = {
         "get_table_structure",
         { id, schema, table },
       ),
+    getTableDDL: (
+      id: number,
+      database: string | undefined,
+      schema: string,
+      table: string,
+    ) => invoke<string>("get_table_ddl", { id, database, schema, table }),
     listTablesByConn: (form: ConnectionForm) =>
       invoke<{ schema: string; name: string; type: string }[]>(
         "list_tables_by_conn",

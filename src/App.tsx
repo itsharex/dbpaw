@@ -378,6 +378,19 @@ export default function App() {
                           pageSize={tab.pageSize}
                           executionTimeMs={tab.executionTimeMs}
                           onPageChange={(p) => handlePageChange(tab.id, p)}
+                          tableContext={
+                            tab.connectionId && tab.database && tab.tableName
+                              ? {
+                                  connectionId: tab.connectionId,
+                                  database: tab.database,
+                                  schema:
+                                    tab.driver === "mysql"
+                                      ? tab.database
+                                      : "public",
+                                  table: tab.tableName,
+                                }
+                              : undefined
+                          }
                         />
                       )}
                     </TabsContent>

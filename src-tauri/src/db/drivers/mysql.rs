@@ -142,6 +142,25 @@ impl DatabaseDriver for MysqlDriver {
         Ok(TableStructure { columns })
     }
 
+    async fn get_table_ddl(
+        &self,
+        schema: String,
+        table: String,
+    ) -> Result<String, String> {
+        let pool = self.get_pool().await?;
+        let qualified = if schema.is_empty() {
+            format!("`{}`", table)
+        } else {
+            format!("`{}`.`{}`", schema, table)
+        };
+        let query = format!("SHOW CREATE TABLE {}", qualified);
+        let row: (String, String) = sqlx::query_as(&query)
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+        Ok(row.1)
+    }
+
     async fn get_table_data(
         &self,
         schema: String,
