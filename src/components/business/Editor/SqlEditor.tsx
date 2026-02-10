@@ -3,6 +3,9 @@ import CodeMirror, { Extension } from "@uiw/react-codemirror";
 import { sql, PostgreSQL, MySQL, SQLite, StandardSQL, SQLNamespace } from "@codemirror/lang-sql";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { keymap } from "@codemirror/view";
+import { CompletionContext } from "@codemirror/autocomplete";
+import { linter, lintGutter, Diagnostic } from "@codemirror/lint";
+import { syntaxTree } from "@codemirror/language";
 import { Button } from "@/components/ui/button";
 import {
   ResizableHandle,
@@ -139,6 +142,44 @@ export function SqlEditor({
     return schemaMap;
   }, [schemaOverview]);
 
+  // Create a custom completion source for global column suggestions
+  const globalCompletion = useMemo(() => {
+    if (!schemaOverview) return null;
+
+    // Flatten all columns from all tables
+    const options = schemaOverview.tables.flatMap(t => 
+      t.columns.map(c => ({
+        label: c.name,
+        type: "property", // Icon type
+        detail: t.name,   // Show table name as detail
+        boost: -1         // Lower priority than keywords/tables usually, but available
+      }))
+    );
+
+    // Add tables as well for quick access without context
+    const tableOptions = schemaOverview.tables.map(t => ({
+      label: t.name,
+      type: "class",
+      detail: t.schema || "table",
+      boost: 0
+    }));
+
+    const allOptions = [...options, ...tableOptions];
+
+    return (context: CompletionContext) => {
+      let word = context.matchBefore(/[\w\.]*/);
+      if (!word || (word.from === word.to && !context.explicit)) return null;
+      
+      // If typing after a dot, let the default SQL completer handle it (it's context aware)
+      if (word.text.includes(".")) return null;
+
+      return {
+        from: word.from,
+        options: allOptions
+      };
+    };
+  }, [schemaOverview]);
+
   // Extensions
   const extensions = useMemo(() => {
     const exts: Extension[] = [
@@ -164,8 +205,16 @@ export function SqlEditor({
         },
       ]),
     ];
+
+    // Inject global completion if available
+    if (globalCompletion) {
+      exts.push(dialect.language.data.of({
+        autocomplete: globalCompletion
+      }));
+    }
+
     return exts;
-  }, [dialect, sqlSchema, handleExecute, handleFormat]);
+  }, [dialect, sqlSchema, handleExecute, handleFormat, globalCompletion]);
 
   // Theme
   const editorTheme = useMemo(() => {
