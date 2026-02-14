@@ -40,10 +40,12 @@ interface Column {
   name: string;
   type: string;
   isPrimaryKey?: boolean;
+  nullable?: boolean;
 }
 
 interface TableInfo {
   name: string;
+  schema: string;
   columns: Column[];
 }
 
@@ -146,7 +148,7 @@ export function DatabaseSidebar({
   const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(
     new Set(),
   );
-  const [expandedTables, _setExpandedTables] = useState<Set<string>>(new Set());
+  const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
     x: number;
@@ -267,7 +269,7 @@ export function DatabaseSidebar({
               if (db.tables.length > 0) return db;
               return {
                 ...db,
-                tables: tables.map((t) => ({ name: t.name, columns: [] })),
+                tables: tables.map((t) => ({ name: t.name, schema: t.schema, columns: [] })),
               };
             }),
           };
@@ -299,6 +301,70 @@ export function DatabaseSidebar({
     }
     setExpandedDatabases(newExpanded);
   };
+  const fetchAndSetTableColumns = async (
+    connectionId: string,
+    databaseName: string,
+    schema: string,
+    tableName: string,
+  ) => {
+    try {
+      const metadata = await api.metadata.getTableMetadata(
+        Number(connectionId),
+        databaseName,
+        schema,
+        tableName,
+      );
+      setConnections((prev) =>
+        prev.map((conn) => {
+          if (conn.id !== connectionId) return conn;
+          return {
+            ...conn,
+            databases: conn.databases.map((db) => {
+              if (db.name !== databaseName) return db;
+              return {
+                ...db,
+                tables: db.tables.map((t) => {
+                  if (t.name !== tableName) return t;
+                  if (t.columns.length > 0) return t;
+                  return {
+                    ...t,
+                    columns: metadata.columns.map((c) => ({
+                      name: c.name,
+                      type: c.type,
+                      isPrimaryKey: c.primaryKey,
+                      nullable: c.nullable,
+                    })),
+                  };
+                }),
+              };
+            }),
+          };
+        }),
+      );
+    } catch (e) {
+      console.error("getTableMetadata failed", e);
+    }
+  };
+
+  const toggleTable = (
+    tableKey: string,
+    connectionId: string,
+    databaseName: string,
+    table: TableInfo,
+  ) => {
+    const newExpanded = new Set(expandedTables);
+    if (newExpanded.has(tableKey)) {
+      newExpanded.delete(tableKey);
+    } else {
+      newExpanded.add(tableKey);
+      // 首次展开时加载列信息
+      if (table.columns.length === 0) {
+        fetchAndSetTableColumns(connectionId, databaseName, table.schema, table.name);
+      }
+    }
+    setExpandedTables(newExpanded);
+  };
+
   const handleTableClick = (
     connection: Connection,
     database: DatabaseInfo,
@@ -649,14 +715,7 @@ export function DatabaseSidebar({
                             label={table.name}
                             isExpanded={expandedTables.has(tableKey)}
                             onToggle={() => {
-                              // toggleTable(tableKey); // 禁用表展开/折叠
-                              // handleTableClick(connection, database, table); // 单击不再触发打开
-                              // 不再加载列信息
-                              /* fetchAndSetTableColumns(
-                                connection.id,
-                                database.name,
-                                table.name,
-                              ); */
+                              toggleTable(tableKey, connection.id, database.name, table);
                             }}
                             onDoubleClick={() => {
                               handleTableClick(connection, database, table);
@@ -680,29 +739,26 @@ export function DatabaseSidebar({
                               </div>
                             }
                           >
-                            /*{" "}
                             {table.columns.map((column) => (
                               <div
                                 key={column.name}
-                                className="flex items-center gap-1 px-2 py-1 hover:bg-gray-50 text-xs"
+                                className="flex items-center gap-1 px-2 py-1 hover:bg-accent text-xs"
                                 style={{ paddingLeft: `${3 * 12 + 8}px` }}
                               >
                                 <span className="w-4" />
-                                {column.isPrimaryKey && (
-                                  <Key className="w-3 h-3 text-yellow-600" />
+                                {column.isPrimaryKey ? (
+                                  <Key className="w-3 h-3 text-yellow-600 shrink-0" />
+                                ) : (
+                                  <span className="w-3 shrink-0" />
                                 )}
-                                {!column.isPrimaryKey && (
-                                  <span className="w-3" />
-                                )}
-                                <span className="flex-1 truncate text-gray-700">
+                                <span className="flex-1 truncate text-foreground">
                                   {column.name}
                                 </span>
-                                <span className="text-gray-500 text-xs">
+                                <span className="text-muted-foreground text-xs shrink-0">
                                   {column.type}
                                 </span>
                               </div>
-                            ))}{" "}
-                            */
+                            ))}
                           </TreeNode>
                         );
                       })}
