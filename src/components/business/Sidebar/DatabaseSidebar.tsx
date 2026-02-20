@@ -14,6 +14,7 @@ import {
   Plug,
   Trash2,
   FileCode,
+  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -178,6 +179,48 @@ export function DatabaseSidebar({
     password: "",
     ssl: false,
   });
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const filteredConnections = useMemo(() => {
+    if (!searchTerm) return connections;
+    const lowerTerm = searchTerm.toLowerCase();
+    return connections
+      .map((conn) => {
+        const filteredDbs = conn.databases
+          .map((db) => {
+            const filteredTables = db.tables.filter((t) =>
+              t.name.toLowerCase().includes(lowerTerm),
+            );
+            if (filteredTables.length > 0) {
+              return { ...db, tables: filteredTables };
+            }
+            return null;
+          })
+          .filter(Boolean) as DatabaseInfo[];
+
+        if (filteredDbs.length > 0) {
+          return { ...conn, databases: filteredDbs };
+        }
+        return null;
+      })
+      .filter(Boolean) as Connection[];
+  }, [connections, searchTerm]);
+
+  useEffect(() => {
+    if (searchTerm) {
+      const newExpandedConns = new Set(expandedConnections);
+      const newExpandedDbs = new Set(expandedDatabases);
+      filteredConnections.forEach((conn) => {
+        newExpandedConns.add(conn.id);
+        conn.databases.forEach((db) => {
+          newExpandedDbs.add(`${conn.id}-${db.name}`);
+        });
+      });
+      setExpandedConnections(newExpandedConns);
+      setExpandedDatabases(newExpandedDbs);
+    }
+  }, [searchTerm, filteredConnections]);
+
   const isSqlite = form.driver === "sqlite";
   const requiredOk = useMemo(() => {
     if (isSqlite) return !!form.filePath;
@@ -667,11 +710,23 @@ export function DatabaseSidebar({
         </div>
       </div>
 
+      <div className="p-3 border-b border-border">
+        <div className="relative">
+          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search tables..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-8"
+          />
+        </div>
+      </div>
+
       <div
         className="flex-1 overflow-auto"
         onClick={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
       >
-        {connections.map((connection) => (
+        {filteredConnections.map((connection) => (
           <TreeNode
             key={connection.id}
             level={0}
