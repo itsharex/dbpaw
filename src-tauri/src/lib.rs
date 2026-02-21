@@ -10,7 +10,7 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -54,8 +54,18 @@ pub fn run() {
             commands::connection::list_databases,
             commands::connection::list_databases_by_id,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::Exit => {
+            let state = app_handle.state::<AppState>();
+            tauri::async_runtime::block_on(async {
+                state.pool_manager.close_all().await;
+            });
+        }
+        _ => {}
+    });
 }
 
 pub mod commands;

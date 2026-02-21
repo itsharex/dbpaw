@@ -10,91 +10,101 @@ use sqlx::{mysql::MySqlPoolOptions, Column, Row, TypeInfo};
 use std::collections::{HashMap, HashSet};
 
 pub struct MysqlDriver {
-    pub form: ConnectionForm,
+    pub pool: sqlx::MySqlPool,
+}
+
+fn build_dsn(form: &ConnectionForm) -> Result<String, String> {
+    let host = form.host.clone().ok_or("[VALIDATION_ERROR] host 不能为空")?;
+    let port = form.port.unwrap_or(3306);
+    // 允许 database 为空
+    let username = form
+        .username
+        .clone()
+        .ok_or("[VALIDATION_ERROR] username 不能为空")?;
+    let password = form
+        .password
+        .clone()
+        .ok_or("[VALIDATION_ERROR] password 不能为空")?;
+    let mut dsn = format!("mysql://{}:{}@{}:{}", username, password, host, port);
+
+    if let Some(db) = &form.database {
+        if !db.is_empty() {
+            dsn.push('/');
+            dsn.push_str(db);
+        }
+    }
+
+    if form.ssl.unwrap_or(false) {
+        dsn.push_str("?ssl-mode=REQUIRED");
+    }
+
+    Ok(dsn)
 }
 
 impl MysqlDriver {
-    fn conn_string(&self) -> Result<String, String> {
-        let host = self
-            .form
-            .host
-            .clone()
-            .ok_or("[VALIDATION_ERROR] host 不能为空")?;
-        let port = self.form.port.unwrap_or(3306);
-        // 允许 database 为空
-        let username = self
-            .form
-            .username
-            .clone()
-            .ok_or("[VALIDATION_ERROR] username 不能为空")?;
-        let password = self
-            .form
-            .password
-            .clone()
-            .ok_or("[VALIDATION_ERROR] password 不能为空")?;
-        let mut dsn = format!("mysql://{}:{}@{}:{}", username, password, host, port);
-
-        if let Some(db) = &self.form.database {
-            if !db.is_empty() {
-                dsn.push('/');
-                dsn.push_str(db);
-            }
-        }
-
-        if self.form.ssl.unwrap_or(false) {
-            dsn.push_str("?ssl-mode=REQUIRED");
-        }
-
-        Ok(dsn)
-    }
-
-    async fn get_pool(&self) -> Result<sqlx::MySqlPool, String> {
-        let dsn = self.conn_string()?;
-        MySqlPoolOptions::new()
+    pub async fn connect(form: &ConnectionForm) -> Result<Self, String> {
+        let dsn = build_dsn(form)?;
+        let pool = MySqlPoolOptions::new()
             .max_connections(5)
             .acquire_timeout(std::time::Duration::from_secs(5))
             .connect(&dsn)
             .await
-            .map_err(|e| format!("[CONN_FAILED] {e}"))
+            .map_err(|e| format!("[CONN_FAILED] {e}"))?;
+        
+        Ok(Self { pool })
     }
 }
 
 #[async_trait]
 impl DatabaseDriver for MysqlDriver {
+    async fn close(&self) {
+        self.pool.close().await;
+    }
+
     async fn test_connection(&self) -> Result<(), String> {
-        let pool = self.get_pool().await?;
         sqlx::query("SELECT 1")
-            .execute(&pool)
+            .execute(&self.pool)
             .await
             .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
         Ok(())
     }
 
     async fn list_databases(&self) -> Result<Vec<String>, String> {
-        let pool = self.get_pool().await?;
         let rows: Vec<(String,)> = sqlx::query_as("SHOW DATABASES")
-            .fetch_all(&pool)
+            .fetch_all(&self.pool)
             .await
             .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
     async fn list_tables(&self, schema: Option<String>) -> Result<Vec<TableInfo>, String> {
-        let pool = self.get_pool().await?;
-        let db = self
-            .form
-            .database
-            .clone()
-            .ok_or("[VALIDATION_ERROR] database 不能为空")?;
-        let schema = schema.unwrap_or(db.clone());
+        // For MySQL, schema is usually the database name.
+        // If schema is provided, use it. If not, use the current database (which might be in the DSN).
+        // However, list_tables implementation used self.form.database to fallback.
+        // Since we don't store form anymore, we should rely on the pool's current DB or the passed schema.
+        // But the original code relied on `form.database`.
+        // If schema is None, we need to know the current database.
+        // We can query it: SELECT DATABASE()
+        
+        let target_schema = if let Some(s) = schema {
+            s
+        } else {
+             // Fallback: try to get current database
+             let row: (Option<String>,) = sqlx::query_as("SELECT DATABASE()")
+                 .fetch_one(&self.pool)
+                 .await
+                 .map_err(|e| format!("[QUERY_ERROR] Failed to get current database: {e}"))?;
+             row.0.ok_or("[QUERY_ERROR] No database selected and no schema provided")?
+        };
+
         let rows: Vec<(String, String, String)> = sqlx::query_as(
             "SELECT table_schema, table_name, table_type \
              FROM information_schema.tables \
              WHERE table_schema = ? AND table_type IN ('BASE TABLE','VIEW') \
              ORDER BY table_name",
         )
-        .bind(&schema)
-        .fetch_all(&pool)
+        .bind(&target_schema)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -118,7 +128,6 @@ impl DatabaseDriver for MysqlDriver {
         schema: String,
         table: String,
     ) -> Result<TableStructure, String> {
-        let pool = self.get_pool().await?;
         let rows = sqlx::query(
             "SELECT column_name, data_type, is_nullable, column_default \
              FROM information_schema.columns \
@@ -127,7 +136,7 @@ impl DatabaseDriver for MysqlDriver {
         )
         .bind(&schema)
         .bind(&table)
-        .fetch_all(&pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -150,8 +159,6 @@ impl DatabaseDriver for MysqlDriver {
         schema: String,
         table: String,
     ) -> Result<TableMetadata, String> {
-        let pool = self.get_pool().await?;
-
         let pk_rows: Vec<(String,)> = sqlx::query_as(
             "SELECT kcu.column_name \
              FROM information_schema.table_constraints tc \
@@ -166,7 +173,7 @@ impl DatabaseDriver for MysqlDriver {
         )
         .bind(&schema)
         .bind(&table)
-        .fetch_all(&pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -180,7 +187,7 @@ impl DatabaseDriver for MysqlDriver {
         )
         .bind(&schema)
         .bind(&table)
-        .fetch_all(&pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -214,7 +221,7 @@ impl DatabaseDriver for MysqlDriver {
         )
         .bind(&schema)
         .bind(&table)
-        .fetch_all(&pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -280,7 +287,7 @@ impl DatabaseDriver for MysqlDriver {
         )
         .bind(&schema)
         .bind(&table)
-        .fetch_all(&pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -305,7 +312,6 @@ impl DatabaseDriver for MysqlDriver {
     }
 
     async fn get_table_ddl(&self, schema: String, table: String) -> Result<String, String> {
-        let pool = self.get_pool().await?;
         let qualified = if schema.is_empty() {
             format!("`{}`", table)
         } else {
@@ -313,7 +319,7 @@ impl DatabaseDriver for MysqlDriver {
         };
         let query = format!("SHOW CREATE TABLE {}", qualified);
         let row: (String, String) = sqlx::query_as(&query)
-            .fetch_one(&pool)
+            .fetch_one(&self.pool)
             .await
             .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
         Ok(row.1)
@@ -331,7 +337,6 @@ impl DatabaseDriver for MysqlDriver {
         order_by: Option<String>,
     ) -> Result<TableDataResponse, String> {
         let start = std::time::Instant::now();
-        let pool = self.get_pool().await?;
         let offset = (page - 1) * limit;
         let qualified = if schema.is_empty() {
             format!("`{}`", table)
@@ -352,7 +357,7 @@ impl DatabaseDriver for MysqlDriver {
         // Get total count (with filter applied)
         let count_query = format!("SELECT COUNT(*) FROM {}{}", qualified, where_clause);
         let total: i64 = sqlx::query_scalar(&count_query)
-            .fetch_one(&pool)
+            .fetch_one(&self.pool)
             .await
             .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", count_query, e))?;
 
@@ -384,7 +389,7 @@ impl DatabaseDriver for MysqlDriver {
         let rows = sqlx::query(&query)
             .bind(limit)
             .bind(offset)
-            .fetch_all(&pool)
+            .fetch_all(&self.pool)
             .await
             .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", query, e))?;
 
@@ -471,9 +476,8 @@ impl DatabaseDriver for MysqlDriver {
 
     async fn execute_query(&self, sql: String) -> Result<QueryResult, String> {
         let start = std::time::Instant::now();
-        let pool = self.get_pool().await?;
         let rows = sqlx::query(&sql)
-            .fetch_all(&pool)
+            .fetch_all(&self.pool)
             .await
             .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -570,8 +574,6 @@ impl DatabaseDriver for MysqlDriver {
     }
 
     async fn get_schema_overview(&self, schema: Option<String>) -> Result<SchemaOverview, String> {
-        let pool = self.get_pool().await?;
-
         let sql = "SELECT table_schema, table_name, column_name, data_type \
              FROM information_schema.columns"
             .to_string();
@@ -582,23 +584,31 @@ impl DatabaseDriver for MysqlDriver {
                 sql
             ))
             .bind(s)
-            .fetch_all(&pool)
+            .fetch_all(&self.pool)
             .await
         } else {
-            let db = self.form.database.clone().unwrap_or_default();
-            if !db.is_empty() {
-                sqlx::query(&format!(
+             // Try to use current DB if available in pool, otherwise exclude system schemas
+             // Since we don't have form.database easily available, we check if we can query without specific schema.
+             // But the original code had fallback logic.
+             // Let's assume if no schema provided, we list all non-system schemas OR just the current one if connected to one.
+             // If connected to a specific DB, `SHOW TABLES` works for that DB. But we query `information_schema`.
+             
+             // We can query SELECT DATABASE() first.
+             let db_row: Result<(Option<String>,), _> = sqlx::query_as("SELECT DATABASE()").fetch_one(&self.pool).await;
+             
+             if let Ok((Some(db),)) = db_row {
+                  sqlx::query(&format!(
                     "{} WHERE table_schema = ? ORDER BY table_schema, table_name, ordinal_position",
                     sql
                 ))
                 .bind(db)
-                .fetch_all(&pool)
+                .fetch_all(&self.pool)
                 .await
-            } else {
+             } else {
                 sqlx::query(&format!("{} WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') ORDER BY table_schema, table_name, ordinal_position", sql))
-                .fetch_all(&pool)
+                .fetch_all(&self.pool)
                 .await
-            }
+             }
         };
 
         let rows = rows.map_err(|e| {
@@ -662,8 +672,7 @@ mod tests {
             ..Default::default()
         };
 
-        let driver = MysqlDriver { form };
-        let conn_str = driver.conn_string().unwrap();
+        let conn_str = build_dsn(&form).unwrap();
         assert_eq!(conn_str, "mysql://root:password@localhost:3306/test_db");
     }
 
@@ -679,8 +688,7 @@ mod tests {
             ..Default::default()
         };
 
-        let driver = MysqlDriver { form };
-        let conn_str = driver.conn_string().unwrap();
+        let conn_str = build_dsn(&form).unwrap();
         assert_eq!(conn_str, "mysql://user:pass@127.0.0.1:3307");
     }
 
@@ -696,8 +704,7 @@ mod tests {
             ..Default::default()
         };
 
-        let driver = MysqlDriver { form };
-        assert!(driver.conn_string().is_err());
+        assert!(build_dsn(&form).is_err());
     }
 
     #[test]
@@ -713,8 +720,7 @@ mod tests {
             ..Default::default()
         };
 
-        let driver = MysqlDriver { form };
-        let conn_str = driver.conn_string().unwrap();
+        let conn_str = build_dsn(&form).unwrap();
         assert_eq!(
             conn_str,
             "mysql://root:password@localhost:3306/test_db?ssl-mode=REQUIRED"

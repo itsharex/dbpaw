@@ -9,80 +9,73 @@ use sqlx::{postgres::PgPoolOptions, Column, Row, TypeInfo};
 use std::collections::HashSet;
 
 pub struct PostgresDriver {
-    pub form: ConnectionForm,
+    pub pool: sqlx::PgPool,
+}
+
+fn build_dsn(form: &ConnectionForm) -> Result<String, String> {
+    let host = form.host.clone().ok_or("[VALIDATION_ERROR] host 不能为空")?;
+    let port = form.port.unwrap_or(5432);
+    // 允许 database 为空，默认为 postgres
+    let database = form.database.clone().unwrap_or_else(|| "postgres".to_string());
+    let username = form
+        .username
+        .clone()
+        .ok_or("[VALIDATION_ERROR] username 不能为空")?;
+    let password = form
+        .password
+        .clone()
+        .ok_or("[VALIDATION_ERROR] password 不能为空")?;
+    let mut dsn = format!(
+        "postgres://{}:{}@{}:{}/{}",
+        username, password, host, port, database
+    );
+
+    if form.ssl.unwrap_or(false) {
+        dsn.push_str("?sslmode=require");
+    }
+
+    Ok(dsn)
 }
 
 impl PostgresDriver {
-    fn conn_string(&self) -> Result<String, String> {
-        let host = self
-            .form
-            .host
-            .clone()
-            .ok_or("[VALIDATION_ERROR] host 不能为空")?;
-        let port = self.form.port.unwrap_or(5432);
-        // 允许 database 为空，默认为 postgres
-        let database = self
-            .form
-            .database
-            .clone()
-            .unwrap_or_else(|| "postgres".to_string());
-        let username = self
-            .form
-            .username
-            .clone()
-            .ok_or("[VALIDATION_ERROR] username 不能为空")?;
-        let password = self
-            .form
-            .password
-            .clone()
-            .ok_or("[VALIDATION_ERROR] password 不能为空")?;
-        let mut dsn = format!(
-            "postgres://{}:{}@{}:{}/{}",
-            username, password, host, port, database
-        );
-
-        if self.form.ssl.unwrap_or(false) {
-            dsn.push_str("?sslmode=require");
-        }
-
-        Ok(dsn)
-    }
-
-    async fn get_pool(&self) -> Result<sqlx::PgPool, String> {
-        let dsn = self.conn_string()?;
-        PgPoolOptions::new()
+    pub async fn connect(form: &ConnectionForm) -> Result<Self, String> {
+        let dsn = build_dsn(form)?;
+        let pool = PgPoolOptions::new()
             .max_connections(5)
             .acquire_timeout(std::time::Duration::from_secs(5))
             .connect(&dsn)
             .await
-            .map_err(|e| format!("[CONN_FAILED] {e}"))
+            .map_err(|e| format!("[CONN_FAILED] {e}"))?;
+        
+        Ok(Self { pool })
     }
 }
 
 #[async_trait]
 impl DatabaseDriver for PostgresDriver {
+    async fn close(&self) {
+        self.pool.close().await;
+    }
+
     async fn test_connection(&self) -> Result<(), String> {
-        let pool = self.get_pool().await?;
         sqlx::query("SELECT 1")
-            .execute(&pool)
+            .execute(&self.pool)
             .await
             .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
         Ok(())
     }
 
     async fn list_databases(&self) -> Result<Vec<String>, String> {
-        let pool = self.get_pool().await?;
         let rows: Vec<(String,)> = sqlx::query_as(
             "SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname",
         )
-        .fetch_all(&pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
         Ok(rows.into_iter().map(|r| r.0).collect())
     }
 
     async fn list_tables(&self, schema: Option<String>) -> Result<Vec<TableInfo>, String> {
-        let pool = self.get_pool().await?;
         let schema = schema.unwrap_or_else(|| "public".to_string());
         let rows = sqlx::query(
             "SELECT table_schema, table_name, table_type \
@@ -91,7 +84,7 @@ impl DatabaseDriver for PostgresDriver {
              ORDER BY table_name",
         )
         .bind(&schema)
-        .fetch_all(&pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -115,7 +108,6 @@ impl DatabaseDriver for PostgresDriver {
         schema: String,
         table: String,
     ) -> Result<TableStructure, String> {
-        let pool = self.get_pool().await?;
         let rows = sqlx::query(
             "SELECT column_name, data_type, is_nullable, column_default \
              FROM information_schema.columns \
@@ -124,7 +116,7 @@ impl DatabaseDriver for PostgresDriver {
         )
         .bind(&schema)
         .bind(&table)
-        .fetch_all(&pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -147,8 +139,6 @@ impl DatabaseDriver for PostgresDriver {
         schema: String,
         table: String,
     ) -> Result<TableMetadata, String> {
-        let pool = self.get_pool().await?;
-
         let pk_rows: Vec<(String,)> = sqlx::query_as(
             r#"
             SELECT a.attname
@@ -165,7 +155,7 @@ impl DatabaseDriver for PostgresDriver {
         )
         .bind(&schema)
         .bind(&table)
-        .fetch_all(&pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -193,7 +183,7 @@ impl DatabaseDriver for PostgresDriver {
         )
         .bind(&schema)
         .bind(&table)
-        .fetch_all(&pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -243,7 +233,7 @@ impl DatabaseDriver for PostgresDriver {
         )
         .bind(&schema)
         .bind(&table)
-        .fetch_all(&pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -306,7 +296,7 @@ impl DatabaseDriver for PostgresDriver {
         )
         .bind(&schema)
         .bind(&table)
-        .fetch_all(&pool)
+        .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -336,7 +326,6 @@ impl DatabaseDriver for PostgresDriver {
     }
 
     async fn get_table_ddl(&self, schema: String, table: String) -> Result<String, String> {
-        let pool = self.get_pool().await?;
         let query = r#"
             SELECT
                 'CREATE TABLE ' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) || ' (' || E'\n' ||
@@ -360,7 +349,7 @@ impl DatabaseDriver for PostgresDriver {
         let row: (String,) = sqlx::query_as(query)
             .bind(&schema)
             .bind(&table)
-            .fetch_one(&pool)
+            .fetch_one(&self.pool)
             .await
             .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -379,7 +368,6 @@ impl DatabaseDriver for PostgresDriver {
         order_by: Option<String>,
     ) -> Result<TableDataResponse, String> {
         let start = std::time::Instant::now();
-        let pool = self.get_pool().await?;
         let offset = (page - 1) * limit;
 
         // Normalize smart quotes from macOS input
@@ -395,7 +383,7 @@ impl DatabaseDriver for PostgresDriver {
         // Get total count (with filter applied)
         let count_query = format!("SELECT COUNT(*) FROM {}.{}{}", schema, table, where_clause);
         let total: i64 = sqlx::query_scalar(&count_query)
-            .fetch_one(&pool)
+            .fetch_one(&self.pool)
             .await
             .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", count_query, e))?;
 
@@ -427,7 +415,7 @@ impl DatabaseDriver for PostgresDriver {
         let rows = sqlx::query(&query)
             .bind(limit)
             .bind(offset)
-            .fetch_all(&pool)
+            .fetch_all(&self.pool)
             .await
             .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", query, e))?;
 
@@ -512,9 +500,8 @@ impl DatabaseDriver for PostgresDriver {
 
     async fn execute_query(&self, sql: String) -> Result<QueryResult, String> {
         let start = std::time::Instant::now();
-        let pool = self.get_pool().await?;
         let rows = sqlx::query(&sql)
-            .fetch_all(&pool)
+            .fetch_all(&self.pool)
             .await
             .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
 
@@ -609,8 +596,6 @@ impl DatabaseDriver for PostgresDriver {
     }
 
     async fn get_schema_overview(&self, schema: Option<String>) -> Result<SchemaOverview, String> {
-        let pool = self.get_pool().await?;
-
         // Note: Using a simpler approach for now since sqlx QueryBuilder needs specific DB type setup
         // and I don't want to overcomplicate.
 
@@ -622,7 +607,7 @@ impl DatabaseDriver for PostgresDriver {
              ORDER BY table_schema, table_name, ordinal_position",
             )
             .bind(s)
-            .fetch_all(&pool)
+            .fetch_all(&self.pool)
             .await
         } else {
             sqlx::query(
@@ -631,7 +616,7 @@ impl DatabaseDriver for PostgresDriver {
              WHERE table_schema NOT IN ('information_schema', 'pg_catalog') \
              ORDER BY table_schema, table_name, ordinal_position",
             )
-            .fetch_all(&pool)
+            .fetch_all(&self.pool)
             .await
         };
 
@@ -694,10 +679,8 @@ mod tests {
             database: Some("mydb".to_string()),
             ..Default::default()
         };
-        let driver = PostgresDriver { form };
-        // 验证生成的连接字符串是否符合预期
-        // postgres://postgres:password@localhost:5432/mydb
-        let dsn = driver.conn_string().unwrap();
+        // Use build_dsn directly
+        let dsn = build_dsn(&form).unwrap();
         assert_eq!(dsn, "postgres://postgres:password@localhost:5432/mydb");
     }
 
@@ -708,8 +691,7 @@ mod tests {
             host: None, // Missing host
             ..Default::default()
         };
-        let driver = PostgresDriver { form };
-        assert!(driver.conn_string().is_err());
+        assert!(build_dsn(&form).is_err());
     }
 
     #[test]
@@ -724,8 +706,7 @@ mod tests {
             ssl: Some(true),
             ..Default::default()
         };
-        let driver = PostgresDriver { form };
-        let dsn = driver.conn_string().unwrap();
+        let dsn = build_dsn(&form).unwrap();
         assert_eq!(
             dsn,
             "postgres://postgres:password@localhost:5432/mydb?sslmode=require"
