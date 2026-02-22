@@ -5,7 +5,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DatabaseSidebar } from "@/components/business/Sidebar/DatabaseSidebar";
+import { Sidebar } from "@/components/business/Sidebar/Sidebar";
 import { SqlEditor } from "@/components/business/Editor/SqlEditor";
 import { TableView } from "@/components/business/DataGrid/TableView";
 import { TableMetadataView } from "@/components/business/Metadata/TableMetadataView";
@@ -36,7 +36,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { api, isTauri, SchemaOverview } from "@/services/api";
+import { api, isTauri, SchemaOverview, SavedQuery } from "@/services/api";
 import { listen } from "@tauri-apps/api/event";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 
@@ -67,6 +67,7 @@ interface TabItem {
     executionTime: string;
   } | null;
   schemaOverview?: SchemaOverview;
+  savedQueryId?: number;
 }
 
 const TAB_TRIGGER_CLASS =
@@ -129,6 +130,61 @@ export default function App() {
       .catch((e) => console.error("Failed to fetch schema overview:", e instanceof Error ? e.message : String(e)));
   };
 
+  const handleOpenSavedQuery = async (query: SavedQuery) => {
+    const newTabId = `saved-query-${query.id}`;
+
+    // Check if tab already exists
+    const existingTab = tabs.find(t => t.id === newTabId);
+    if (existingTab) {
+      setActiveTab(newTabId);
+      return;
+    }
+
+    let connectionId = query.connectionId || undefined;
+    let driver: string | undefined = undefined;
+    let database: string | undefined = undefined;
+
+    // If query is linked to a connection, try to fetch connection details
+    if (connectionId) {
+      try {
+        // We need to get connection details to know driver and default database
+        // But api.connections.list returns all connections. 
+        // We can iterate or assume if we have a way to get single connection.
+        // For now, let's just list and find.
+        // Optimized approach: add get_connection_by_id to api if needed, 
+        // but for now list is cached/fast enough locally? 
+        // Actually, we can just let the user select connection if it's missing details,
+        // but we want to be helpful.
+
+        // NOTE: Ideally we should have api.connections.get(id). 
+        // But for now, let's just leave driver/database empty if we can't easily get them,
+        // or fetch list.
+        const conns = await api.connections.list();
+        const conn = conns.find((c: any) => c.id === connectionId);
+        if (conn) {
+          driver = conn.dbType;
+          database = conn.database;
+        }
+      } catch (e) {
+        console.error("Failed to fetch connection details for saved query", e);
+      }
+    }
+
+    const newTab: TabItem = {
+      id: newTabId,
+      type: "editor",
+      title: query.name,
+      connectionId,
+      database,
+      driver,
+      sqlContent: query.query,
+      savedQueryId: query.id,
+      queryResults: null,
+    };
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTab(newTabId);
+  };
+
   const handleSqlChange = (tabId: string, sql: string) => {
     setTabs((prev) =>
       prev.map((t) => {
@@ -140,7 +196,11 @@ export default function App() {
 
   const handleExecuteQuery = async (tabId: string, sql: string) => {
     const tab = tabs.find((t) => t.id === tabId);
-    if (!tab || !tab.connectionId) return;
+    if (!tab || !tab.connectionId) {
+      // TODO: Prompt user to select connection if missing
+      alert("Please select a connection first (feature pending)");
+      return;
+    }
 
     const start = performance.now();
     try {
@@ -462,10 +522,11 @@ export default function App() {
         <ResizablePanelGroup direction="horizontal">
           {/* Left Sidebar - Database Connections */}
           <ResizablePanel defaultSize={20} minSize={15} maxSize={30}>
-            <DatabaseSidebar
+            <Sidebar
               onTableSelect={handleTableSelect}
               onConnect={() => { }}
               onCreateQuery={handleCreateQuery}
+              onSelectSavedQuery={handleOpenSavedQuery}
             />
           </ResizablePanel>
 
@@ -558,6 +619,22 @@ export default function App() {
                           connectionId={tab.connectionId}
                           driver={tab.driver}
                           schemaOverview={tab.schemaOverview}
+                          savedQueryId={tab.savedQueryId}
+                          initialName={tab.title.startsWith("Query (") ? "" : tab.title}
+                          onSaveSuccess={(savedQuery) => {
+                            setTabs((prev) =>
+                              prev.map((t) => {
+                                if (t.id === tab.id) {
+                                  return {
+                                    ...t,
+                                    savedQueryId: savedQuery.id,
+                                    title: savedQuery.name,
+                                  };
+                                }
+                                return t;
+                              })
+                            );
+                          }}
                         />
                       ) : tab.type === "table" ? (
                         <TableView

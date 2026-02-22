@@ -110,6 +110,16 @@ export interface SchemaOverview {
   tables: TableSchema[];
 }
 
+export interface SavedQuery {
+  id: number;
+  name: string;
+  query: string;
+  description?: string | null;
+  connectionId?: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const api = {
   query: {
     execute: (id: number, query: string, database?: string) =>
@@ -195,5 +205,24 @@ export const api = {
     create: (form: ConnectionForm) => invoke<any>("create_connection", { form }),
     testEphemeral: (form: ConnectionForm) =>
       invoke<TestConnectionResult>("test_connection_ephemeral", { form }),
+  },
+  queries: {
+    list: () => invoke<SavedQuery[]>("get_saved_queries"),
+    create: (data: {
+      name: string;
+      query: string;
+      description?: string;
+      connectionId?: number;
+    }) => invoke<SavedQuery>("save_query", data),
+    update: (
+      id: number,
+      data: {
+        name: string;
+        query: string;
+        description?: string;
+        connectionId?: number;
+      },
+    ) => invoke<SavedQuery>("update_saved_query", { id, ...data }),
+    delete: (id: number) => invoke<void>("delete_saved_query", { id }),
   },
 };

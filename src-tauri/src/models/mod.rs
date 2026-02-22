@@ -17,6 +17,18 @@ pub struct Connection {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedQuery {
+    pub id: i64,
+    pub name: String,
+    pub query: String,
+    pub description: Option<String>,
+    pub connection_id: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableInfo {
