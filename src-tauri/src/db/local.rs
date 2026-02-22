@@ -1,4 +1,4 @@
-use crate::models::{Connection, ConnectionForm};
+use crate::models::{Connection, ConnectionForm, SavedQuery};
 use sqlx::{sqlite::SqlitePoolOptions, Pool, Row, Sqlite};
 use std::fs;
 use tauri::Manager;
@@ -29,7 +29,12 @@ impl LocalDb {
         sqlx::query(include_str!("../../migrations/001_initial.sql"))
             .execute(&pool)
             .await
-            .map_err(|e| format!("[MIGRATION_ERROR] {e}"))?;
+            .map_err(|e| format!("[MIGRATION_001_ERROR] {e}"))?;
+
+        sqlx::query(include_str!("../../migrations/002_saved_queries.sql"))
+            .execute(&pool)
+            .await
+            .map_err(|e| format!("[MIGRATION_002_ERROR] {e}"))?;
 
         Ok(Self { pool })
     }
@@ -152,5 +157,78 @@ impl LocalDb {
             ssl: row.try_get::<bool, _>("ssl").ok().map(|v| v), // bool mapping
             file_path: None,
         })
+    }
+
+    pub async fn create_saved_query(
+        &self,
+        name: String,
+        query: String,
+        description: Option<String>,
+        connection_id: Option<i64>,
+    ) -> Result<SavedQuery, String> {
+        let id = sqlx::query_scalar::<_, i64>(
+            "INSERT INTO saved_queries (name, query, description, connection_id) VALUES (?, ?, ?, ?) RETURNING id"
+        )
+        .bind(&name)
+        .bind(&query)
+        .bind(description)
+        .bind(connection_id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("[CREATE_QUERY_ERROR] {e}"))?;
+
+        self.get_saved_query_by_id(id).await
+    }
+
+    pub async fn update_saved_query(
+        &self,
+        id: i64,
+        name: String,
+        query: String,
+        description: Option<String>,
+        connection_id: Option<i64>,
+    ) -> Result<SavedQuery, String> {
+        sqlx::query(
+            "UPDATE saved_queries SET name = ?, query = ?, description = ?, connection_id = ?, updated_at = datetime('now') WHERE id = ?"
+        )
+        .bind(&name)
+        .bind(&query)
+        .bind(description)
+        .bind(connection_id)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("[UPDATE_QUERY_ERROR] {e}"))?;
+
+        self.get_saved_query_by_id(id).await
+    }
+
+    pub async fn delete_saved_query(&self, id: i64) -> Result<(), String> {
+        sqlx::query("DELETE FROM saved_queries WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| format!("[DELETE_QUERY_ERROR] {e}"))?;
+        Ok(())
+    }
+
+    pub async fn list_saved_queries(&self) -> Result<Vec<SavedQuery>, String> {
+        let rows = sqlx::query_as::<_, SavedQuery>(
+            "SELECT id, name, query, description, connection_id, created_at, updated_at FROM saved_queries ORDER BY updated_at DESC"
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("[LIST_QUERIES_ERROR] {e}"))?;
+        Ok(rows)
+    }
+
+    pub async fn get_saved_query_by_id(&self, id: i64) -> Result<SavedQuery, String> {
+        sqlx::query_as::<_, SavedQuery>(
+            "SELECT id, name, query, description, connection_id, created_at, updated_at FROM saved_queries WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("[GET_QUERY_ERROR] {e}"))
     }
 }

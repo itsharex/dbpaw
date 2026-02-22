@@ -122,7 +122,7 @@ const TreeNode = ({
   );
 };
 
-interface DatabaseSidebarProps {
+interface ConnectionListProps {
   onTableSelect?: (
     connection: string,
     database: string,
@@ -138,11 +138,11 @@ interface DatabaseSidebarProps {
   ) => void;
 }
 
-export function DatabaseSidebar({
+export function ConnectionList({
   onTableSelect,
   onConnect,
   onCreateQuery,
-}: DatabaseSidebarProps) {
+}: ConnectionListProps) {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(
     new Set(["1"]),
@@ -427,7 +427,7 @@ export function DatabaseSidebar({
 
   return (
     <div className="h-full flex flex-col bg-background border-r border-border">
-      <div className="p-3 border-b border-border flex items-center justify-between">
+      <div className="p-2 border-b border-border flex items-center justify-between">
         <h2 className="font-semibold text-sm">Connections</h2>
         <div className="flex gap-1">
           <Button
@@ -710,7 +710,7 @@ export function DatabaseSidebar({
         </div>
       </div>
 
-      <div className="p-3 border-b border-border">
+      <div className="p-2 border-b border-border">
         <div className="relative">
           <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input

@@ -54,6 +54,10 @@ pub fn run() {
             commands::query::execute_by_conn,
             commands::connection::list_databases,
             commands::connection::list_databases_by_id,
+            commands::storage::save_query,
+            commands::storage::get_saved_queries,
+            commands::storage::update_saved_query,
+            commands::storage::delete_saved_query,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

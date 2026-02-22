@@ -13,8 +13,15 @@ import {
 import { Play, Save, Trash2, Clock, Database, Braces } from "lucide-react";
 import { TableView } from "@/components/business/DataGrid/TableView";
 import { useTheme } from "@/components/theme-provider";
-import { SchemaOverview } from "@/services/api";
+import { SchemaOverview, api, SavedQuery } from "@/services/api";
 import { format } from "sql-formatter";
+import { SaveQueryDialog } from "./SaveQueryDialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface SqlEditorProps {
   queryResults?: {
@@ -30,6 +37,9 @@ interface SqlEditorProps {
   connectionId?: number;
   driver?: string;
   schemaOverview?: SchemaOverview;
+  savedQueryId?: number;
+  initialName?: string;
+  onSaveSuccess?: (savedQuery: SavedQuery) => void;
 }
 
 export function SqlEditor({
@@ -42,11 +52,15 @@ export function SqlEditor({
   connectionId: _connectionId,
   driver,
   schemaOverview,
+  savedQueryId,
+  initialName,
+  onSaveSuccess,
 }: SqlEditorProps) {
   const [internalSql, setInternalSql] = useState("-- Enter your SQL query here\n");
   const { theme } = useTheme();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
+  const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+
   // Use controlled value if provided, otherwise internal state
   const code = value !== undefined ? value : internalSql;
 
@@ -63,14 +77,14 @@ export function SqlEditor({
   const handleSqlChange = useCallback((val: string) => {
     // Always update internal state immediately if we are using it
     if (value === undefined) {
-       setInternalSql(val);
+      setInternalSql(val);
     }
-    
+
     // Clear previous timeout
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
-    
+
     // Debounce the callback to parent
     timeoutRef.current = setTimeout(() => {
       if (onChange) {
@@ -109,6 +123,33 @@ export function SqlEditor({
     }
   }, [code, driver, handleSqlChange]);
 
+  const handleSave = async (name: string, description: string) => {
+    try {
+      let result: SavedQuery;
+      if (savedQueryId) {
+        result = await api.queries.update(savedQueryId, {
+          name,
+          description,
+          query: code,
+          connectionId: _connectionId || undefined,
+        });
+      } else {
+        result = await api.queries.create({
+          name,
+          description,
+          query: code,
+          connectionId: _connectionId || undefined,
+        });
+      }
+      if (onSaveSuccess) {
+        onSaveSuccess(result);
+      }
+      // Optional: Show toast
+    } catch (e) {
+      console.error("Failed to save query", e);
+    }
+  };
+
   // Determine Dialect
   const dialect = useMemo(() => {
     switch (driver) {
@@ -124,19 +165,19 @@ export function SqlEditor({
     if (!schemaOverview) {
       return {};
     }
-    
+
     const schemaMap: SQLNamespace = {};
-    
+
     schemaOverview.tables.forEach(t => {
-       const colNames = t.columns.map(c => c.name);
-       // Add table
-       schemaMap[t.name] = colNames;
-       // Add schema.table
-       if (t.schema) {
-           schemaMap[`${t.schema}.${t.name}`] = colNames;
-       }
+      const colNames = t.columns.map(c => c.name);
+      // Add table
+      schemaMap[t.name] = colNames;
+      // Add schema.table
+      if (t.schema) {
+        schemaMap[`${t.schema}.${t.name}`] = colNames;
+      }
     });
-    
+
     return schemaMap;
   }, [schemaOverview]);
 
@@ -145,7 +186,7 @@ export function SqlEditor({
     if (!schemaOverview) return null;
 
     // Flatten all columns from all tables
-    const options = schemaOverview.tables.flatMap(t => 
+    const options = schemaOverview.tables.flatMap(t =>
       t.columns.map(c => ({
         label: c.name,
         type: "property", // Icon type
@@ -167,7 +208,7 @@ export function SqlEditor({
     return (context: CompletionContext) => {
       let word = context.matchBefore(/[\w\.]*/);
       if (!word || (word.from === word.to && !context.explicit)) return null;
-      
+
       // If typing after a dot, let the default SQL completer handle it (it's context aware)
       if (word.text.includes(".")) return null;
 
@@ -201,6 +242,13 @@ export function SqlEditor({
             return true;
           },
         },
+        {
+          key: "Mod-s",
+          run: () => {
+            setIsSaveDialogOpen(true);
+            return true;
+          },
+        },
       ]),
     ];
 
@@ -216,14 +264,14 @@ export function SqlEditor({
 
   // Theme
   const editorTheme = useMemo(() => {
-      const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-      return isDark ? oneDark : [];
+    const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    return isDark ? oneDark : [];
   }, [theme]);
 
   return (
     <div className="h-full flex flex-col bg-background">
       <div className="flex items-center justify-between px-4 py-2 border-b border-border">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
           {databaseName && (
             <div className="flex items-center gap-2 px-3 py-1 bg-muted/50 rounded text-xs text-muted-foreground border border-border">
               <Database className={`w-3 h-3 ${schemaOverview ? "text-green-500" : "text-muted-foreground"}`} />
@@ -233,44 +281,89 @@ export function SqlEditor({
 
           <div className="w-px h-4 bg-border mx-2" />
 
-          <Button
-            onClick={handleExecute}
-            size="sm"
-            className="gap-2"
-            title="Run SQL (Cmd+Enter)"
-          >
-            <Play className="w-4 h-4" />
-            Run
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={handleFormat}
-            title="Format SQL (Shift+Alt+F)"
-          >
-            <Braces className="w-4 h-4" />
-            Format
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={onCancel}
-          >
-            Cancel
-          </Button>
-          <Button variant="outline" size="sm" className="gap-2">
-            <Save className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={handleClear}
-          >
-            <Trash2 className="w-4 h-4" />
-          </Button>
+          <TooltipProvider>
+            <div className="flex items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={handleExecute}
+                    size="icon"
+                    variant="outline"
+                    className="h-8 w-8"
+                  >
+                    <Play className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Run SQL (Cmd+Enter)</p>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={handleFormat}
+                  >
+                    <Braces className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Format SQL (Shift+Alt+F)</p>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={onCancel}
+                  >
+                    <span className="h-3 w-3 bg-foreground/80 rounded-[1px]" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Cancel Query</p>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => setIsSaveDialogOpen(true)}
+                  >
+                    <Save className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Save Query</p>
+                </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={handleClear}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Clear Editor</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Clock className="w-4 h-4" />
@@ -281,7 +374,7 @@ export function SqlEditor({
           </span>
           <div className="w-px h-3 bg-border mx-2" />
           <span className="text-xs">
-              {schemaOverview ? "Schema Loaded" : "Loading Schema..."}
+            {schemaOverview ? "Schema Loaded" : "Loading Schema..."}
           </span>
         </div>
       </div>
@@ -290,22 +383,22 @@ export function SqlEditor({
         <ResizablePanelGroup direction="vertical">
           <ResizablePanel defaultSize={queryResults ? 50 : 100} minSize={30}>
             <div className="h-full flex flex-col text-base">
-                <CodeMirror
-                    value={code}
-                    height="100%"
-                    extensions={extensions}
-                    theme={editorTheme}
-                    onChange={handleSqlChange}
-                    className="h-full"
-                    basicSetup={{
-                        lineNumbers: true,
-                        foldGutter: true,
-                        dropCursor: true,
-                        allowMultipleSelections: true,
-                        indentOnInput: true,
-                        autocompletion: true,
-                    }}
-                />
+              <CodeMirror
+                value={code}
+                height="100%"
+                extensions={extensions}
+                theme={editorTheme}
+                onChange={handleSqlChange}
+                className="h-full"
+                basicSetup={{
+                  lineNumbers: true,
+                  foldGutter: true,
+                  dropCursor: true,
+                  allowMultipleSelections: true,
+                  indentOnInput: true,
+                  autocompletion: true,
+                }}
+              />
             </div>
           </ResizablePanel>
 
@@ -314,11 +407,7 @@ export function SqlEditor({
               <ResizableHandle withHandle />
               <ResizablePanel defaultSize={50} minSize={20}>
                 <div className="h-full flex flex-col">
-                  <div className="px-4 py-2 border-b border-border bg-muted/40">
-                    <span className="text-sm font-semibold text-foreground">
-                      Query Results ({queryResults.data.length} rows)
-                    </span>
-                  </div>
+                  {/* Header removed as requested */}
                   <div className="flex-1 overflow-hidden">
                     <TableView
                       data={queryResults.data}
@@ -332,6 +421,13 @@ export function SqlEditor({
           )}
         </ResizablePanelGroup>
       </div>
+
+      <SaveQueryDialog
+        open={isSaveDialogOpen}
+        onOpenChange={setIsSaveDialogOpen}
+        onSave={handleSave}
+        initialName={initialName}
+      />
     </div>
   );
 }

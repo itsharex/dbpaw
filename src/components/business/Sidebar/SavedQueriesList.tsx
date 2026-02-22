@@ -1,0 +1,170 @@
+import { useEffect, useState } from "react";
+import { api, SavedQuery } from "@/services/api";
+import { Button } from "@/components/ui/button";
+import { FileCode, RefreshCw, Trash2, Edit3, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
+
+interface SavedQueriesListProps {
+  onSelectQuery: (query: SavedQuery) => void;
+}
+
+export function SavedQueriesList({ onSelectQuery }: SavedQueriesListProps) {
+  const [queries, setQueries] = useState<SavedQuery[]>([]);
+  const [connections, setConnections] = useState<Record<number, string>>({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean;
+    x: number;
+    y: number;
+    queryId: number | null;
+  }>({ visible: false, x: 0, y: 0, queryId: null });
+
+  useEffect(() => {
+    fetchQueriesAndConnections();
+  }, []);
+
+  const fetchQueriesAndConnections = async () => {
+    try {
+      const [queriesData, connectionsData] = await Promise.all([
+        api.queries.list(),
+        api.connections.list(),
+      ]);
+      setQueries(queriesData);
+
+      const connMap: Record<number, string> = {};
+      connectionsData.forEach((c: any) => {
+        connMap[c.id] = c.name;
+      });
+      setConnections(connMap);
+    } catch (error) {
+      console.error("Failed to fetch saved queries or connections:", error);
+    }
+  };
+
+  const fetchQueries = async () => {
+    try {
+      const data = await api.queries.list();
+      setQueries(data);
+    } catch (error) {
+      console.error("Failed to fetch saved queries:", error);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await api.queries.delete(id);
+      fetchQueries();
+    } catch (error) {
+      console.error("Failed to delete query:", error);
+    }
+  };
+
+  const filteredQueries = queries.filter((q) =>
+    q.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  return (
+    <div className="h-full flex flex-col bg-background border-r border-border">
+      <div className="p-2 border-b border-border flex items-center justify-between">
+        <h2 className="font-semibold text-sm">Saved Queries</h2>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={fetchQueriesAndConnections}
+        >
+          <RefreshCw className="w-4 h-4" />
+        </Button>
+      </div>
+
+      <div className="p-2 border-b border-border">
+        <div className="relative">
+          <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search queries..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-8"
+          />
+        </div>
+      </div>
+
+      <div
+        className="flex-1 overflow-auto"
+        onClick={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
+      >
+        {filteredQueries.map((query) => (
+          <div
+            key={query.id}
+            className="flex items-center gap-2 px-3 py-1.5 hover:bg-accent cursor-pointer group select-none text-sm"
+            onDoubleClick={() => onSelectQuery(query)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setContextMenu({
+                visible: true,
+                x: e.clientX,
+                y: e.clientY,
+                queryId: query.id,
+              });
+            }}
+          >
+            <FileCode className="w-4 h-4 text-blue-500 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="truncate font-medium">{query.name}</span>
+                {query.connectionId && connections[query.connectionId] && (
+                  <span className="text-xs text-muted-foreground truncate">
+                    ({connections[query.connectionId]})
+                  </span>
+                )}
+              </div>
+              {query.description && (
+                <div className="truncate text-xs text-muted-foreground">
+                  {query.description}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        {filteredQueries.length === 0 && (
+          <div className="p-4 text-center text-sm text-muted-foreground">
+            No saved queries found.
+          </div>
+        )}
+      </div>
+
+      {contextMenu.visible && (
+        <div
+          className="fixed z-50 min-w-[140px] bg-popover border border-border rounded-md shadow-lg py-1"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
+            onClick={() => {
+              if (contextMenu.queryId) {
+                const query = queries.find(q => q.id === contextMenu.queryId);
+                if (query) onSelectQuery(query);
+              }
+              setContextMenu((prev) => ({ ...prev, visible: false }));
+            }}
+          >
+            <Edit3 className="w-4 h-4" />
+            Open
+          </button>
+          <div className="h-px bg-border my-1" />
+          <button
+            className="w-full px-3 py-2 text-left text-sm hover:bg-accent text-destructive flex items-center gap-2"
+            onClick={() => {
+              if (contextMenu.queryId) handleDelete(contextMenu.queryId);
+              setContextMenu((prev) => ({ ...prev, visible: false }));
+            }}
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

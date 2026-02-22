@@ -5,7 +5,7 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DatabaseSidebar } from "@/components/business/Sidebar/DatabaseSidebar";
+import { Sidebar } from "@/components/business/Sidebar/Sidebar";
 import { SqlEditor } from "@/components/business/Editor/SqlEditor";
 import { TableView } from "@/components/business/DataGrid/TableView";
 import { TableMetadataView } from "@/components/business/Metadata/TableMetadataView";
@@ -36,7 +36,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { api, isTauri, SchemaOverview } from "@/services/api";
+import { api, isTauri, SchemaOverview, SavedQuery } from "@/services/api";
 import { listen } from "@tauri-apps/api/event";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 
@@ -67,7 +67,11 @@ interface TabItem {
     executionTime: string;
   } | null;
   schemaOverview?: SchemaOverview;
+  savedQueryId?: number;
 }
+
+const TAB_TRIGGER_CLASS =
+  "gap-2 group relative pr-8 bg-transparent data-[state=active]:bg-background border-b-2 border-b-transparent data-[state=active]:border-b-primary rounded-none h-9 hover:bg-muted/50 border-r border-r-border/40 last:border-r-0";
 
 export default function App() {
   const [tabs, setTabs] = useState<TabItem[]>([]);
@@ -126,6 +130,61 @@ export default function App() {
       .catch((e) => console.error("Failed to fetch schema overview:", e instanceof Error ? e.message : String(e)));
   };
 
+  const handleOpenSavedQuery = async (query: SavedQuery) => {
+    const newTabId = `saved-query-${query.id}`;
+
+    // Check if tab already exists
+    const existingTab = tabs.find(t => t.id === newTabId);
+    if (existingTab) {
+      setActiveTab(newTabId);
+      return;
+    }
+
+    let connectionId = query.connectionId || undefined;
+    let driver: string | undefined = undefined;
+    let database: string | undefined = undefined;
+
+    // If query is linked to a connection, try to fetch connection details
+    if (connectionId) {
+      try {
+        // We need to get connection details to know driver and default database
+        // But api.connections.list returns all connections. 
+        // We can iterate or assume if we have a way to get single connection.
+        // For now, let's just list and find.
+        // Optimized approach: add get_connection_by_id to api if needed, 
+        // but for now list is cached/fast enough locally? 
+        // Actually, we can just let the user select connection if it's missing details,
+        // but we want to be helpful.
+
+        // NOTE: Ideally we should have api.connections.get(id). 
+        // But for now, let's just leave driver/database empty if we can't easily get them,
+        // or fetch list.
+        const conns = await api.connections.list();
+        const conn = conns.find((c: any) => c.id === connectionId);
+        if (conn) {
+          driver = conn.dbType;
+          database = conn.database;
+        }
+      } catch (e) {
+        console.error("Failed to fetch connection details for saved query", e);
+      }
+    }
+
+    const newTab: TabItem = {
+      id: newTabId,
+      type: "editor",
+      title: query.name,
+      connectionId,
+      database,
+      driver,
+      sqlContent: query.query,
+      savedQueryId: query.id,
+      queryResults: null,
+    };
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTab(newTabId);
+  };
+
   const handleSqlChange = (tabId: string, sql: string) => {
     setTabs((prev) =>
       prev.map((t) => {
@@ -137,7 +196,11 @@ export default function App() {
 
   const handleExecuteQuery = async (tabId: string, sql: string) => {
     const tab = tabs.find((t) => t.id === tabId);
-    if (!tab || !tab.connectionId) return;
+    if (!tab || !tab.connectionId) {
+      // TODO: Prompt user to select connection if missing
+      alert("Please select a connection first (feature pending)");
+      return;
+    }
 
     const start = performance.now();
     try {
@@ -392,6 +455,54 @@ export default function App() {
     setActiveTab(tabId);
   };
 
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Check for Mod key (Cmd on Mac, Ctrl on Windows)
+      const isMod = e.metaKey || e.ctrlKey;
+      if (!isMod) return;
+
+      switch (e.key.toLowerCase()) {
+        case "w":
+          e.preventDefault();
+          if (activeTab) {
+            handleCloseTab(activeTab);
+          }
+          break;
+        case "n":
+          e.preventDefault();
+          // Find current active tab to get context for new query
+          const currentTab = tabs.find((t) => t.id === activeTab);
+          if (
+            currentTab &&
+            currentTab.connectionId &&
+            currentTab.database &&
+            currentTab.driver
+          ) {
+            handleCreateQuery(
+              currentTab.connectionId,
+              currentTab.database,
+              currentTab.driver
+            );
+          }
+          break;
+        case "\\": // Backslash for AI toggle
+          e.preventDefault();
+          setAiVisible((v) => !v);
+          break;
+        case ",": // Comma for settings
+          e.preventDefault();
+          setOpenSettings(true);
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleGlobalKeyDown);
+    };
+  }, [activeTab, tabs, aiVisible]);
+
   return (
     <div className="h-screen w-screen flex flex-col bg-muted/30">
       {/* Header */}
@@ -418,7 +529,7 @@ export default function App() {
             size="sm"
             className="h-8 w-8 p-0"
             onClick={() => setAiVisible((v) => !v)}
-            title={aiVisible ? "隐藏 AI 面板" : "显示 AI 面板"}
+            title={aiVisible ? "Hide AI Panel" : "Show AI Panel"}
             aria-label={aiVisible ? "Hide AI panel" : "Show AI panel"}
           >
             <Sparkles className="w-4 h-4" />
@@ -434,20 +545,20 @@ export default function App() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuLabel>我的账号</DropdownMenuLabel>
+              <DropdownMenuLabel>My Account</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem>
                 <User className="w-4 h-4 mr-2" />
-                个人资料
+                Profile
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setOpenSettings(true)}>
                 <Settings className="w-4 h-4 mr-2" />
-                设置
+                Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem>
                 <LogOut className="w-4 h-4 mr-2" />
-                退出登录
+                Logout
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -459,10 +570,11 @@ export default function App() {
         <ResizablePanelGroup direction="horizontal">
           {/* Left Sidebar - Database Connections */}
           <ResizablePanel defaultSize={20} minSize={15} maxSize={30}>
-            <DatabaseSidebar
+            <Sidebar
               onTableSelect={handleTableSelect}
               onConnect={() => { }}
               onCreateQuery={handleCreateQuery}
+              onSelectSavedQuery={handleOpenSavedQuery}
             />
           </ResizablePanel>
 
@@ -483,46 +595,51 @@ export default function App() {
                 onValueChange={setActiveTab}
                 className="h-full flex flex-col"
               >
-                <div className="bg-muted/30 border-b border-border">
-                  <TabsList className="h-10 w-full justify-start gap-0 bg-transparent border-none p-0 overflow-x-auto">
+                <div className="bg-muted/30">
+                  <TabsList className="h-9 w-full justify-start gap-0 bg-transparent border-none border-b-0 p-0 overflow-x-auto">
                     {tabs.map((tab) => (
                       <ContextMenu key={tab.id}>
                         <ContextMenuTrigger asChild>
-                          <TabsTrigger
-                            value={tab.id}
-                            className="gap-2 group relative pr-8 bg-transparent data-[state=active]:bg-background data-[state=active]:border-b-2 data-[state=active]:border-primary border-transparent rounded-none h-10 hover:bg-muted/50 border-r border-border/40 last:border-r-0"
-                            onMouseDown={(e) => {
-                              if (e.button === 1) {
-                                e.preventDefault();
-                                handleCloseTab(tab.id);
-                              }
-                            }}
-                          >
-                            {tab.type === "table" ? (
-                              <Table className="w-4 h-4 text-primary" />
-                            ) : (
-                              <FileCode className="w-4 h-4 text-primary" />
-                            )}
-                            <span className="truncate max-w-[120px]">
-                              {tab.title}
-                            </span>
-                            <div
-                              className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded-sm cursor-pointer transition-opacity"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCloseTab(tab.id);
+                          {/* Wrapper avoids data-state conflict: ContextMenu and Tabs both set it; only the trigger must get Tabs' data-state=active for the indicator bar */}
+                          <span className="contents">
+                            <TabsTrigger
+                              value={tab.id}
+                              className={TAB_TRIGGER_CLASS}
+                              onMouseDown={(e) => {
+                                if (e.button === 1) {
+                                  e.preventDefault();
+                                  handleCloseTab(tab.id);
+                                }
                               }}
                             >
-                              <X className="w-3 h-3 text-muted-foreground" />
-                            </div>
-                          </TabsTrigger>
+                              {tab.type === "table" ? (
+                                <Table className="w-4 h-4 text-primary" />
+                              ) : (
+                                <FileCode className="w-4 h-4 text-primary" />
+                              )}
+                              <span className="truncate max-w-[120px]">
+                                {tab.title}
+                              </span>
+                              <button
+                                type="button"
+                                aria-label={`Close ${tab.title}`}
+                                className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded-sm cursor-pointer transition-opacity"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleCloseTab(tab.id);
+                                }}
+                              >
+                                <X className="w-3 h-3 text-muted-foreground" />
+                              </button>
+                            </TabsTrigger>
+                          </span>
                         </ContextMenuTrigger>
                         <ContextMenuContent>
                           <ContextMenuItem onClick={() => handleCloseTab(tab.id)}>
-                            关闭当前标签
+                            Close Tab
                           </ContextMenuItem>
                           <ContextMenuItem onClick={() => handleCloseOtherTabs(tab.id)}>
-                            关闭其他标签
+                            Close Other Tabs
                           </ContextMenuItem>
                         </ContextMenuContent>
                       </ContextMenu>
@@ -550,6 +667,22 @@ export default function App() {
                           connectionId={tab.connectionId}
                           driver={tab.driver}
                           schemaOverview={tab.schemaOverview}
+                          savedQueryId={tab.savedQueryId}
+                          initialName={tab.title.startsWith("Query (") ? "" : tab.title}
+                          onSaveSuccess={(savedQuery) => {
+                            setTabs((prev) =>
+                              prev.map((t) => {
+                                if (t.id === tab.id) {
+                                  return {
+                                    ...t,
+                                    savedQueryId: savedQuery.id,
+                                    title: savedQuery.name,
+                                  };
+                                }
+                                return t;
+                              })
+                            );
+                          }}
                         />
                       ) : tab.type === "table" ? (
                         <TableView

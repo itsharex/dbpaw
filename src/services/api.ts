@@ -1,17 +1,33 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { invokeMock } from "./mocks";
 
 // Helper to check if running in Tauri
 export const isTauri = () => {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 };
 
+// Helper to check if Mock mode is enabled
+const useMockMode = () => {
+  return import.meta.env.VITE_USE_MOCK === "true";
+};
+
 // Safe invoke wrapper
 const invoke = async <T>(cmd: string, args?: any): Promise<T> => {
-  if (!isTauri()) {
-    console.warn(`[Mock] invoke ${cmd}`, args);
-    throw new Error("Tauri API not available. Please run in Tauri window.");
+  // If running in Tauri, use real Tauri invoke
+  if (isTauri()) {
+    return tauriInvoke(cmd, args);
   }
-  return tauriInvoke(cmd, args);
+
+  // If not in Tauri, check if Mock mode is enabled
+  if (useMockMode()) {
+    return invokeMock<T>(cmd, args);
+  }
+
+  // If not in Tauri and Mock mode is disabled, throw error
+  console.warn(`[API] invoke ${cmd}`, args);
+  throw new Error(
+    "Tauri API not available. Please run 'bun tauri dev' or enable Mock mode with 'VITE_USE_MOCK=true'."
+  );
 };
 
 export interface QueryColumn {
@@ -92,6 +108,16 @@ export interface TableSchema {
 
 export interface SchemaOverview {
   tables: TableSchema[];
+}
+
+export interface SavedQuery {
+  id: number;
+  name: string;
+  query: string;
+  description?: string | null;
+  connectionId?: number | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export const api = {
@@ -179,5 +205,24 @@ export const api = {
     create: (form: ConnectionForm) => invoke<any>("create_connection", { form }),
     testEphemeral: (form: ConnectionForm) =>
       invoke<TestConnectionResult>("test_connection_ephemeral", { form }),
+  },
+  queries: {
+    list: () => invoke<SavedQuery[]>("get_saved_queries"),
+    create: (data: {
+      name: string;
+      query: string;
+      description?: string;
+      connectionId?: number;
+    }) => invoke<SavedQuery>("save_query", data),
+    update: (
+      id: number,
+      data: {
+        name: string;
+        query: string;
+        description?: string;
+        connectionId?: number;
+      },
+    ) => invoke<SavedQuery>("update_saved_query", { id, ...data }),
+    delete: (id: number) => invoke<void>("delete_saved_query", { id }),
   },
 };
