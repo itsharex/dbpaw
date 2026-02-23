@@ -20,7 +20,7 @@ export const mockConnections: any[] = [
   {
     id: 1,
     name: "PostgreSQL Dev",
-    driver: "postgres",
+    dbType: "postgres",
     host: "localhost",
     port: 5432,
     database: "testdb",
@@ -30,7 +30,7 @@ export const mockConnections: any[] = [
   {
     id: 2,
     name: "SQLite Local",
-    driver: "sqlite",
+    dbType: "sqlite",
     filePath: "/path/to/database.db",
     createdAt: new Date().toISOString(),
   },
@@ -501,7 +501,7 @@ export async function mockCreateConnection(form: ConnectionForm): Promise<any> {
   return {
     id: mockConnections.length + 1,
     name: form.name || "New Connection",
-    driver: form.driver,
+    dbType: form.driver,
     host: form.host,
     port: form.port,
     database: form.database,
