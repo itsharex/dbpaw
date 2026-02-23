@@ -1,8 +1,6 @@
 import {
   QueryResult,
-  ColumnSchema,
   TableMetadata,
-  TableSchema,
   SchemaOverview,
   ConnectionForm,
   TestConnectionResult,
@@ -283,9 +281,9 @@ CREATE INDEX users_username_idx ON public.users USING btree (username);`;
  * 模拟执行查询
  */
 export async function mockExecuteQuery(
-  id: number,
+  _id: number,
   query: string,
-  database?: string
+  _database?: string
 ): Promise<QueryResult> {
   // 模拟网络延迟
   await new Promise((resolve) => setTimeout(resolve, 100));
@@ -311,8 +309,8 @@ export async function mockExecuteQuery(
  * 模拟取消查询
  */
 export async function mockCancelQuery(
-  uuid: string,
-  queryId: string
+  _uuid: string,
+  _queryId: string
 ): Promise<boolean> {
   await new Promise((resolve) => setTimeout(resolve, 50));
   return true;
@@ -322,8 +320,8 @@ export async function mockCancelQuery(
  * 模拟通过连接信息执行查询
  */
 export async function mockExecuteByConn(
-  form: ConnectionForm,
-  sql: string
+  _form: ConnectionForm,
+  _sql: string
 ): Promise<QueryResult> {
   await new Promise((resolve) => setTimeout(resolve, 100));
   return mockQueryResult;
@@ -333,9 +331,9 @@ export async function mockExecuteByConn(
  * 模拟列出表
  */
 export async function mockListTables(
-  id: number,
-  database?: string,
-  schema?: string
+  _id: number,
+  _database?: string,
+  _schema?: string
 ): Promise<{ schema: string; name: string; type: string }[]> {
   await new Promise((resolve) => setTimeout(resolve, 50));
   return mockTables;
@@ -345,9 +343,9 @@ export async function mockListTables(
  * 模拟获取表结构
  */
 export async function mockGetTableStructure(
-  id: number,
-  schema: string,
-  table: string
+  _id: number,
+  _schema: string,
+  _table: string
 ): Promise<{ columns: { name: string; type: string; nullable: boolean }[] }> {
   await new Promise((resolve) => setTimeout(resolve, 50));
   return mockTableStructure;
@@ -357,10 +355,10 @@ export async function mockGetTableStructure(
  * 模拟获取表 DDL
  */
 export async function mockGetTableDDL(
-  id: number,
-  database: string | undefined,
-  schema: string,
-  table: string
+  _id: number,
+  _database: string | undefined,
+  _schema: string,
+  _table: string
 ): Promise<string> {
   await new Promise((resolve) => setTimeout(resolve, 50));
   return mockDDL;
@@ -370,10 +368,10 @@ export async function mockGetTableDDL(
  * 模拟获取表元数据
  */
 export async function mockGetTableMetadata(
-  id: number,
-  database: string | undefined,
-  schema: string,
-  table: string
+  _id: number,
+  _database: string | undefined,
+  _schema: string,
+  _table: string
 ): Promise<TableMetadata> {
   await new Promise((resolve) => setTimeout(resolve, 50));
   return mockTableMetadata;
@@ -383,7 +381,7 @@ export async function mockGetTableMetadata(
  * 模拟通过连接信息列出表
  */
 export async function mockListTablesByConn(
-  form: ConnectionForm
+  _form: ConnectionForm
 ): Promise<{ schema: string; name: string; type: string }[]> {
   await new Promise((resolve) => setTimeout(resolve, 50));
   return mockTables;
@@ -393,7 +391,7 @@ export async function mockListTablesByConn(
  * 模拟列出数据库
  */
 export async function mockListDatabases(
-  form: ConnectionForm
+  _form: ConnectionForm
 ): Promise<string[]> {
   await new Promise((resolve) => setTimeout(resolve, 50));
   return mockDatabases;
@@ -402,7 +400,7 @@ export async function mockListDatabases(
 /**
  * 模拟通过 ID 列出数据库
  */
-export async function mockListDatabasesById(id: number): Promise<string[]> {
+export async function mockListDatabasesById(_id: number): Promise<string[]> {
   await new Promise((resolve) => setTimeout(resolve, 50));
   return mockDatabases;
 }
@@ -411,9 +409,9 @@ export async function mockListDatabasesById(id: number): Promise<string[]> {
  * 模拟获取 schema 概览
  */
 export async function mockGetSchemaOverview(
-  id: number,
-  database?: string,
-  schema?: string
+  _id: number,
+  _database?: string,
+  _schema?: string
 ): Promise<SchemaOverview> {
   await new Promise((resolve) => setTimeout(resolve, 50));
   return mockSchemaOverview;
@@ -458,9 +456,9 @@ export async function mockGetTableData(params: {
  * 模拟通过连接信息获取表数据
  */
 export async function mockGetTableDataByConn(
-  form: ConnectionForm,
-  schema: string,
-  table: string,
+  _form: ConnectionForm,
+  _schema: string,
+  _table: string,
   page: number,
   limit: number
 ): Promise<{
@@ -514,7 +512,7 @@ export async function mockCreateConnection(form: ConnectionForm): Promise<any> {
  * 模拟测试连接
  */
 export async function mockTestConnectionEphemeral(
-  form: ConnectionForm
+  _form: ConnectionForm
 ): Promise<TestConnectionResult> {
   await new Promise((resolve) => setTimeout(resolve, 200));
 
