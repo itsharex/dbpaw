@@ -141,6 +141,19 @@ export function SqlEditor({
     }
   }, [onExecute, code]);
 
+  const executeFromEditorSelection = useCallback((view: EditorView) => {
+    if (!onExecute) {
+      return;
+    }
+
+    const selectedSql = view.state.selection.ranges
+      .map(range => view.state.sliceDoc(range.from, range.to))
+      .filter(text => text.trim().length > 0)
+      .join("\n");
+
+    onExecute(selectedSql || view.state.doc.toString());
+  }, [onExecute]);
+
   const handleClear = () => {
     handleSqlChange("");
   };
@@ -165,11 +178,17 @@ export function SqlEditor({
     }
   }, [code, driver, handleSqlChange]);
 
-  const handleSave = async (name: string, description: string) => {
+  const savedQueryIdRef = useRef(savedQueryId);
+  useEffect(() => {
+    savedQueryIdRef.current = savedQueryId;
+  }, [savedQueryId]);
+
+  const executeSave = useCallback(async (name: string, description: string) => {
     try {
+      const currentId = savedQueryIdRef.current;
       let result: SavedQuery;
-      if (savedQueryId) {
-        result = await api.queries.update(savedQueryId, {
+      if (currentId) {
+        result = await api.queries.update(currentId, {
           name,
           description,
           query: code,
@@ -188,11 +207,24 @@ export function SqlEditor({
       if (onSaveSuccess) {
         onSaveSuccess(result);
       }
-      // Optional: Show toast
     } catch (e) {
       console.error("Failed to save query", e);
     }
+  }, [code, _connectionId, databaseName, onSaveSuccess]);
+
+  const handleSave = async (name: string, description: string) => {
+    await executeSave(name, description);
   };
+
+  const triggerSave = useCallback(() => {
+    const currentId = savedQueryIdRef.current;
+    console.log("triggerSave called. currentId:", currentId);
+    if (currentId) {
+      executeSave(initialName || "Untitled", initialDescription || "");
+    } else {
+      setIsSaveDialogOpen(true);
+    }
+  }, [initialName, initialDescription, executeSave]);
 
   // Determine Dialect
   const dialect = useMemo(() => {
@@ -275,8 +307,8 @@ export function SqlEditor({
       keymap.of([
         {
           key: "Mod-Enter",
-          run: () => {
-            handleExecute();
+          run: (view) => {
+            executeFromEditorSelection(view);
             return true;
           },
         },
@@ -290,7 +322,7 @@ export function SqlEditor({
         {
           key: "Mod-s",
           run: () => {
-            setIsSaveDialogOpen(true);
+            triggerSave();
             return true;
           },
         },
@@ -305,7 +337,7 @@ export function SqlEditor({
     }
 
     return exts;
-  }, [dialect, sqlSchema, handleExecute, handleFormat, globalCompletion]);
+  }, [dialect, sqlSchema, executeFromEditorSelection, handleFormat, globalCompletion, triggerSave]);
 
   // Theme
   const editorTheme = useMemo(() => {
@@ -321,6 +353,7 @@ export function SqlEditor({
             <div className="flex items-center gap-2 px-3 py-1 bg-muted/50 rounded text-xs text-muted-foreground border border-border">
               <Database className={`w-3 h-3 ${schemaOverview ? "text-green-500" : "text-muted-foreground"}`} />
               <span>{databaseName}</span>
+              {savedQueryId && <span className="text-[10px] opacity-50 ml-1">#{savedQueryId}</span>}
             </div>
           )}
 
@@ -382,7 +415,7 @@ export function SqlEditor({
                     variant="outline"
                     size="icon"
                     className="h-8 w-8"
-                    onClick={() => setIsSaveDialogOpen(true)}
+                    onClick={triggerSave}
                   >
                     <Save className="w-4 h-4" />
                   </Button>
