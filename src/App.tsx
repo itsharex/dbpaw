@@ -135,9 +135,11 @@ export default function App() {
     const newTabId = `saved-query-${query.id}`;
 
     // Check if tab already exists
-    const existingTab = tabs.find(t => t.id === newTabId);
+    const existingTab = tabs.find(
+      (t) => t.id === newTabId || t.savedQueryId === query.id,
+    );
     if (existingTab) {
-      setActiveTab(newTabId);
+      setActiveTab(existingTab.id);
       return;
     }
 
