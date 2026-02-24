@@ -1052,7 +1052,9 @@ export function ConnectionList({
           >
             {connection.isConnected ? (
               <>
-                {connection.databases.map((database) => {
+                {connection.databases
+                  .filter((database) => !["information_schema", "performance_schema"].includes(database.name.toLowerCase()))
+                  .map((database) => {
                   const dbKey = `${connection.id}-${database.name}`;
                   return (
                     <TreeNode
