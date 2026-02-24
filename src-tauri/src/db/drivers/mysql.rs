@@ -428,11 +428,21 @@ impl DatabaseDriver for MysqlDriver {
                         .try_get::<f64, _>(name)
                         .ok()
                         .map(serde_json::Value::from)
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "DECIMAL" | "NEWDECIMAL" => row
                         .try_get::<Decimal, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "BOOL" | "BOOLEAN" => row
                         .try_get::<bool, _>(name)
@@ -443,21 +453,41 @@ impl DatabaseDriver for MysqlDriver {
                                 .ok()
                                 .map(|v| serde_json::Value::Bool(v != 0))
                         })
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "DATE" => row
                         .try_get::<NaiveDate, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "TIME" => row
                         .try_get::<NaiveTime, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "DATETIME" | "TIMESTAMP" => row
                         .try_get::<NaiveDateTime, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "JSON" => row
                         .try_get::<sqlx::types::Json<serde_json::Value>, _>(name)
@@ -559,11 +589,21 @@ impl DatabaseDriver for MysqlDriver {
                         .try_get::<f64, _>(name)
                         .ok()
                         .map(serde_json::Value::from)
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "DECIMAL" | "NEWDECIMAL" => row
                         .try_get::<Decimal, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "BOOL" | "BOOLEAN" => row
                         .try_get::<bool, _>(name)
@@ -574,21 +614,41 @@ impl DatabaseDriver for MysqlDriver {
                                 .ok()
                                 .map(|v| serde_json::Value::Bool(v != 0))
                         })
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "DATE" => row
                         .try_get::<NaiveDate, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "TIME" => row
                         .try_get::<NaiveTime, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "DATETIME" | "TIMESTAMP" => row
                         .try_get::<NaiveDateTime, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "JSON" => row
                         .try_get::<sqlx::types::Json<serde_json::Value>, _>(name)

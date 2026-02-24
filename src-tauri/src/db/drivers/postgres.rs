@@ -5,6 +5,7 @@ use crate::models::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use rust_decimal::Decimal;
 use sqlx::{postgres::PgPoolOptions, Column, Row, TypeInfo};
 use std::collections::HashSet;
 
@@ -443,21 +444,41 @@ impl DatabaseDriver for PostgresDriver {
                         .try_get::<bool, _>(name)
                         .ok()
                         .map(serde_json::Value::Bool)
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "INT2" | "INT4" | "INT8" => row
                         .try_get::<i64, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "FLOAT4" | "FLOAT8" => row
                         .try_get::<f64, _>(name)
                         .ok()
                         .map(serde_json::Value::from)
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "NUMERIC" | "MONEY" => row
-                        .try_get::<String, _>(name)
+                        .try_get::<Decimal, _>(name)
                         .ok()
-                        .map(serde_json::Value::String)
+                        .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "TEXT" | "VARCHAR" | "CHAR" | "BPCHAR" | "NAME" | "UUID" => row
                         .try_get::<String, _>(name)
@@ -468,21 +489,41 @@ impl DatabaseDriver for PostgresDriver {
                         .try_get::<NaiveDate, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
-                    "TIME" => row
+                    "TIME" | "TIMETZ" | "INTERVAL" => row
                         .try_get::<NaiveTime, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "TIMESTAMP" => row
                         .try_get::<NaiveDateTime, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "TIMESTAMPTZ" => row
                         .try_get::<DateTime<Utc>, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "JSON" | "JSONB" => row
                         .try_get::<sqlx::types::Json<serde_json::Value>, _>(name)
@@ -568,21 +609,41 @@ impl DatabaseDriver for PostgresDriver {
                         .try_get::<bool, _>(name)
                         .ok()
                         .map(serde_json::Value::Bool)
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "INT2" | "INT4" | "INT8" => row
                         .try_get::<i64, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "FLOAT4" | "FLOAT8" => row
                         .try_get::<f64, _>(name)
                         .ok()
                         .map(serde_json::Value::from)
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "NUMERIC" | "MONEY" => row
-                        .try_get::<String, _>(name)
+                        .try_get::<Decimal, _>(name)
                         .ok()
-                        .map(serde_json::Value::String)
+                        .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "TEXT" | "VARCHAR" | "CHAR" | "BPCHAR" | "NAME" | "UUID" => row
                         .try_get::<String, _>(name)
@@ -593,21 +654,41 @@ impl DatabaseDriver for PostgresDriver {
                         .try_get::<NaiveDate, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
-                    "TIME" => row
+                    "TIME" | "TIMETZ" | "INTERVAL" => row
                         .try_get::<NaiveTime, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "TIMESTAMP" => row
                         .try_get::<NaiveDateTime, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "TIMESTAMPTZ" => row
                         .try_get::<DateTime<Utc>, _>(name)
                         .ok()
                         .map(|v| serde_json::Value::String(v.to_string()))
+                        .or_else(|| {
+                            row.try_get::<String, _>(name)
+                                .ok()
+                                .map(serde_json::Value::String)
+                        })
                         .unwrap_or(serde_json::Value::Null),
                     "JSON" | "JSONB" => row
                         .try_get::<sqlx::types::Json<serde_json::Value>, _>(name)
