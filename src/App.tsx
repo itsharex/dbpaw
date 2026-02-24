@@ -67,7 +67,7 @@ interface TabItem {
 const DEFAULT_SQL = "-- Enter your SQL query here\n";
 
 const TAB_TRIGGER_CLASS =
-  "gap-2 group relative pr-8 bg-transparent data-[state=active]:bg-background border-b-2 border-b-transparent data-[state=active]:border-b-primary rounded-none h-9 hover:bg-muted/50 border-r border-r-border/40 last:border-r-0";
+  "gap-2 group relative pr-8 bg-transparent data-[state=active]:bg-background border-b-2 border-b-transparent data-[state=active]:border-b-primary rounded-none h-9 hover:bg-muted/50 border-r border-r-border/40 last:border-r-0 shrink-0";
 
 export default function App() {
   const [tabs, setTabs] = useState<TabItem[]>([]);
