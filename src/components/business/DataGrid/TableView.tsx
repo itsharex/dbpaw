@@ -860,6 +860,7 @@ export function TableView({
                               <input
                                 ref={editInputRef}
                                 type="text"
+                                autoCapitalize="off"
                                 className="w-full h-full px-4 py-2 bg-background border-2 border-primary outline-none font-mono text-sm"
                                 value={editValue}
                                 onChange={(e) => setEditValue(e.target.value)}
