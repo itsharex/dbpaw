@@ -17,6 +17,13 @@ interface SidebarProps {
     databaseName: string,
     driver: string,
   ) => void;
+  onExportTable?: (ctx: {
+    connectionId: number;
+    database: string;
+    schema: string;
+    table: string;
+    driver: string;
+  }, format: "csv" | "json" | "sql") => void;
   onSelectSavedQuery: (query: SavedQuery) => void;
   lastUpdated?: number;
 }
@@ -25,6 +32,7 @@ export function Sidebar({
   onTableSelect,
   onConnect,
   onCreateQuery,
+  onExportTable,
   onSelectSavedQuery,
   lastUpdated,
 }: SidebarProps) {
@@ -41,6 +49,7 @@ export function Sidebar({
                         onTableSelect={onTableSelect}
                         onConnect={onConnect}
                         onCreateQuery={onCreateQuery}
+                        onExportTable={onExportTable}
                     />
                 </TabsContent>
                 <TabsContent value="queries" className="h-full m-0 border-0">

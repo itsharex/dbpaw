@@ -13,6 +13,8 @@ fn greet(name: &str) -> String {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -125,6 +127,8 @@ pub fn run() {
             commands::storage::get_saved_queries,
             commands::storage::update_saved_query,
             commands::storage::delete_saved_query,
+            commands::transfer::export_table_data,
+            commands::transfer::export_query_result,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

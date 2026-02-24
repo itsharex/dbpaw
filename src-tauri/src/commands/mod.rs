@@ -3,6 +3,7 @@ pub mod connection;
 pub mod metadata;
 pub mod query;
 pub mod storage;
+pub mod transfer;
 
 use crate::db::drivers::DatabaseDriver;
 use crate::state::AppState;

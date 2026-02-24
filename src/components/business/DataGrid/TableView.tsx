@@ -27,8 +27,19 @@ import {
   ContextMenuSubContent,
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { api } from "@/services/api";
+import type { TransferFormat } from "@/services/api";
 import { isEditableTarget, isModKey } from "@/lib/keyboard";
+import { toast } from "sonner";
 
 interface PendingChange {
   rowIndex: number;
@@ -91,6 +102,62 @@ export function TableView({
   const [orderByInput, setOrderByInput] = useState(controlledOrderBy || "");
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
 
+  // Reset column widths when columns definition changes (e.g. switching tables)
+  const prevColumnsRef = useRef<string>("");
+  useEffect(() => {
+    const colsKey = columns.join(",");
+    if (prevColumnsRef.current !== colsKey) {
+      setColumnWidths({});
+      prevColumnsRef.current = colsKey;
+    }
+  }, [columns]);
+
+  // Auto-calculate column widths based on content
+  useEffect(() => {
+    if (!data.length || !columns.length) return;
+
+    const newWidths: Record<string, number> = {};
+    let hasChanges = false;
+
+    // Configuration for auto-sizing
+    const CHAR_WIDTH = 9; // Approximate width per character in px
+    const PADDING = 36;   // Padding + icon space
+    // Dynamically adjust min width based on column count to fill space better for small tables
+    const MIN_WIDTH = columns.length <= 3 ? 250 : 100;
+    const MAX_WIDTH = 500;
+
+    columns.forEach((col) => {
+      // Only calculate if width is not already set (preserve manual resizes and previous calcs)
+      if (columnWidths[col] !== undefined) return;
+
+      let maxLen = col.length;
+      // Sample up to 20 rows to estimate width
+      const sampleSize = Math.min(data.length, 20);
+
+      for (let i = 0; i < sampleSize; i++) {
+        const val = data[i][col];
+        if (val !== null && val !== undefined) {
+          const str = String(val);
+          // Simple length check, capping at 100 chars
+          const len = str.length > 100 ? 100 : str.length;
+          if (len > maxLen) maxLen = len;
+        }
+      }
+
+      const calculatedWidth = Math.min(
+        MAX_WIDTH,
+        Math.max(MIN_WIDTH, maxLen * CHAR_WIDTH + PADDING)
+      );
+
+      newWidths[col] = calculatedWidth;
+      hasChanges = true;
+    });
+
+    if (hasChanges) {
+      setColumnWidths((prev) => ({ ...prev, ...newWidths }));
+    }
+  }, [data, columns, columnWidths]);
+
   useEffect(() => {
     setWhereInput(controlledFilter || "");
   }, [controlledFilter]);
@@ -106,6 +173,7 @@ export function TableView({
   const [pendingChanges, setPendingChanges] = useState<Map<string, PendingChange>>(new Map());
   const [primaryKeys, setPrimaryKeys] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -146,6 +214,51 @@ export function TableView({
     if (!tableContext) return;
     onOpenDDL?.(tableContext);
   };
+
+  const handleExport = useCallback(
+    async (
+      scope: "current_page" | "filtered" | "full_table",
+      format: TransferFormat,
+    ) => {
+      if (!tableContext) return;
+      setIsExporting(true);
+      try {
+        const result = await api.transfer.exportTable({
+          id: tableContext.connectionId,
+          database: tableContext.database,
+          schema: tableContext.schema,
+          table: tableContext.table,
+          driver: tableContext.driver,
+          format,
+          scope,
+          filter: controlledFilter || undefined,
+          orderBy: orderByInput || undefined,
+          sortColumn: activeSortColumn,
+          sortDirection: activeSortDirection,
+          page,
+          limit: pageSize,
+        });
+        toast.success(`Export completed (${result.rowCount} rows)`, {
+          description: result.filePath,
+        });
+      } catch (e) {
+        toast.error("Export failed", {
+          description: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        setIsExporting(false);
+      }
+    },
+    [
+      tableContext,
+      controlledFilter,
+      orderByInput,
+      activeSortColumn,
+      activeSortDirection,
+      page,
+      pageSize,
+    ],
+  );
 
   // --- Fetch primary keys when tableContext is available ---
   useEffect(() => {
@@ -283,19 +396,48 @@ export function TableView({
     [tableContext?.driver],
   );
 
-  const formatSQLValue = (value: string, originalValue: any): string => {
+  const formatSQLValue = (
+    value: string,
+    originalValue: any,
+    context: "execution" | "copy" = "execution",
+  ): string => {
     // Handle NULL
     if (value === "" && (originalValue === null || originalValue === undefined)) {
       return "NULL";
     }
+
+    const trimmed = value.trim();
+    const numericRegex = /^-?\d+(\.\d+)?$/;
+
     // Check if originally numeric
-    if (typeof originalValue === "number" || (!isNaN(Number(value)) && value.trim() !== "")) {
-      return value;
+    if (typeof originalValue === "number") {
+      if (numericRegex.test(trimmed)) {
+        return trimmed;
+      }
+      if (context === "execution") {
+        throw new Error(`Invalid numeric value: "${value}"`);
+      }
+      // Fallback: quote for copy
     }
+    // Check if it looks like a number (for cases where originalValue might be null)
+    else if (!isNaN(Number(value)) && trimmed !== "") {
+      // Only return raw if it passes strict regex
+      if (numericRegex.test(trimmed)) {
+        return trimmed;
+      }
+    }
+
     // Check for boolean
     if (typeof originalValue === "boolean") {
-      return value.toLowerCase() === "true" ? "TRUE" : "FALSE";
+      const lower = value.toLowerCase();
+      if (["true", "t", "1"].includes(lower)) return "TRUE";
+      if (["false", "f", "0"].includes(lower)) return "FALSE";
+
+      if (context === "execution") {
+        throw new Error(`Invalid boolean value: "${value}"`);
+      }
     }
+
     // Default: string with quotes
     return `'${escapeSQL(value)}'`;
   };
@@ -350,11 +492,23 @@ export function TableView({
 
   const handleSave = useCallback(async () => {
     if (!tableContext || !hasPendingChanges) return;
-    const sqls = generateUpdateSQL();
-    if (sqls.length === 0) return;
 
     setIsSaving(true);
     setSaveError(null);
+
+    let sqls: string[] = [];
+    try {
+      sqls = generateUpdateSQL();
+    } catch (err) {
+      setIsSaving(false);
+      setSaveError(err instanceof Error ? err.message : String(err));
+      return;
+    }
+
+    if (sqls.length === 0) {
+      setIsSaving(false);
+      return;
+    }
 
     const errors: string[] = [];
     for (const sql of sqls) {
@@ -643,9 +797,80 @@ export function TableView({
               Showing {startIndex + 1}-{startIndex + currentData.length} of{" "}
               {total || sortedData.length} rows
             </span>
-            <Button variant="outline" size="sm" className="gap-2">
-              <Download className="w-4 h-4" />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={!tableContext || isExporting}
+                >
+                  <Download className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>Export Current Page</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem
+                        onClick={() => void handleExport("current_page", "csv")}
+                      >
+                        CSV
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => void handleExport("current_page", "json")}
+                      >
+                        JSON
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => void handleExport("current_page", "sql")}
+                      >
+                        SQL
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>Export Filtered Result</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem
+                        onClick={() => void handleExport("filtered", "csv")}
+                      >
+                        CSV
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => void handleExport("filtered", "json")}
+                      >
+                        JSON
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => void handleExport("filtered", "sql")}
+                      >
+                        SQL
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>Export Full Table</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuItem
+                        onClick={() => void handleExport("full_table", "csv")}
+                      >
+                        CSV
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => void handleExport("full_table", "json")}
+                      >
+                        JSON
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => void handleExport("full_table", "sql")}
+                      >
+                        SQL
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       )}
@@ -763,6 +988,7 @@ export function TableView({
                               <input
                                 ref={editInputRef}
                                 type="text"
+                                autoCapitalize="off"
                                 className="w-full h-full px-4 py-2 bg-background border-2 border-primary outline-none font-mono text-sm"
                                 value={editValue}
                                 onChange={(e) => setEditValue(e.target.value)}
@@ -871,7 +1097,8 @@ export function TableView({
                                 const val = getCellDisplayValue(rowIndex, col, row[col]);
                                 return formatSQLValue(
                                   val === null || val === undefined ? "" : String(val),
-                                  row[col]
+                                  row[col],
+                                  "copy"
                                 );
                               })
                               .join(", ");
@@ -894,7 +1121,8 @@ export function TableView({
                               const val = getCellDisplayValue(rowIndex, col, row[col]);
                               const formattedValue = formatSQLValue(
                                 val === null || val === undefined ? "" : String(val),
-                                row[col]
+                                row[col],
+                                "copy"
                               );
                               return `${quoteIdent(col)} = ${formattedValue}`;
                             });

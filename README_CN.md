@@ -6,7 +6,7 @@
 
 > **一个现代化的 AI 驱动数据库客户端，适用于新时代。**
 
-[![Release](https://img.shields.io/github/v/release/username/DbPaw?style=flat-square)](https://github.com/username/DbPaw/releases)
+[![Release](https://img.shields.io/github/v/release/codeErrorSleep/dbpaw?style=flat-square)](https://github.com/codeErrorSleep/dbpaw/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg?style=flat-square)](https://tauri.app)
 
@@ -31,7 +31,7 @@
 
 ## 📥 安装
 
-前往 [Releases](https://github.com/username/DbPaw/releases) 页面下载适合您操作系统的最新版本。
+前往 [Releases](https://github.com/codeErrorSleep/dbpaw/releases) 页面下载适合您操作系统的最新版本。
 
 ### macOS 用户
 
@@ -60,8 +60,8 @@ _注意：这是因为应用尚未经过 Apple 公证。_
 1. **克隆仓库**
 
    ```bash
-   git clone https://github.com/username/DbPaw.git
-   cd DbPaw
+   git clone https://github.com/codeErrorSleep/dbpaw.git
+   cd dbpaw
    ```
 
 2. **安装前端依赖**

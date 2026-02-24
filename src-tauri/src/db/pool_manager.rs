@@ -165,6 +165,7 @@ mod tests {
         async fn get_table_metadata(&self, _schema: String, _table: String) -> Result<crate::models::TableMetadata, String> { Err("Unimplemented".into()) }
         async fn get_table_ddl(&self, _schema: String, _table: String) -> Result<String, String> { Err("Unimplemented".into()) }
         async fn get_table_data(&self, _schema: String, _table: String, _page: i64, _limit: i64, _sort_column: Option<String>, _sort_direction: Option<String>, _filter: Option<String>, _order_by: Option<String>) -> Result<crate::models::TableDataResponse, String> { Err("Unimplemented".into()) }
+        async fn get_table_data_chunk(&self, _schema: String, _table: String, _page: i64, _limit: i64, _sort_column: Option<String>, _sort_direction: Option<String>, _filter: Option<String>, _order_by: Option<String>) -> Result<crate::models::TableDataResponse, String> { Err("Unimplemented".into()) }
         async fn execute_query(&self, _sql: String) -> Result<crate::models::QueryResult, String> { Err("Unimplemented".into()) }
         async fn get_schema_overview(&self, _schema: Option<String>) -> Result<crate::models::SchemaOverview, String> { Err("Unimplemented".into()) }
     }

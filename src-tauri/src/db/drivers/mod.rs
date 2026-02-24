@@ -36,6 +36,17 @@ pub trait DatabaseDriver: Send + Sync {
         filter: Option<String>,
         order_by: Option<String>,
     ) -> Result<TableDataResponse, String>;
+    async fn get_table_data_chunk(
+        &self,
+        schema: String,
+        table: String,
+        page: i64,
+        limit: i64,
+        sort_column: Option<String>,
+        sort_direction: Option<String>,
+        filter: Option<String>,
+        order_by: Option<String>,
+    ) -> Result<TableDataResponse, String>;
     async fn execute_query(&self, sql: String) -> Result<QueryResult, String>;
     async fn get_schema_overview(&self, schema: Option<String>) -> Result<SchemaOverview, String>;
     async fn close(&self);

@@ -3,17 +3,19 @@ import CodeMirror, { Extension } from "@uiw/react-codemirror";
 import { sql, PostgreSQL, MySQL, SQLite, StandardSQL, SQLNamespace } from "@codemirror/lang-sql";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { keymap, EditorView } from "@codemirror/view";
-import { CompletionContext } from "@codemirror/autocomplete";
+import { CompletionContext, acceptCompletion } from "@codemirror/autocomplete";
+import { Prec } from "@codemirror/state";
+import { insertTab } from "@codemirror/commands";
 import { Button } from "@/components/ui/button";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { Play, Save, Trash2, Clock, Database, Braces } from "lucide-react";
+import { Play, Save, Trash2, Clock, Database, Braces, Download } from "lucide-react";
 import { TableView } from "@/components/business/DataGrid/TableView";
 import { useTheme } from "@/components/theme-provider";
-import { SchemaOverview, api, SavedQuery } from "@/services/api";
+import { SchemaOverview, api, SavedQuery, TransferFormat } from "@/services/api";
 import { format } from "sql-formatter";
 import { SaveQueryDialog } from "./SaveQueryDialog";
 import {
@@ -22,6 +24,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { toast } from "sonner";
 
 const aiDarkEditorOverrides = EditorView.theme(
   {
@@ -216,6 +225,32 @@ export function SqlEditor({
     await executeSave(name, description);
   };
 
+  const handleExportResult = useCallback(
+    async (format: TransferFormat) => {
+      if (!_connectionId) {
+        toast.error("Please run query with a saved connection to export.");
+        return;
+      }
+      try {
+        const result = await api.transfer.exportQueryResult({
+          id: _connectionId,
+          database: databaseName,
+          sql: code,
+          driver: driver || "postgres",
+          format,
+        });
+        toast.success(`Export completed (${result.rowCount} rows)`, {
+          description: result.filePath,
+        });
+      } catch (e) {
+        toast.error("Export failed", {
+          description: e instanceof Error ? e.message : String(e),
+        });
+      }
+    },
+    [_connectionId, databaseName, code, driver],
+  );
+
   const triggerSave = useCallback(() => {
     const currentId = savedQueryIdRef.current;
     console.log("triggerSave called. currentId:", currentId);
@@ -304,7 +339,12 @@ export function SqlEditor({
         schema: sqlSchema,
         upperCaseKeywords: true,
       }),
-      keymap.of([
+      Prec.high(
+        keymap.of([
+        {
+          key: "Tab",
+          run: (view) => acceptCompletion(view) || insertTab(view),
+        },
         {
           key: "Mod-Enter",
           run: (view) => {
@@ -326,7 +366,8 @@ export function SqlEditor({
             return true;
           },
         },
-      ]),
+        ]),
+      ),
     ];
 
     // Inject global completion if available
@@ -454,6 +495,30 @@ export function SqlEditor({
           <span className="text-xs">
             {schemaOverview ? "Schema Loaded" : "Loading Schema..."}
           </span>
+          {queryResults && !queryResults.error && (
+            <>
+              <div className="w-px h-3 bg-border mx-2" />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 gap-1.5">
+                    <Download className="w-4 h-4" />
+                    Export Result
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => void handleExportResult("csv")}>
+                    CSV
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void handleExportResult("json")}>
+                    JSON
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void handleExportResult("sql")}>
+                    SQL
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          )}
         </div>
       </div>
 

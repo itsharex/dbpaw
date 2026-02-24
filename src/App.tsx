@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { MouseEvent, useEffect, useState } from "react";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -25,10 +25,26 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { api, isTauri, SchemaOverview, SavedQuery } from "@/services/api";
+import { toast } from "sonner";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { UpdaterChecker } from "@/components/updater-checker";
 import { isModKey, shouldIgnoreGlobalShortcut } from "@/lib/keyboard";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  horizontalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { SortableTab } from "@/components/ui/sortable-tab";
 
 interface TabItem {
   id: string;
@@ -67,14 +83,70 @@ interface TabItem {
 const DEFAULT_SQL = "-- Enter your SQL query here\n";
 
 const TAB_TRIGGER_CLASS =
-  "gap-2 group relative pr-8 bg-transparent data-[state=active]:bg-background border-b-2 border-b-transparent data-[state=active]:border-b-primary rounded-none h-9 hover:bg-muted/50 border-r border-r-border/40 last:border-r-0";
+  "gap-2 group relative pr-8 bg-transparent data-[state=active]:bg-background border-b-2 border-b-transparent data-[state=active]:border-b-primary rounded-none h-9 hover:bg-muted/50 border-r border-r-border/40 last:border-r-0 shrink-0";
 
 export default function App() {
   const [tabs, setTabs] = useState<TabItem[]>([]);
   const [activeTab, setActiveTab] = useState<string>("");
   const [aiVisible, setAiVisible] = useState(false);
   const [openSettings, setOpenSettings] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [queriesLastUpdated, setQueriesLastUpdated] = useState(0);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      setTabs((items) => {
+        const oldIndex = items.findIndex((item) => item.id === active.id);
+        const newIndex = items.findIndex((item) => item.id === over.id);
+
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  };
+
+  const handleWindowDragStart = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-no-drag="true"]')) return;
+    getCurrentWindow().startDragging().catch(() => {
+      // Keep attribute drag region as fallback.
+    });
+  };
+
+  const renderWindowActions = () => (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 w-7 p-0"
+        onClick={() => setOpenSettings(true)}
+        title="Settings (Cmd/Ctrl+,)"
+        aria-label="Open settings"
+      >
+        <Settings className="w-4 h-4" />
+      </Button>
+      <Button
+        variant={aiVisible ? "default" : "ghost"}
+        size="sm"
+        className="h-7 w-7 p-0"
+        onClick={() => setAiVisible((v) => !v)}
+        title={aiVisible ? "Hide AI Panel (Cmd/Ctrl+\\)" : "Show AI Panel (Cmd/Ctrl+\\)"}
+        aria-label={aiVisible ? "Hide AI panel" : "Show AI panel"}
+      >
+        <Sparkles className="w-4 h-4" />
+      </Button>
+    </>
+  );
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -97,6 +169,40 @@ export default function App() {
       unlistenProgress.then((f) => f());
       unlistenDone.then((f) => f());
       unlistenSettings.then((f) => f());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+
+    const appWindow = getCurrentWindow();
+    let mounted = true;
+    let unlistenResized: null | (() => void) = null;
+
+    const syncFullscreenState = async () => {
+      try {
+        const fullscreen = await appWindow.isFullscreen();
+        if (mounted) setIsFullscreen(fullscreen);
+      } catch {
+        // Ignore window state lookup failures in non-native contexts.
+      }
+    };
+
+    void syncFullscreenState();
+    appWindow
+      .onResized(() => {
+        void syncFullscreenState();
+      })
+      .then((unlisten) => {
+        unlistenResized = unlisten;
+      })
+      .catch(() => {
+        // Ignore event binding failures.
+      });
+
+    return () => {
+      mounted = false;
+      if (unlistenResized) unlistenResized();
     };
   }, []);
 
@@ -300,6 +406,33 @@ export default function App() {
       setActiveTab(tabId);
     } catch (e) {
       console.error("get_table_data failed", e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const handleExportTableFromTree = async (ctx: {
+    connectionId: number;
+    database: string;
+    schema: string;
+    table: string;
+    driver: string;
+  }, format: "csv" | "json" | "sql") => {
+    try {
+      const result = await api.transfer.exportTable({
+        id: ctx.connectionId,
+        database: ctx.database,
+        schema: ctx.schema,
+        table: ctx.table,
+        driver: ctx.driver,
+        format,
+        scope: "full_table",
+      });
+      toast.success(`Export completed (${result.rowCount} rows)`, {
+        description: result.filePath,
+      });
+    } catch (e) {
+      toast.error("Export failed", {
+        description: e instanceof Error ? e.message : String(e),
+      });
     }
   };
 
@@ -538,33 +671,23 @@ export default function App() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-muted/30">
-      {/* Integrated Title Bar */}
-      <div data-tauri-drag-region className="h-10 bg-background border-b border-border flex items-center justify-between px-2 pl-20 select-none">
-        <div className="flex items-center gap-2 pointer-events-none">
-          <img
-            src="/product-icon.png"
-            alt="DbPaw"
-            className="w-5 h-5 rounded-md object-cover"
-          />
-          <span className="font-semibold text-sm">DbPaw</span>
-        </div>
-
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setOpenSettings(true)} title="Settings (Cmd/Ctrl+,)">
-            <Settings className="w-4 h-4" />
-          </Button>
-          <Button
-            variant={aiVisible ? "default" : "ghost"}
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={() => setAiVisible((v) => !v)}
-            title={aiVisible ? "Hide AI Panel (Cmd/Ctrl+\\)" : "Show AI Panel (Cmd/Ctrl+\\)"}
-            aria-label={aiVisible ? "Hide AI panel" : "Show AI panel"}
+      {!isFullscreen && (
+        <div
+          data-tauri-drag-region
+          className="relative h-9 bg-background border-b border-border flex items-center pl-20 pr-2 select-none cursor-grab active:cursor-grabbing"
+          onMouseDown={handleWindowDragStart}
+        >
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <span className="text-xs font-medium text-muted-foreground">DbPaw</span>
+          </div>
+          <div
+            data-no-drag="true"
+            className="ml-auto flex items-center gap-1 shrink-0"
           >
-            <Sparkles className="w-4 h-4" />
-          </Button>
+            {renderWindowActions()}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Main Content */}
       <div className="flex-1 overflow-hidden">
@@ -575,6 +698,7 @@ export default function App() {
               onTableSelect={handleTableSelect}
               onConnect={() => { }}
               onCreateQuery={handleCreateQuery}
+              onExportTable={handleExportTableFromTree}
               onSelectSavedQuery={handleOpenSavedQuery}
               lastUpdated={queriesLastUpdated}
             />
@@ -584,79 +708,102 @@ export default function App() {
 
           {/* Main Panel - SQL Editor & Results */}
           <ResizablePanel defaultSize={60} minSize={40}>
-            {tabs.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-muted-foreground">
-                <div className="text-center">
-                  <FileCode className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                  <p>Select a table or create a new query from the sidebar</p>
-                </div>
-              </div>
-            ) : (
-              <Tabs
-                value={activeTab}
-                onValueChange={setActiveTab}
-                className="h-full flex flex-col"
-              >
-                <div className="bg-muted/30">
-                  <TabsList className="h-9 w-full justify-start gap-0 bg-transparent border-none border-b-0 p-0 overflow-x-auto">
-                    {tabs.map((tab) => (
-                      <ContextMenu key={tab.id}>
-                        <ContextMenuTrigger asChild>
-                          {/* Wrapper avoids data-state conflict: ContextMenu and Tabs both set it; only the trigger must get Tabs' data-state=active for the indicator bar */}
-                          <span className="contents">
-                            <TabsTrigger
-                              value={tab.id}
-                              className={TAB_TRIGGER_CLASS}
-                              onMouseDown={(e) => {
-                                if (e.button === 1) {
-                                  e.preventDefault();
-                                  handleCloseTab(tab.id);
-                                }
-                              }}
-                            >
-                              {tab.type === "table" ? (
-                                <Table className="w-4 h-4 text-primary" />
-                              ) : (
-                                <FileCode className="w-4 h-4 text-primary" />
-                              )}
-                              <span className="max-w-[120px] flex items-center">
-                                <span className="truncate">{tab.title}</span>
-                                {tab.type === "editor" && tab.isDirty && (
-                                  <span
-                                    className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ml-1 shrink-0"
-                                    aria-label="Unsaved changes"
-                                  />
-                                )}
-                              </span>
-                              <button
-                                type="button"
-                                aria-label={`Close ${tab.title}`}
-                                className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded-sm cursor-pointer transition-opacity"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleCloseTab(tab.id);
-                                }}
-                              >
-                                <X className="w-3 h-3 text-muted-foreground" />
-                              </button>
-                            </TabsTrigger>
-                          </span>
-                        </ContextMenuTrigger>
-                        <ContextMenuContent>
-                          <ContextMenuItem onClick={() => handleCloseTab(tab.id)}>
-                            Close Tab
-                          </ContextMenuItem>
-                          <ContextMenuItem onClick={() => handleCloseOtherTabs(tab.id)}>
-                            Close Other Tabs
-                          </ContextMenuItem>
-                        </ContextMenuContent>
-                      </ContextMenu>
-                    ))}
+            <Tabs
+              value={activeTab}
+              onValueChange={setActiveTab}
+              className="h-full flex flex-col"
+            >
+              <div className="bg-background border-b border-border flex items-center">
+                <div className="min-w-0 flex-1">
+                  <TabsList className="h-9 min-w-0 w-full justify-start gap-0 bg-transparent border-none p-0 overflow-x-auto">
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleDragEnd}
+                    >
+                      <SortableContext
+                        items={tabs.map((t) => t.id)}
+                        strategy={horizontalListSortingStrategy}
+                      >
+                        {tabs.map((tab) => (
+                          <SortableTab key={tab.id} id={tab.id}>
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                {/* Wrapper avoids data-state conflict: ContextMenu and Tabs both set it; only the trigger must get Tabs' data-state=active for the indicator bar */}
+                                <span className="contents">
+                                  <TabsTrigger
+                                    value={tab.id}
+                                    className={TAB_TRIGGER_CLASS}
+                                    onMouseDown={(e) => {
+                                      if (e.button === 1) {
+                                        e.preventDefault();
+                                        handleCloseTab(tab.id);
+                                      }
+                                    }}
+                                  >
+                                    {tab.type === "table" ? (
+                                      <Table className="w-4 h-4 text-primary" />
+                                    ) : (
+                                      <FileCode className="w-4 h-4 text-primary" />
+                                    )}
+                                    <span className="max-w-[120px] flex items-center">
+                                      <span className="truncate">{tab.title}</span>
+                                      {tab.type === "editor" && tab.isDirty && (
+                                        <span
+                                          className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ml-1 shrink-0"
+                                          aria-label="Unsaved changes"
+                                        />
+                                      )}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      aria-label={`Close ${tab.title}`}
+                                      className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded-sm cursor-pointer transition-opacity"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleCloseTab(tab.id);
+                                      }}
+                                    >
+                                      <X className="w-3 h-3 text-muted-foreground" />
+                                    </button>
+                                  </TabsTrigger>
+                                </span>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent>
+                                <ContextMenuItem onClick={() => handleCloseTab(tab.id)}>
+                                  Close Tab
+                                </ContextMenuItem>
+                                <ContextMenuItem onClick={() => handleCloseOtherTabs(tab.id)}>
+                                  Close Other Tabs
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          </SortableTab>
+                        ))}
+                      </SortableContext>
+                    </DndContext>
                   </TabsList>
                 </div>
+                {isFullscreen && (
+                  <div
+                    data-no-drag="true"
+                    className="flex items-center gap-1 shrink-0 pr-2"
+                  >
+                    {renderWindowActions()}
+                  </div>
+                )}
+              </div>
 
-                <div className="flex-1 overflow-hidden">
-                  {tabs.map((tab) => (
+              <div className="flex-1 overflow-hidden">
+                {tabs.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-muted-foreground">
+                    <div className="text-center">
+                      <FileCode className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                      <p>Select a table or create a new query from the sidebar</p>
+                    </div>
+                  </div>
+                ) : (
+                  tabs.map((tab) => (
                     <TabsContent
                       key={tab.id}
                       value={tab.id}
@@ -746,10 +893,10 @@ export default function App() {
                         />
                       ) : null}
                     </TabsContent>
-                  ))}
-                </div>
-              </Tabs>
-            )}
+                  ))
+                )}
+              </div>
+            </Tabs>
           </ResizablePanel>
 
           <ResizableHandle />
