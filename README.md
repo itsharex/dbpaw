@@ -6,7 +6,7 @@ English | [简体中文](README_CN.md)
 
 > **A modern, AI-powered database client for the new era.**
 
-[![Release](https://img.shields.io/github/v/release/username/DbPaw?style=flat-square)](https://github.com/username/DbPaw/releases)
+[![Release](https://img.shields.io/github/v/release/codeErrorSleep/dbpaw?style=flat-square)](https://github.com/codeErrorSleep/dbpaw/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg?style=flat-square)](https://tauri.app)
 
@@ -31,7 +31,7 @@ English | [简体中文](README_CN.md)
 
 ## 📥 Installation
 
-Go to the [Releases](https://github.com/username/DbPaw/releases) page to download the latest version for your operating system.
+Go to the [Releases](https://github.com/codeErrorSleep/dbpaw/releases) page to download the latest version for your operating system.
 
 ### macOS Users
 
@@ -60,8 +60,8 @@ If you want to contribute or build from source, follow these steps:
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/username/DbPaw.git
-   cd DbPaw
+   git clone https://github.com/codeErrorSleep/dbpaw.git
+   cd dbpaw
    ```
 
 2. **Install frontend dependencies**
