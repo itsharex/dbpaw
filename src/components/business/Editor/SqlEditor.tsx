@@ -3,7 +3,9 @@ import CodeMirror, { Extension } from "@uiw/react-codemirror";
 import { sql, PostgreSQL, MySQL, SQLite, StandardSQL, SQLNamespace } from "@codemirror/lang-sql";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { keymap, EditorView } from "@codemirror/view";
-import { CompletionContext } from "@codemirror/autocomplete";
+import { CompletionContext, acceptCompletion } from "@codemirror/autocomplete";
+import { Prec } from "@codemirror/state";
+import { insertTab } from "@codemirror/commands";
 import { Button } from "@/components/ui/button";
 import {
   ResizableHandle,
@@ -337,7 +339,12 @@ export function SqlEditor({
         schema: sqlSchema,
         upperCaseKeywords: true,
       }),
-      keymap.of([
+      Prec.high(
+        keymap.of([
+        {
+          key: "Tab",
+          run: (view) => acceptCompletion(view) || insertTab(view),
+        },
         {
           key: "Mod-Enter",
           run: (view) => {
@@ -359,7 +366,8 @@ export function SqlEditor({
             return true;
           },
         },
-      ]),
+        ]),
+      ),
     ];
 
     // Inject global completion if available
