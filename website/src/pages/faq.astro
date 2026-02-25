@@ -1,0 +1,27 @@
+---
+import Layout from '@/components/Layout.astro';
+import { FAQS } from '@/config/faqs';
+---
+
+<Layout
+  title="DbPaw FAQ | Installation, Security, AI"
+  description="Answers to common questions about installing and using DbPaw."
+  path="/faq"
+>
+  <section class="hero">
+    <span class="badge">FAQ</span>
+    <h1>Common questions, clear answers</h1>
+    <p>Everything you need before installing DbPaw or bringing it to your team.</p>
+  </section>
+
+  <section>
+    {
+      FAQS.map((item) => (
+        <article class="faq-item">
+          <h3>{item.question}</h3>
+          <p>{item.answer}</p>
+        </article>
+      ))
+    }
+  </section>
+</Layout>

@@ -97,6 +97,25 @@ _注意：这是因为应用尚未经过 Apple 公证。_
 - **状态管理**: React Hooks & Context
 - **编辑器**: [Monaco Editor](https://microsoft.github.io/monaco-editor/) / CodeMirror
 
+## 🌐 官网
+
+- 官方官网位于 `website/` 目录，基于 [Astro](https://astro.build/) 构建。
+- 本地开发：
+  ```bash
+  bun run website:dev
+  ```
+- 生产构建：
+  ```bash
+  bun run website:build
+  ```
+
+### 版本同步机制
+
+- 官网会从以下地址拉取最新版本：
+  `https://api.github.com/repos/codeErrorSleep/dbpaw/releases/latest`
+- 官网展示的版本号与下载链接由 GitHub Releases 资产自动生成。
+- 若构建时 GitHub API 不可用，官网会自动回退到 `website/src/config/fallback.ts`，确保构建不中断。
+
 ## 📄 许可证
 
 本项目采用 MIT 许可证 - 详情请参阅 [LICENSE](LICENSE) 文件。
