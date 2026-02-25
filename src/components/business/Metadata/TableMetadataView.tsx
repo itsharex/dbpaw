@@ -10,6 +10,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+function extractCreateTableStatement(ddl: string): string {
+  const trimmed = ddl.trim();
+  if (!trimmed) return "";
+
+  const match = trimmed.match(/create\s+table\b[\s\S]*?;/i);
+  return (match?.[0] ?? trimmed).trim();
+}
+
 interface TableMetadataViewProps {
   connectionId: number;
   database: string;
@@ -26,12 +34,18 @@ export function TableMetadataView({
   const [metadata, setMetadata] = useState<TableMetadata | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ddl, setDdl] = useState<string | null>(null);
+  const [ddlLoading, setDdlLoading] = useState(false);
+  const [ddlError, setDdlError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
     setMetadata(null);
+    setDdlLoading(true);
+    setDdlError(null);
+    setDdl(null);
 
     api.metadata
       .getTableMetadata(connectionId, database, schema, table)
@@ -46,6 +60,21 @@ export function TableMetadataView({
       .finally(() => {
         if (cancelled) return;
         setLoading(false);
+      });
+
+    api.metadata
+      .getTableDDL(connectionId, database, schema, table)
+      .then((res) => {
+        if (cancelled) return;
+        setDdl(extractCreateTableStatement(res));
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setDdlError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setDdlLoading(false);
       });
 
     return () => {
@@ -209,7 +238,23 @@ export function TableMetadataView({
           </Table>
         </div>
       </section>
+
+      <section className="space-y-2">
+        <div className="text-sm font-semibold">Create Table SQL</div>
+        <div className="border border-border rounded-md bg-muted/10">
+          {ddlLoading ? (
+            <div className="p-3 text-sm text-muted-foreground">Loading DDL...</div>
+          ) : ddlError ? (
+            <div className="p-3 text-sm text-destructive break-words">{ddlError}</div>
+          ) : ddl ? (
+            <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-words overflow-auto max-h-80">
+              <code>{ddl}</code>
+            </pre>
+          ) : (
+            <div className="p-3 text-sm text-muted-foreground">No DDL available</div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
-
