@@ -145,9 +145,31 @@ async fn run_chat(
     let db = get_db(&state).await?;
 
     let provider_record = if let Some(provider_id) = request.provider_id {
-        db.get_ai_provider_by_id(provider_id).await?
+        match db.get_ai_provider_by_id(provider_id).await {
+            Ok(provider) => provider,
+            Err(e) => {
+                let msg = if e.contains("[GET_AI_PROVIDER_ERROR]") {
+                    "Selected AI provider does not exist".to_string()
+                } else {
+                    e
+                };
+                emit_ai_error(&app, request.request_id, request.conversation_id, msg.clone());
+                return Err(msg);
+            }
+        }
     } else {
-        db.get_default_ai_provider().await?
+        match db.get_default_ai_provider().await {
+            Ok(provider) => provider,
+            Err(e) => {
+                let msg = if e.contains("[NO_ENABLED_AI_PROVIDER]") {
+                    "No enabled AI provider is configured. Please enable one in AI Provider settings.".to_string()
+                } else {
+                    e
+                };
+                emit_ai_error(&app, request.request_id, request.conversation_id, msg.clone());
+                return Err(msg);
+            }
+        }
     };
 
     if !provider_record.enabled {
