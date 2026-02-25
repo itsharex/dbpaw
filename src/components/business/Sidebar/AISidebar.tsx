@@ -415,11 +415,11 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
               }`}
               onClick={() => setActiveConversationId(c.id)}
             >
-              <span className="truncate">{c.title}</span>
+              <span className="truncate flex-1 min-w-0 mr-2">{c.title}</span>
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100"
+                className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 shrink-0"
                 onClick={(e) => {
                   e.stopPropagation();
                   handleDeleteConversation(c.id);

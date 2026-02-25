@@ -283,8 +283,66 @@ const mockAiProviders: AIProviderConfig[] = [
   },
 ];
 
-const mockAiConversations: AIConversation[] = [];
-const mockAiMessages: Record<number, AIConversationDetail["messages"]> = {};
+const mockAiConversations: AIConversation[] = [
+  {
+    id: 1,
+    title: "Generate User Table",
+    scenario: "sql_generate",
+    connectionId: 1,
+    database: "testdb",
+    createdAt: new Date(Date.now() - 86400000).toISOString(),
+    updatedAt: new Date(Date.now() - 86400000).toISOString(),
+  },
+  {
+    id: 2,
+    title: "Optimize Query",
+    scenario: "sql_optimize",
+    connectionId: 1,
+    database: "testdb",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+];
+
+const mockAiMessages: Record<number, AIConversationDetail["messages"]> = {
+  1: [
+    {
+      id: 1,
+      conversationId: 1,
+      role: "user",
+      content: "Create a user table with id, name, and email.",
+      createdAt: new Date(Date.now() - 86400000).toISOString(),
+    },
+    {
+      id: 2,
+      conversationId: 1,
+      role: "assistant",
+      content:
+        "```sql\nCREATE TABLE users (\n  id SERIAL PRIMARY KEY,\n  name VARCHAR(255) NOT NULL,\n  email VARCHAR(255) NOT NULL UNIQUE\n);\n```",
+      model: "gpt-4",
+      createdAt: new Date(Date.now() - 86400000 + 1000).toISOString(),
+    },
+  ],
+  2: [
+    {
+      id: 3,
+      conversationId: 2,
+      role: "user",
+      content:
+        "Optimize this query: SELECT * FROM logs WHERE created_at > '2023-01-01'",
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: 4,
+      conversationId: 2,
+      role: "assistant",
+      content:
+        "To optimize this query, consider adding an index on `created_at` column.\n\n```sql\nCREATE INDEX idx_logs_created_at ON logs(created_at);\n```",
+      model: "gpt-4",
+      createdAt: new Date(Date.now() + 2000).toISOString(),
+    },
+  ],
+};
 
 const isAIProviderType = (value: string): value is AIProviderType =>
   value === "openai" || value === "kimi" || value === "glm";

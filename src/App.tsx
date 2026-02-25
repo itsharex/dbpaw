@@ -958,8 +958,8 @@ export default function App() {
               id="ai-sidebar"
               order={3}
               defaultSize={20}
-              minSize={15}
-              maxSize={30}
+              minSize={20}
+              maxSize={40}
             >
               <AISidebar
                 connectionId={activeTabItem?.connectionId}
