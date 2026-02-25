@@ -39,9 +39,9 @@ export function Sidebar({
   return (
     <div className="h-full flex flex-col bg-background border-r border-border">
         <Tabs defaultValue="connections" className="h-full flex flex-col">
-            <TabsList className="w-full grid grid-cols-2">
-                <TabsTrigger value="connections">Connections</TabsTrigger>
-                <TabsTrigger value="queries">Queries</TabsTrigger>
+            <TabsList className="w-full grid grid-cols-2 overflow-hidden">
+                <TabsTrigger value="connections" className="min-w-0 truncate">Connections</TabsTrigger>
+                <TabsTrigger value="queries" className="min-w-0 truncate">Queries</TabsTrigger>
             </TabsList>
             <div className="flex-1 overflow-hidden mt-2">
                 <TabsContent value="connections" className="h-full m-0 border-0">
