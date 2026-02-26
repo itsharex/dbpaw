@@ -127,6 +127,17 @@ export interface SavedQuery {
   updatedAt: string;
 }
 
+export interface SqliteConnectionIssue {
+  id: number;
+  connectionId: number;
+  connectionName: string;
+  filePath: string;
+  issueType: "locked" | "corrupted" | "permission_denied" | "not_found" | string;
+  description: string;
+  detectedAt: string;
+  resolvedAt?: string | null;
+}
+
 export interface AIProviderConfig {
   id: number;
   name: string;
@@ -343,6 +354,8 @@ export const api = {
     delete: (id: number) => invoke<void>("delete_connection", { id }),
     testEphemeral: (form: ConnectionForm) =>
       invoke<TestConnectionResult>("test_connection_ephemeral", { form }),
+    listSqliteIssues: () =>
+      invoke<SqliteConnectionIssue[]>("list_sqlite_issues"),
   },
   queries: {
     list: () => invoke<SavedQuery[]>("get_saved_queries"),

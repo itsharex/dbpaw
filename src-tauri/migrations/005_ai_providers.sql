@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS ai_providers (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
-  provider_type TEXT NOT NULL DEFAULT 'openai_compat',
+  provider_type TEXT NOT NULL DEFAULT 'openai',
   base_url TEXT NOT NULL,
   model TEXT NOT NULL,
   api_key TEXT NOT NULL,

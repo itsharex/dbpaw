@@ -97,6 +97,25 @@ If you want to contribute or build from source, follow these steps:
 - **State Management**: React Hooks & Context
 - **Editor**: [Monaco Editor](https://microsoft.github.io/monaco-editor/) / CodeMirror
 
+## 🌐 Website
+
+- The official marketing site lives in the `website/` directory and is built with [Astro](https://astro.build/).
+- Local development:
+  ```bash
+  bun run website:dev
+  ```
+- Production build:
+  ```bash
+  bun run website:build
+  ```
+
+### Release Sync Mechanism
+
+- The website fetches the latest release from:
+  `https://api.github.com/repos/codeErrorSleep/dbpaw/releases/latest`
+- Version and download links on the website are generated from GitHub release assets.
+- If GitHub API is unavailable during build, website generation falls back to `website/src/config/fallback.ts`.
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

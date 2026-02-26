@@ -1,0 +1,57 @@
+---
+import '@/styles/global.css';
+import { SITE } from '@/config/site';
+
+interface Props {
+  title: string;
+  description: string;
+  path?: string;
+}
+
+const { title, description, path = '/' } = Astro.props;
+const canonical = new URL(path, SITE.url).toString();
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/png" href="/product-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:site_name" content={SITE.name} />
+    <meta property="og:image" content={`${SITE.url}/product-icon.png`} />
+    <title>{title}</title>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container nav">
+        <a class="logo" href="/">
+          <img class="logo-icon" src="/product-icon.png" alt="DbPaw logo" />
+          <span>DbPaw</span>
+        </a>
+        <nav class="nav-links" aria-label="Primary">
+          <a href="/features">Features</a>
+          <a href="/download">Download</a>
+          <a href="/faq">FAQ</a>
+          <a class="button ghost" href={SITE.repo} target="_blank" rel="noreferrer">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container">
+      <slot />
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <div>DbPaw is open-source under MIT License.</div>
+      </div>
+    </footer>
+  </body>
+</html>

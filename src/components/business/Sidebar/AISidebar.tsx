@@ -1,16 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Send, Sparkles, Trash2, Plus } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { Sparkles, Plus } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   api,
   AIConversation,
@@ -21,6 +12,9 @@ import {
 } from "@/services/api";
 import { isModKey } from "@/lib/keyboard";
 import { toast } from "sonner";
+import { AIHistoryPopover } from "./AIHistoryPopover";
+import { ChatComposer } from "./chat/ChatComposer";
+import { ChatMessageList } from "./chat/ChatMessageList";
 
 interface AISidebarProps {
   connectionId?: number;
@@ -85,9 +79,7 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
   const reloadProviders = async () => {
     try {
       const list = await api.ai.providers.list();
-      const available = list.filter(
-        (p) => p.enabled && isAIProviderType(p.providerType),
-      );
+      const available = list.filter((p) => p.enabled && isAIProviderType(p.providerType));
       setProviders(available);
       const defaultProvider = available.find((p) => p.isDefault) || available[0];
       setSelectedProviderId(defaultProvider ? String(defaultProvider.id) : "");
@@ -115,7 +107,6 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
       const detail = await api.ai.conversations.get(conversationId);
       setMessages(detail.messages);
       setActiveConversationId(conversationId);
-      // Fallback: if done event was missed, unstick input once assistant reply is persisted.
       const hasAssistantReply = detail.messages.some((m) => m.role === "assistant");
       if (isLoadingRef.current && hasAssistantReply) {
         setIsLoading(false);
@@ -154,37 +145,48 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
       setMessages([]);
       return;
     }
-    loadConversation(activeConversationId);
+    void loadConversation(activeConversationId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationId]);
 
   useEffect(() => {
     if (!isTauri()) return;
 
-    let unlistenChunk: (() => void) | undefined;
-    let unlistenStarted: (() => void) | undefined;
-    let unlistenDone: (() => void) | undefined;
-    let unlistenError: (() => void) | undefined;
+    let disposed = false;
+    const unlistenFns: Array<() => void> = [];
 
-    listen<AiStartedPayload>("ai.started", (evt) => {
+    const registerListener = <T,>(event: string, handler: (evt: { payload: T }) => void) => {
+      void listen<T>(event, handler)
+        .then((unlisten) => {
+          if (disposed) {
+            unlisten();
+            return;
+          }
+          unlistenFns.push(unlisten);
+        })
+        .catch((error) => {
+          console.error(`Failed to register listener for ${event}`, error);
+        });
+    };
+
+    registerListener<AiStartedPayload>("ai.started", (evt) => {
       if (evt.payload.requestId !== requestIdRef.current) return;
       setStreamStatus(`Request sent (${evt.payload.model}), waiting for first token...`);
-    }).then((f) => (unlistenStarted = f));
+    });
 
-    listen<AiChunkPayload>("ai.chunk", (evt) => {
+    registerListener<AiChunkPayload>("ai.chunk", (evt) => {
       if (evt.payload.requestId !== requestIdRef.current) return;
       setStreamStatus("Receiving response...");
       streamQueueRef.current += evt.payload.chunk;
-    }).then((f) => (unlistenChunk = f));
+    });
 
-    listen<AiDonePayload>("ai.done", (evt) => {
+    registerListener<AiDonePayload>("ai.done", (evt) => {
       if (evt.payload.requestId !== requestIdRef.current) return;
       setStreamStatus("Finalizing response...");
       setActiveConversationId(evt.payload.conversationId);
       void reloadConversationsRef.current();
       void loadConversationRef.current(evt.payload.conversationId);
 
-      // Wait until queued stream text is flushed to avoid flashing "all at once".
       const finish = () => {
         if (streamQueueRef.current.length > 0) {
           streamFinalizeTimerRef.current = setTimeout(finish, 20);
@@ -199,9 +201,9 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
         setStreamStatus("");
       };
       finish();
-    }).then((f) => (unlistenDone = f));
+    });
 
-    listen<AiErrorPayload>("ai.error", (evt) => {
+    registerListener<AiErrorPayload>("ai.error", (evt) => {
       if (evt.payload.requestId !== requestIdRef.current) return;
       setIsLoading(false);
       setStreamingContent("");
@@ -216,13 +218,13 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
         id: "ai-request-error",
         description: evt.payload.error,
       });
-    }).then((f) => (unlistenError = f));
+    });
 
     return () => {
-      if (unlistenChunk) unlistenChunk();
-      if (unlistenStarted) unlistenStarted();
-      if (unlistenDone) unlistenDone();
-      if (unlistenError) unlistenError();
+      disposed = true;
+      for (const unlisten of unlistenFns) {
+        unlisten();
+      }
       if (streamFinalizeTimerRef.current) {
         clearTimeout(streamFinalizeTimerRef.current);
         streamFinalizeTimerRef.current = null;
@@ -312,7 +314,6 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
         conversationIdToRefresh = started.conversationId;
       }
 
-      // Tauri event can be missed in edge cases; invoke result is a reliable fallback.
       if (conversationIdToRefresh !== null) {
         await reloadConversations();
         await loadConversation(conversationIdToRefresh);
@@ -353,7 +354,7 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
         setActiveConversationId(null);
         setMessages([]);
       }
-      reloadConversations();
+      await reloadConversations();
     } catch (e) {
       toast.error("Failed to delete conversation", {
         description: e instanceof Error ? e.message : String(e),
@@ -361,129 +362,73 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key !== "Enter") return;
     if (e.shiftKey && !isModKey(e)) return;
     e.preventDefault();
-    handleSend();
+    void handleSend();
+  };
+
+  const handleNewConversation = () => {
+    if (isLoading) return;
+    setActiveConversationId(null);
+    setMessages([]);
+    setStreamingContent("");
+    setStreamStatus("");
+    streamQueueRef.current = "";
   };
 
   return (
-    <div className="h-full min-h-0 flex flex-col overflow-hidden bg-background border-l border-border">
-      <div className="px-3 py-2 border-b border-border flex items-center gap-2 h-10 shrink-0">
-        <Sparkles className="w-4 h-4 text-primary" />
-        <h2 className="font-semibold text-sm text-foreground">AI Assistant</h2>
-      </div>
-
-      <div className="p-3 border-b border-border space-y-2 shrink-0">
-        <Select value={selectedProviderId} onValueChange={setSelectedProviderId}>
-          <SelectTrigger className="h-8">
-            <SelectValue placeholder="Select AI provider" />
-          </SelectTrigger>
-          <SelectContent>
-            {providers.map((p) => (
-              <SelectItem key={p.id} value={String(p.id)}>
-                {p.name} ({p.model})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7"
-            onClick={() => {
-              setActiveConversationId(null);
-              setMessages([]);
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-l border-border/80 bg-background">
+      <div className="flex h-9 shrink-0 min-w-0 items-center justify-between border-b border-border/70 px-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <h2 className="truncate text-sm font-semibold text-foreground">AI Assistant</h2>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <AIHistoryPopover
+            conversations={sortedConversations}
+            activeConversationId={activeConversationId}
+            onSelect={(conversationId) => setActiveConversationId(conversationId)}
+            onDelete={(conversationId) => {
+              void handleDeleteConversation(conversationId);
             }}
-          >
-            <Plus className="w-3 h-3 mr-1" /> New
-          </Button>
-        </div>
-      </div>
-
-      <ScrollArea className="h-28 border-b border-border shrink-0">
-        <div className="p-2 space-y-1">
-          {sortedConversations.map((c) => (
-            <div
-              key={c.id}
-              className={`group flex items-center justify-between rounded px-2 py-1 text-xs cursor-pointer ${
-                activeConversationId === c.id
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-muted/60"
-              }`}
-              onClick={() => setActiveConversationId(c.id)}
-            >
-              <span className="truncate flex-1 min-w-0 mr-2">{c.title}</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 shrink-0"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteConversation(c.id);
-                }}
-              >
-                <Trash2 className="w-3 h-3" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      </ScrollArea>
-
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <ScrollArea className="h-full">
-          <div className="p-4 space-y-4">
-            {messages.map((message) => (
-              <div
-                key={`${message.id}-${message.createdAt}`}
-                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`max-w-[85%] rounded-lg px-4 py-2 ${
-                    message.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-foreground border border-border"
-                  }`}
-                >
-                  <div className="text-sm whitespace-pre-wrap">{message.content}</div>
-                </div>
-              </div>
-            ))}
-
-            {isLoading && (
-              <div className="flex justify-start">
-                <div className="bg-muted text-foreground border border-border rounded-lg px-4 py-2 max-w-[85%]">
-                  <div className="text-sm whitespace-pre-wrap">
-                    {streamingContent || streamStatus || "Thinking..."}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </ScrollArea>
-      </div>
-
-      <div className="p-4 border-t border-border bg-background shrink-0">
-        <div className="flex gap-2">
-          <Textarea
-            placeholder="Describe SQL to generate or optimize..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="resize-none bg-background"
-            rows={3}
+            disabled={isLoading}
           />
           <Button
-            onClick={handleSend}
-            disabled={!input.trim() || isLoading || !selectedProviderId}
-            className="self-end"
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-md"
+            title="New chat"
+            aria-label="Start new chat"
+            onClick={handleNewConversation}
+            disabled={isLoading}
           >
-            <Send className="w-4 h-4" />
+            <Plus className="h-4 w-4" />
           </Button>
         </div>
       </div>
+
+      <ChatMessageList
+        messages={messages}
+        isLoading={isLoading}
+        streamingContent={streamingContent}
+        streamStatus={streamStatus}
+      />
+
+      <ChatComposer
+        input={input}
+        onInputChange={setInput}
+        onKeyDown={handleKeyDown}
+        onSend={() => {
+          void handleSend();
+        }}
+        isLoading={isLoading}
+        providers={providers}
+        selectedProviderId={selectedProviderId}
+        onProviderChange={setSelectedProviderId}
+      />
     </div>
   );
 }

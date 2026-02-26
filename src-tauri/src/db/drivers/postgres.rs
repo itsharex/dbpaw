@@ -56,7 +56,7 @@ impl PostgresDriver {
         let dsn = build_dsn(&dsn_form)?;
         let pool = PgPoolOptions::new()
             .max_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(5))
+            .acquire_timeout(std::time::Duration::from_secs(3))
             .connect(&dsn)
             .await
             .map_err(|e| format!("[CONN_FAILED] {e}"))?;

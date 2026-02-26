@@ -1,4 +1,4 @@
-import { MouseEvent, useEffect, useState } from "react";
+import { MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -7,6 +7,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sidebar } from "@/components/business/Sidebar/Sidebar";
 import { SqlEditor } from "@/components/business/Editor/SqlEditor";
+import { SaveQueryDialog } from "@/components/business/Editor/SaveQueryDialog";
 import { TableView } from "@/components/business/DataGrid/TableView";
 import { TableMetadataView } from "@/components/business/Metadata/TableMetadataView";
 import { AISidebar } from "@/components/business/Sidebar/AISidebar";
@@ -24,6 +25,16 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { api, isTauri, SchemaOverview, SavedQuery } from "@/services/api";
 import { toast } from "sonner";
 import { listen } from "@tauri-apps/api/event";
@@ -80,7 +91,14 @@ interface TabItem {
   savedQueryDescription?: string;
 }
 
-const DEFAULT_SQL = "-- Enter your SQL query here\n";
+type TableRefreshOverrides = {
+  page?: number;
+  limit?: number;
+  filter?: string;
+  orderBy?: string;
+};
+
+const DEFAULT_SQL = "";
 
 const TAB_TRIGGER_CLASS =
   "gap-2 group relative pr-8 bg-transparent data-[state=active]:bg-background border-b-2 border-b-transparent data-[state=active]:border-b-primary rounded-none h-9 hover:bg-muted/50 border-r border-r-border/40 last:border-r-0 shrink-0";
@@ -92,6 +110,12 @@ export default function App() {
   const [openSettings, setOpenSettings] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [queriesLastUpdated, setQueriesLastUpdated] = useState(0);
+  const [pendingCloseTabIds, setPendingCloseTabIds] = useState<string[]>([]);
+  const [currentCloseTabId, setCurrentCloseTabId] = useState<string | null>(null);
+  const [isUnsavedConfirmOpen, setIsUnsavedConfirmOpen] = useState(false);
+  const [isCloseSaveDialogOpen, setIsCloseSaveDialogOpen] = useState(false);
+  const closeSaveCompletedRef = useRef(false);
+  const unsavedConfirmActionRef = useRef<"save" | "discard" | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -463,6 +487,52 @@ export default function App() {
     setActiveTab(tabId);
   };
 
+  const handleTableRefresh = async (tabId: string, overrides?: TableRefreshOverrides) => {
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
+
+    const hasOwn = <K extends keyof TableRefreshOverrides>(key: K) =>
+      !!overrides && Object.prototype.hasOwnProperty.call(overrides, key);
+
+    const nextPage = overrides?.page ?? tab.page ?? 1;
+    const nextLimit = overrides?.limit ?? tab.pageSize ?? 100;
+    const nextFilter = hasOwn("filter") ? overrides?.filter : tab.filter;
+    const nextOrderBy = hasOwn("orderBy") ? overrides?.orderBy : tab.orderBy;
+
+    try {
+      const schema = tab.driver === "mysql" ? tab.database : "public";
+      const resp = await api.tableData.get({
+        id: tab.connectionId,
+        schema: schema || "public",
+        table: tab.tableName,
+        page: nextPage,
+        limit: nextLimit,
+        filter: nextFilter || undefined,
+        sortColumn: tab.sortColumn,
+        sortDirection: tab.sortDirection,
+        orderBy: nextOrderBy || undefined,
+      });
+
+      setTabs((prev) =>
+        prev.map((t) => {
+          if (t.id !== tabId) return t;
+          return {
+            ...t,
+            data: resp.data,
+            total: resp.total,
+            page: resp.page,
+            pageSize: resp.limit,
+            executionTimeMs: resp.executionTimeMs,
+            filter: nextFilter,
+            orderBy: nextOrderBy,
+          };
+        }),
+      );
+    } catch (e) {
+      console.error("handleTableRefresh failed", e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const handlePageChange = async (tabId: string, page: number) => {
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
@@ -626,19 +696,201 @@ export default function App() {
     }
   };
 
-  const handleCloseTab = (tabId: string) => {
-    const newTabs = tabs.filter((t) => t.id !== tabId);
-    setTabs(newTabs);
+  const resetCloseFlow = useCallback(() => {
+    setPendingCloseTabIds([]);
+    setCurrentCloseTabId(null);
+    setIsUnsavedConfirmOpen(false);
+    setIsCloseSaveDialogOpen(false);
+    closeSaveCompletedRef.current = false;
+    unsavedConfirmActionRef.current = null;
+  }, []);
 
-    if (activeTab === tabId) {
-      setActiveTab(newTabs[newTabs.length - 1]?.id || "");
+  const closeTabNow = useCallback((tabId: string) => {
+    setTabs((prev) => {
+      const newTabs = prev.filter((t) => t.id !== tabId);
+      setActiveTab((currentActiveTab) => {
+        if (currentActiveTab !== tabId) return currentActiveTab;
+        return newTabs[newTabs.length - 1]?.id || "";
+      });
+      return newTabs;
+    });
+  }, []);
+
+  const saveEditorTab = useCallback(
+    async (tab: TabItem, name: string, description: string) => {
+      if (tab.type !== "editor") return;
+
+      try {
+        const query = tab.sqlContent || "";
+        const payload = {
+          name,
+          description,
+          query,
+          connectionId: tab.connectionId || undefined,
+          database: tab.database,
+        };
+
+        const savedQuery = tab.savedQueryId
+          ? await api.queries.update(tab.savedQueryId, payload)
+          : await api.queries.create(payload);
+
+        setQueriesLastUpdated(Date.now());
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.id === tab.id
+              ? {
+                ...t,
+                savedQueryId: savedQuery.id,
+                title: savedQuery.name,
+                savedQueryDescription: savedQuery.description || undefined,
+                sqlContent: savedQuery.query,
+                lastSavedSql: savedQuery.query,
+                isDirty: false,
+              }
+              : t,
+          ),
+        );
+      } catch (e) {
+        toast.error("Failed to save query", {
+          description: e instanceof Error ? e.message : String(e),
+        });
+        throw e;
+      }
+    },
+    [],
+  );
+
+  const continueCloseFlow = useCallback(
+    (queue: string[]) => {
+      if (queue.length === 0) {
+        resetCloseFlow();
+        return;
+      }
+
+      const [nextTabId, ...rest] = queue;
+      const nextTab = tabs.find((t) => t.id === nextTabId);
+      if (!nextTab) {
+        continueCloseFlow(rest);
+        return;
+      }
+
+      if (nextTab.type === "editor" && nextTab.isDirty) {
+        setPendingCloseTabIds(queue);
+        setCurrentCloseTabId(nextTabId);
+        setIsUnsavedConfirmOpen(true);
+        setIsCloseSaveDialogOpen(false);
+        return;
+      }
+
+      closeTabNow(nextTabId);
+      continueCloseFlow(rest);
+    },
+    [tabs, closeTabNow, resetCloseFlow],
+  );
+
+  const requestCloseTabs = useCallback(
+    (tabIds: string[]) => {
+      const existingTabIds = tabIds.filter((id) => tabs.some((t) => t.id === id));
+      if (existingTabIds.length === 0) return;
+      continueCloseFlow(existingTabIds);
+    },
+    [tabs, continueCloseFlow],
+  );
+
+  const handleCloseTab = useCallback(
+    (tabId: string) => {
+      requestCloseTabs([tabId]);
+    },
+    [requestCloseTabs],
+  );
+
+  const handleCloseOtherTabs = useCallback(
+    (tabId: string) => {
+      requestCloseTabs(tabs.filter((t) => t.id !== tabId).map((t) => t.id));
+      setActiveTab(tabId);
+    },
+    [requestCloseTabs, tabs],
+  );
+
+  const handleUnsavedCloseCancel = useCallback(() => {
+    resetCloseFlow();
+  }, [resetCloseFlow]);
+
+  const handleUnsavedCloseWithoutSave = useCallback(() => {
+    unsavedConfirmActionRef.current = "discard";
+    if (!currentCloseTabId) {
+      resetCloseFlow();
+      return;
     }
-  };
 
-  const handleCloseOtherTabs = (tabId: string) => {
-    setTabs((prev) => prev.filter((t) => t.id === tabId));
-    setActiveTab(tabId);
-  };
+    closeTabNow(currentCloseTabId);
+    const currentIndex = pendingCloseTabIds.indexOf(currentCloseTabId);
+    const rest =
+      currentIndex >= 0
+        ? pendingCloseTabIds.slice(currentIndex + 1)
+        : pendingCloseTabIds.filter((id) => id !== currentCloseTabId);
+    continueCloseFlow(rest);
+  }, [closeTabNow, continueCloseFlow, currentCloseTabId, pendingCloseTabIds, resetCloseFlow]);
+
+  const handleUnsavedCloseSave = useCallback(() => {
+    unsavedConfirmActionRef.current = "save";
+    setIsUnsavedConfirmOpen(false);
+    setIsCloseSaveDialogOpen(true);
+  }, []);
+
+  const handleCloseSaveDialogOpenChange = useCallback(
+    (open: boolean) => {
+      setIsCloseSaveDialogOpen(open);
+      if (open) return;
+      if (closeSaveCompletedRef.current) {
+        closeSaveCompletedRef.current = false;
+        return;
+      }
+      resetCloseFlow();
+    },
+    [resetCloseFlow],
+  );
+
+  const handleCloseFlowSave = useCallback(
+    async (name: string, description: string) => {
+      if (!currentCloseTabId) {
+        resetCloseFlow();
+        return;
+      }
+
+      const currentTab = tabs.find((t) => t.id === currentCloseTabId);
+      if (!currentTab || currentTab.type !== "editor") {
+        closeSaveCompletedRef.current = true;
+        const currentIndex = pendingCloseTabIds.indexOf(currentCloseTabId);
+        const rest =
+          currentIndex >= 0
+            ? pendingCloseTabIds.slice(currentIndex + 1)
+            : pendingCloseTabIds.filter((id) => id !== currentCloseTabId);
+        continueCloseFlow(rest);
+        return;
+      }
+
+      await saveEditorTab(currentTab, name, description);
+
+      closeSaveCompletedRef.current = true;
+      closeTabNow(currentCloseTabId);
+      const currentIndex = pendingCloseTabIds.indexOf(currentCloseTabId);
+      const rest =
+        currentIndex >= 0
+          ? pendingCloseTabIds.slice(currentIndex + 1)
+          : pendingCloseTabIds.filter((id) => id !== currentCloseTabId);
+      continueCloseFlow(rest);
+    },
+    [
+      closeTabNow,
+      continueCloseFlow,
+      currentCloseTabId,
+      pendingCloseTabIds,
+      resetCloseFlow,
+      saveEditorTab,
+      tabs,
+    ],
+  );
 
   const handleCycleTabs = (direction: 1 | -1) => {
     if (tabs.length < 2) return;
@@ -707,6 +959,9 @@ export default function App() {
   }, [activeTab, tabs]);
 
   const activeTabItem = tabs.find((t) => t.id === activeTab);
+  const currentCloseTab = currentCloseTabId
+    ? tabs.find((t) => t.id === currentCloseTabId)
+    : undefined;
 
   return (
     <div className="h-screen w-screen flex flex-col bg-muted/30">
@@ -761,7 +1016,7 @@ export default function App() {
               onValueChange={setActiveTab}
               className="h-full flex flex-col"
             >
-              <div className="bg-background border-b border-border flex items-center">
+              <div className="bg-background border-b border-border flex items-center h-9">
                 <div className="min-w-0 flex-1">
                   <TabsList className="h-9 min-w-0 w-full justify-start gap-0 bg-transparent border-none p-0 overflow-x-auto">
                     <DndContext
@@ -916,7 +1171,7 @@ export default function App() {
                             handleFilterChange(tab.id, f, ob)
                           }
                           onOpenDDL={handleOpenTableDDL}
-                          onDataRefresh={() => handlePageChange(tab.id, tab.page || 1)}
+                          onDataRefresh={(params) => handleTableRefresh(tab.id, params)}
                           tableContext={
                             tab.connectionId && tab.database && tab.tableName && tab.driver
                               ? {
@@ -970,6 +1225,50 @@ export default function App() {
           )}
         </ResizablePanelGroup>
       </div>
+      <AlertDialog
+        open={isUnsavedConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open && unsavedConfirmActionRef.current) {
+            unsavedConfirmActionRef.current = null;
+            setIsUnsavedConfirmOpen(false);
+            return;
+          }
+          if (!open && isUnsavedConfirmOpen) {
+            handleUnsavedCloseCancel();
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              This SQL tab has unsaved changes. Do you want to save before closing?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleUnsavedCloseCancel}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleUnsavedCloseWithoutSave}>
+              Don't Save
+            </AlertDialogAction>
+            <AlertDialogAction onClick={handleUnsavedCloseSave}>
+              Save
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <SaveQueryDialog
+        open={isCloseSaveDialogOpen}
+        onOpenChange={handleCloseSaveDialogOpenChange}
+        onSave={handleCloseFlowSave}
+        initialName={
+          currentCloseTab && !currentCloseTab.title.startsWith("Query (")
+            ? currentCloseTab.title
+            : ""
+        }
+        initialDescription={currentCloseTab?.savedQueryDescription}
+      />
       <SettingsDialog open={openSettings} onOpenChange={setOpenSettings} />
       <UpdaterChecker />
     </div>

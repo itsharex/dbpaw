@@ -1,5 +1,6 @@
 use self::mysql::MysqlDriver;
 use self::postgres::PostgresDriver;
+use self::sqlite::SqliteDriver;
 use crate::models::{
     ConnectionForm, QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableMetadata,
     TableStructure,
@@ -8,6 +9,7 @@ use async_trait::async_trait;
 
 pub mod mysql;
 pub mod postgres;
+pub mod sqlite;
 
 #[async_trait]
 pub trait DatabaseDriver: Send + Sync {
@@ -70,6 +72,10 @@ pub async fn connect(form: &ConnectionForm) -> Result<Box<dyn DatabaseDriver>, S
         }
         "mysql" => {
             let driver = MysqlDriver::connect(form).await?;
+            Ok(Box::new(driver) as Box<dyn DatabaseDriver>)
+        }
+        "sqlite" => {
+            let driver = SqliteDriver::connect(form).await?;
             Ok(Box::new(driver) as Box<dyn DatabaseDriver>)
         }
         _ => Err(format!(

@@ -150,8 +150,8 @@ impl LocalDb {
         }
 
         let id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
+            "INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, file_path, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
         )
         .bind(&uuid)
         .bind(&form.driver)
@@ -162,6 +162,7 @@ impl LocalDb {
         .bind(&form.username.unwrap_or_default())
         .bind(&form.password.unwrap_or_default()) // TODO: Encrypt password
         .bind(form.ssl.unwrap_or(false))
+        .bind(form.file_path)
         .bind(form.ssh_enabled.unwrap_or(false))
         .bind(form.ssh_host)
         .bind(form.ssh_port)
@@ -181,7 +182,7 @@ impl LocalDb {
         form: ConnectionForm,
     ) -> Result<Connection, String> {
         sqlx::query(
-            "UPDATE connections SET name = COALESCE(NULLIF(?, ''), name), type = ?, host = ?, port = ?, database = ?, username = ?, password = COALESCE(NULLIF(?, ''), password), ssl = ?, ssh_enabled = ?, ssh_host = ?, ssh_port = ?, ssh_username = ?, ssh_password = ?, ssh_key_path = ?, updated_at = datetime('now') WHERE id = ?"
+            "UPDATE connections SET name = COALESCE(NULLIF(?, ''), name), type = ?, host = ?, port = ?, database = ?, username = ?, password = COALESCE(NULLIF(?, ''), password), ssl = ?, file_path = ?, ssh_enabled = ?, ssh_host = ?, ssh_port = ?, ssh_username = ?, ssh_password = ?, ssh_key_path = ?, updated_at = datetime('now') WHERE id = ?"
         )
         .bind(form.name)
         .bind(&form.driver)
@@ -191,6 +192,7 @@ impl LocalDb {
         .bind(&form.username.unwrap_or_default())
         .bind(form.password) // TODO: Encrypt
         .bind(form.ssl.unwrap_or(false))
+        .bind(form.file_path)
         .bind(form.ssh_enabled.unwrap_or(false))
         .bind(form.ssh_host)
         .bind(form.ssh_port)
@@ -246,7 +248,7 @@ impl LocalDb {
 
     pub async fn get_connection_form_by_id(&self, id: i64) -> Result<ConnectionForm, String> {
         let row = sqlx::query(
-            "SELECT type as db_type, name, host, port, database, username, password, ssl, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path FROM connections WHERE id = ?"
+            "SELECT type as db_type, name, host, port, database, username, password, ssl, file_path, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path FROM connections WHERE id = ?"
         )
         .bind(id)
         .fetch_one(&self.pool)
@@ -264,7 +266,7 @@ impl LocalDb {
             username: row.try_get("username").ok(),
             password: row.try_get("password").ok(),
             ssl: row.try_get::<bool, _>("ssl").ok().map(|v| v), // bool mapping
-            file_path: None,
+            file_path: row.try_get("file_path").ok(),
             ssh_enabled: row.try_get::<bool, _>("ssh_enabled").ok().map(|v| v),
             ssh_host: row.try_get("ssh_host").ok(),
             ssh_port: row.try_get("ssh_port").ok(),
@@ -371,18 +373,22 @@ impl LocalDb {
     }
 
     pub async fn get_default_ai_provider(&self) -> Result<AiProvider, String> {
-        sqlx::query_as::<_, AiProvider>(
+        let provider = sqlx::query_as::<_, AiProvider>(
             "SELECT id, name, provider_type, base_url, model, api_key, is_default, enabled, extra_json, created_at, updated_at FROM ai_providers WHERE enabled = 1 ORDER BY is_default DESC, updated_at DESC LIMIT 1",
         )
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await
-        .map_err(|e| format!("[GET_DEFAULT_AI_PROVIDER_ERROR] {e}"))
+        .map_err(|e| format!("[GET_DEFAULT_AI_PROVIDER_ERROR] {e}"))?;
+
+        provider.ok_or_else(|| {
+            "[NO_ENABLED_AI_PROVIDER] No enabled AI provider is configured. Please enable one in AI Provider settings.".to_string()
+        })
     }
 
     pub async fn create_ai_provider(&self, form: AiProviderForm) -> Result<AiProvider, String> {
         let provider_type = form.provider_type.unwrap_or_else(|| "openai".to_string());
         let has_default_provider: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM ai_providers WHERE is_default = 1)",
+            "SELECT EXISTS(SELECT 1 FROM ai_providers WHERE is_default = 1 AND enabled = 1)",
         )
         .fetch_one(&self.pool)
         .await
@@ -402,7 +408,7 @@ impl LocalDb {
                 let existing = self.get_ai_provider_by_id(id).await?;
                 let is_default = form
                     .is_default
-                    .unwrap_or(existing.is_default || !has_default_provider);
+                    .unwrap_or((existing.is_default && enabled) || (!has_default_provider && enabled));
                 if is_default {
                     sqlx::query("UPDATE ai_providers SET is_default = 0")
                         .execute(&self.pool)
@@ -427,7 +433,7 @@ impl LocalDb {
                 self.get_ai_provider_by_id(id).await
             }
             None => {
-                let is_default = form.is_default.unwrap_or(!has_default_provider);
+                let is_default = form.is_default.unwrap_or(!has_default_provider && enabled);
                 if is_default {
                     sqlx::query("UPDATE ai_providers SET is_default = 0")
                         .execute(&self.pool)
@@ -500,6 +506,24 @@ impl LocalDb {
     }
 
     pub async fn set_default_ai_provider(&self, id: i64) -> Result<(), String> {
+        let target_enabled = sqlx::query_scalar::<_, bool>(
+            "SELECT enabled FROM ai_providers WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("[SET_DEFAULT_AI_PROVIDER_LOOKUP_ERROR] {e}"))?;
+
+        let Some(enabled) = target_enabled else {
+            return Err("[SET_DEFAULT_AI_PROVIDER_NOT_FOUND] Provider not found".to_string());
+        };
+        if !enabled {
+            return Err(
+                "[SET_DEFAULT_AI_PROVIDER_DISABLED] Disabled provider cannot be set as default"
+                    .to_string(),
+            );
+        }
+
         sqlx::query("UPDATE ai_providers SET is_default = 0")
             .execute(&self.pool)
             .await

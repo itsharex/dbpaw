@@ -98,17 +98,17 @@ interface Connection {
 
 const defaultForm: ConnectionForm = {
   driver: "postgres",
-  name: "My Database",
-  host: "localhost",
+  name: "",
+  host: "",
   port: 5432,
   database: "",
-  schema: "public",
+  schema: "",
   username: "",
   password: "",
   ssl: false,
   sshEnabled: false,
-  sshPort: 22,
-  sshUsername: "root",
+  sshPort: undefined,
+  sshUsername: "",
 };
 
 const renderSimpleIcon = (icon: SimpleIcon) => (
@@ -142,6 +142,9 @@ const getConnectionIcon = (driver: Driver | string): React.ReactNode => {
       return <Server className="w-4 h-4" />;
   }
 };
+
+const sanitizeConnectionErrorMessage = (message: string) =>
+  message.replace(/^(?:\s*\[[^\]]+\])+\s*/g, "").trim();
 
 interface TreeNodeProps {
   level: number;
@@ -385,7 +388,10 @@ export function ConnectionList({
         }),
       );
     } catch (e) {
-      console.error("listDatabasesById failed", e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      const sanitizedMessage = sanitizeConnectionErrorMessage(message);
+      console.error("listDatabasesById failed", message);
+      toast.error("Failed to load databases", { description: sanitizedMessage || message });
     }
   };
 
@@ -808,252 +814,247 @@ export function ConnectionList({
                   </DialogTitle>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="name">Connection Name</Label>
-                  <Input
-                    id="name"
-                    placeholder="My Database"
-                    value={form.name || ""}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, name: e.target.value }))
-                    }
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="type">Database Type</Label>
-                  <Select
-                    value={form.driver}
-                    onValueChange={(v: Driver) =>
-                      setForm((f) => ({
-                        ...f,
-                        driver: v,
-                        port:
-                          v === "postgres"
-                            ? 5432
-                            : v === "mysql"
-                              ? 3306
-                              : f.port,
-                      }))
-                    }
-                  >
-                    <SelectTrigger id="type">
-                      <SelectValue placeholder="Select database type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="postgres">PostgreSQL</SelectItem>
-                      <SelectItem value="mysql">MySQL</SelectItem>
-                      <SelectItem value="sqlite">SQLite</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {!isSqlite && (
-                  <>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="grid gap-2">
-                        <Label htmlFor="host">
-                          Host <span className="text-red-600">*</span>
-                        </Label>
-                        <Input
-                          id="host"
-                          placeholder="localhost"
-                          value={form.host || ""}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, host: e.target.value }))
+                  <div className="grid gap-2">
+                    <Label htmlFor="type">Database Type</Label>
+                    <Select
+                      value={form.driver}
+                      onValueChange={(v: Driver) =>
+                        setForm((f) => ({
+                          ...f,
+                          driver: v,
+                          port:
+                            v === "postgres"
+                              ? 5432
+                              : v === "mysql"
+                                ? 3306
+                                : f.port,
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="type">
+                        <SelectValue placeholder="Select database type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="postgres">PostgreSQL</SelectItem>
+                        <SelectItem value="mysql">MySQL</SelectItem>
+                        <SelectItem value="sqlite">SQLite</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="name">Connection Name</Label>
+                    <Input
+                      id="name"
+                      value={form.name || ""}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, name: e.target.value }))
+                      }
+                    />
+                  </div>
+                  {!isSqlite && (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="grid gap-2">
+                          <Label htmlFor="host">
+                            Host <span className="text-red-600">*</span>
+                          </Label>
+                          <Input
+                            id="host"
+                            value={form.host || ""}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, host: e.target.value }))
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="port">
+                            Port <span className="text-red-600">*</span>
+                          </Label>
+                          <Input
+                            id="port"
+                            placeholder={
+                              form.driver === "postgres" ? "5432" : "3306"
+                            }
+                            value={String(form.port || "")}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                port: Number(e.target.value) || undefined,
+                              }))
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="grid gap-2">
+                          <Label htmlFor="username">
+                            Username <span className="text-red-600">*</span>
+                          </Label>
+                          <Input
+                            id="username"
+                            value={form.username || ""}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, username: e.target.value }))
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="password">
+                            Password{" "}
+                            {dialogMode === "create" && (
+                              <span className="text-red-600">*</span>
+                            )}
+                          </Label>
+                          <Input
+                            id="password"
+                            type="password"
+                            placeholder={
+                              dialogMode === "edit"
+                                ? "Leave empty to keep current password"
+                                : undefined
+                            }
+                            value={form.password || ""}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, password: e.target.value }))
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="grid gap-2">
+                          <Label htmlFor="database">Database</Label>
+                          <Input
+                            id="database"
+                            value={form.database || ""}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, database: e.target.value }))
+                            }
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="schema">Schema</Label>
+                          <Input
+                            id="schema"
+                            value={form.schema || ""}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, schema: e.target.value }))
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="ssl"
+                          checked={form.ssl}
+                          onCheckedChange={(checked) =>
+                            setForm((f) => ({ ...f, ssl: checked === true }))
                           }
                         />
+                        <Label htmlFor="ssl">SSL</Label>
                       </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="port">
-                          Port <span className="text-red-600">*</span>
-                        </Label>
-                        <Input
-                          id="port"
-                          placeholder={
-                            form.driver === "postgres" ? "5432" : "3306"
-                          }
-                          value={String(form.port || "")}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              port: Number(e.target.value) || undefined,
-                            }))
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="grid gap-2">
-                        <Label htmlFor="username">
-                          Username <span className="text-red-600">*</span>
-                        </Label>
-                        <Input
-                          id="username"
-                          placeholder="postgres"
-                          value={form.username || ""}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, username: e.target.value }))
-                          }
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="password">
-                          Password{" "}
-                          {dialogMode === "create" && (
-                            <span className="text-red-600">*</span>
-                          )}
-                        </Label>
-                        <Input
-                          id="password"
-                          type="password"
-                          placeholder={
-                            dialogMode === "edit"
-                              ? "Leave empty to keep current password"
-                              : undefined
-                          }
-                          value={form.password || ""}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, password: e.target.value }))
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="grid gap-2">
-                        <Label htmlFor="database">Database</Label>
-                        <Input
-                          id="database"
-                          placeholder="mydb"
-                          value={form.database || ""}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, database: e.target.value }))
-                          }
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="schema">Schema</Label>
-                        <Input
-                          id="schema"
-                          placeholder="public"
-                          value={form.schema || ""}
-                          onChange={(e) =>
-                            setForm((f) => ({ ...f, schema: e.target.value }))
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="ssl"
-                        checked={form.ssl}
-                        onCheckedChange={(checked) =>
-                          setForm((f) => ({ ...f, ssl: checked === true }))
-                        }
-                      />
-                      <Label htmlFor="ssl">SSL</Label>
-                    </div>
 
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="ssh"
-                        checked={form.sshEnabled}
-                        onCheckedChange={(checked) =>
-                          setForm((f) => ({ ...f, sshEnabled: checked === true }))
-                        }
-                      />
-                      <Label htmlFor="ssh">SSH</Label>
-                    </div>
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="ssh"
+                          checked={form.sshEnabled}
+                          onCheckedChange={(checked) =>
+                            setForm((f) => ({ ...f, sshEnabled: checked === true }))
+                          }
+                        />
+                        <Label htmlFor="ssh">SSH</Label>
+                      </div>
 
-                    {form.sshEnabled && (
-                      <div className="border p-3 rounded-md space-y-3 bg-muted/20">
-                        <div className="grid grid-cols-2 gap-2">
+                      {form.sshEnabled && (
+                        <div className="border p-3 rounded-md space-y-3 bg-muted/20">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="grid gap-2">
+                              <Label htmlFor="sshHost">SSH Host</Label>
+                              <Input
+                                id="sshHost"
+                                placeholder="ssh.example.com"
+                                value={form.sshHost || ""}
+                                onChange={(e) =>
+                                  setForm((f) => ({ ...f, sshHost: e.target.value }))
+                                }
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="sshPort">SSH Port</Label>
+                              <Input
+                                id="sshPort"
+                                placeholder="22"
+                                value={String(form.sshPort || "")}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    sshPort: Number(e.target.value) || undefined,
+                                  }))
+                                }
+                              />
+                            </div>
+                          </div>
                           <div className="grid gap-2">
-                            <Label htmlFor="sshHost">SSH Host</Label>
+                            <Label htmlFor="sshUsername">SSH Username</Label>
                             <Input
-                              id="sshHost"
-                              placeholder="ssh.example.com"
-                              value={form.sshHost || ""}
+                              id="sshUsername"
+                              placeholder="root"
+                              value={form.sshUsername || ""}
                               onChange={(e) =>
-                                setForm((f) => ({ ...f, sshHost: e.target.value }))
+                                setForm((f) => ({
+                                  ...f,
+                                  sshUsername: e.target.value,
+                                }))
                               }
                             />
                           </div>
                           <div className="grid gap-2">
-                            <Label htmlFor="sshPort">SSH Port</Label>
+                            <Label htmlFor="sshPassword">SSH Password</Label>
                             <Input
-                              id="sshPort"
-                              placeholder="22"
-                              value={String(form.sshPort || "")}
+                              id="sshPassword"
+                              type="password"
+                              placeholder="Optional if using key"
+                              value={form.sshPassword || ""}
                               onChange={(e) =>
                                 setForm((f) => ({
                                   ...f,
-                                  sshPort: Number(e.target.value) || undefined,
+                                  sshPassword: e.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor="sshKeyPath">SSH Key Path</Label>
+                            <Input
+                              id="sshKeyPath"
+                              placeholder="/path/to/private_key"
+                              value={form.sshKeyPath || ""}
+                              onChange={(e) =>
+                                setForm((f) => ({
+                                  ...f,
+                                  sshKeyPath: e.target.value,
                                 }))
                               }
                             />
                           </div>
                         </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="sshUsername">SSH Username</Label>
-                          <Input
-                            id="sshUsername"
-                            placeholder="root"
-                            value={form.sshUsername || ""}
-                            onChange={(e) =>
-                              setForm((f) => ({
-                                ...f,
-                                sshUsername: e.target.value,
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="sshPassword">SSH Password</Label>
-                          <Input
-                            id="sshPassword"
-                            type="password"
-                            placeholder="Optional if using key"
-                            value={form.sshPassword || ""}
-                            onChange={(e) =>
-                              setForm((f) => ({
-                                ...f,
-                                sshPassword: e.target.value,
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="sshKeyPath">SSH Key Path</Label>
-                          <Input
-                            id="sshKeyPath"
-                            placeholder="/path/to/private_key"
-                            value={form.sshKeyPath || ""}
-                            onChange={(e) =>
-                              setForm((f) => ({
-                                ...f,
-                                sshKeyPath: e.target.value,
-                              }))
-                            }
-                          />
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-                {isSqlite && (
-                  <div className="grid gap-2">
-                    <Label htmlFor="filePath">
-                      SQLite File Path <span className="text-red-600">*</span>
-                    </Label>
-                    <Input
-                      id="filePath"
-                      placeholder="/path/to/db.sqlite"
-                      value={form.filePath || ""}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, filePath: e.target.value }))
-                      }
-                    />
-                  </div>
-                )}
+                      )}
+                    </>
+                  )}
+                  {isSqlite && (
+                    <div className="grid gap-2">
+                      <Label htmlFor="filePath">
+                        SQLite File Path <span className="text-red-600">*</span>
+                      </Label>
+                      <Input
+                        id="filePath"
+                        placeholder="/path/to/db.sqlite"
+                        value={form.filePath || ""}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, filePath: e.target.value }))
+                        }
+                      />
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button
@@ -1069,36 +1070,36 @@ export function ConnectionList({
                     onClick={handleTestConnection}
                     disabled={isTesting}
                   >
-                  {isTesting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Testing…
-                    </>
-                  ) : (
-                    "Test"
-                  )}
+                    {isTesting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Testing…
+                      </>
+                    ) : (
+                      "Test"
+                    )}
                   </Button>
                   <Button
                     type="submit"
                     disabled={(dialogMode === "edit" ? isSavingEdit : isConnecting) || !requiredOk}
                   >
-                  {dialogMode === "edit" ? (
-                    isSavingEdit ? (
+                    {dialogMode === "edit" ? (
+                      isSavingEdit ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Saving…
+                        </>
+                      ) : (
+                        "Save"
+                      )
+                    ) : isConnecting ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Saving…
+                        Connecting…
                       </>
                     ) : (
-                      "Save"
-                    )
-                  ) : isConnecting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Connecting…
-                    </>
-                  ) : (
-                    "Connect"
-                  )}
+                      "Connect"
+                    )}
                   </Button>
                 </div>
                 {validationMsg && (
@@ -1139,7 +1140,6 @@ export function ConnectionList({
           />
         </div>
       </div>
-
       <div
         className="flex-1 overflow-auto"
         onClick={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
@@ -1169,129 +1169,126 @@ export function ConnectionList({
                 {connection.databases
                   .filter((database) => !["information_schema", "performance_schema"].includes(database.name.toLowerCase()))
                   .map((database) => {
-                  const dbKey = `${connection.id}-${database.name}`;
-                  return (
-                    <TreeNode
-                      key={dbKey}
-                      level={1}
-                      icon={<Database className="w-4 h-4" />}
-                      label={database.name}
-                      isExpanded={expandedDatabases.has(dbKey)}
-                      onToggle={() => toggleDatabase(dbKey)}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setContextMenu({
-                          visible: true,
-                          x: e.clientX,
-                          y: e.clientY,
-                          connectionId: connection.id,
-                          databaseName: database.name,
-                          type: "database",
-                        });
-                      }}
-                    >
-                      {database.tables.map((table) => {
-                        const tableKey = `${dbKey}-${table.name}`;
-                        return (
-                          <ContextMenu key={tableKey}>
-                            <ContextMenuTrigger asChild>
-                              <div>
-                                <TreeNode
-                                  level={2}
-                                  icon={<Table className="w-4 h-4" />}
-                                  label={table.name}
-                                  isExpanded={expandedTables.has(tableKey)}
-                                  toggleOnRowClick={false}
-                                  onToggle={() => {
-                                    toggleTable(tableKey, connection.id, database.name, table);
-                                  }}
-                                  onDoubleClick={() => {
-                                    handleTableClick(connection, database, table);
-                                  }}
-                                  actions={
-                                    <div onClick={(e) => e.stopPropagation()}>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-6 w-6 p-0"
-                                        onClick={() =>
-                                          handleTableClick(
-                                            connection,
-                                            database,
-                                            table,
-                                          )
-                                        }
+                    const dbKey = `${connection.id}-${database.name}`;
+                    return (
+                      <TreeNode
+                        key={dbKey}
+                        level={1}
+                        icon={<Database className="w-4 h-4" />}
+                        label={
+                          connection.type === "sqlite" && database.name === "main"
+                            ? "main (SQLite)"
+                            : database.name
+                        }
+                        isExpanded={expandedDatabases.has(dbKey)}
+                        onToggle={() => toggleDatabase(dbKey)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setContextMenu({
+                            visible: true,
+                            x: e.clientX,
+                            y: e.clientY,
+                            connectionId: connection.id,
+                            databaseName: database.name,
+                            type: "database",
+                          });
+                        }}
+                      >
+                        {database.tables.map((table) => {
+                          const tableKey = `${dbKey}-${table.name}`;
+                          return (
+                            <ContextMenu key={tableKey}>
+                              <ContextMenuTrigger asChild>
+                                <div>
+                                  <TreeNode
+                                    level={2}
+                                    icon={<Table className="w-4 h-4" />}
+                                    label={table.name}
+                                    isExpanded={expandedTables.has(tableKey)}
+                                    toggleOnRowClick={false}
+                                    onToggle={() => {
+                                      toggleTable(tableKey, connection.id, database.name, table);
+                                    }}
+                                    onDoubleClick={() => {
+                                      handleTableClick(connection, database, table);
+                                    }}
+                                    actions={
+                                      <div onClick={(e) => e.stopPropagation()}>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 w-6 p-0"
+                                          onClick={() =>
+                                            handleTableClick(
+                                              connection,
+                                              database,
+                                              table,
+                                            )
+                                          }
+                                        >
+                                          <Play className="w-3 h-3" />
+                                        </Button>
+                                      </div>
+                                    }
+                                  >
+                                    {table.columns.map((column) => (
+                                      <div
+                                        key={column.name}
+                                        className="flex items-center gap-1 px-2 py-1 hover:bg-accent text-xs"
+                                        style={{ paddingLeft: `${3 * 12 + 8}px` }}
                                       >
-                                        <Play className="w-3 h-3" />
-                                      </Button>
-                                    </div>
+                                        <span className="w-4" />
+                                        {column.isPrimaryKey ? (
+                                          <Key className="w-3 h-3 text-yellow-600 shrink-0" />
+                                        ) : (
+                                          <span className="w-3 shrink-0" />
+                                        )}
+                                        <span className="flex-1 truncate text-foreground">
+                                          {column.name}
+                                        </span>
+                                        <span className="text-muted-foreground text-xs shrink-0">
+                                          {column.type}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </TreeNode>
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent>
+                                <ContextMenuItem
+                                  onClick={() =>
+                                    void handleTableExport(connection, database, table, "csv")
                                   }
                                 >
-                                  {table.columns.map((column) => (
-                                    <div
-                                      key={column.name}
-                                      className="flex items-center gap-1 px-2 py-1 hover:bg-accent text-xs"
-                                      style={{ paddingLeft: `${3 * 12 + 8}px` }}
-                                    >
-                                      <span className="w-4" />
-                                      {column.isPrimaryKey ? (
-                                        <Key className="w-3 h-3 text-yellow-600 shrink-0" />
-                                      ) : (
-                                        <span className="w-3 shrink-0" />
-                                      )}
-                                      <span className="flex-1 truncate text-foreground">
-                                        {column.name}
-                                      </span>
-                                      <span className="text-muted-foreground text-xs shrink-0">
-                                        {column.type}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </TreeNode>
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent>
-                              <ContextMenuItem
-                                onClick={() =>
-                                  void handleTableExport(connection, database, table, "csv")
-                                }
-                              >
-                                <Download className="w-4 h-4 mr-2" />
-                                Export as CSV
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onClick={() =>
-                                  void handleTableExport(connection, database, table, "json")
-                                }
-                              >
-                                <Download className="w-4 h-4 mr-2" />
-                                Export as JSON
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onClick={() =>
-                                  void handleTableExport(connection, database, table, "sql")
-                                }
-                              >
-                                <Download className="w-4 h-4 mr-2" />
-                                Export as SQL
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        );
-                      })}
-                    </TreeNode>
-                  );
-                })}
+                                  <Download className="w-4 h-4 mr-2" />
+                                  Export as CSV
+                                </ContextMenuItem>
+                                <ContextMenuItem
+                                  onClick={() =>
+                                    void handleTableExport(connection, database, table, "json")
+                                  }
+                                >
+                                  <Download className="w-4 h-4 mr-2" />
+                                  Export as JSON
+                                </ContextMenuItem>
+                                <ContextMenuItem
+                                  onClick={() =>
+                                    void handleTableExport(connection, database, table, "sql")
+                                  }
+                                >
+                                  <Download className="w-4 h-4 mr-2" />
+                                  Export as SQL
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          );
+                        })}
+                      </TreeNode>
+                    );
+                  })}
               </>
-            ) : (
-              <div
-                className="px-2 py-1 text-xs text-gray-500"
-                style={{ paddingLeft: "32px" }}
-              >
-                Not connected
-              </div>
-            )}
+            ) : null}
           </TreeNode>
         ))}
       </div>

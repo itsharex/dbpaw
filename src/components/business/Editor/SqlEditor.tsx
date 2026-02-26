@@ -13,7 +13,16 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { Play, Save, Trash2, Clock, Database, Braces, Download } from "lucide-react";
+import {
+  Play,
+  Save,
+  Trash2,
+  Database,
+  Braces,
+  Download,
+  CheckCircle2,
+  XCircle,
+} from "lucide-react";
 import { TableView } from "@/components/business/DataGrid/TableView";
 import { useTheme } from "@/components/theme-provider";
 import { SchemaOverview, api, SavedQuery, TransferFormat, isTauri } from "@/services/api";
@@ -108,10 +117,32 @@ export function SqlEditor({
   initialDescription,
   onSaveSuccess,
 }: SqlEditorProps) {
-  const [internalSql, setInternalSql] = useState("-- Enter your SQL query here\n");
+  const [internalSql, setInternalSql] = useState("");
   const { theme } = useTheme();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+  const resultStatus = useMemo(() => {
+    if (!queryResults) return null;
+    if (queryResults.error) {
+      return {
+        text: "Result: Execution failed.",
+        toneClass: "text-destructive",
+        Icon: XCircle,
+      };
+    }
+
+    const returnedRows = queryResults.data.length;
+    const hasResultSet = queryResults.columns.length > 0;
+    const suffix = hasResultSet
+      ? ` (${returnedRows} row${returnedRows === 1 ? "" : "s"})`
+      : "";
+
+    return {
+      text: `Result: Execution successful.${suffix}`,
+      toneClass: "text-emerald-600 dark:text-emerald-400",
+      Icon: CheckCircle2,
+    };
+  }, [queryResults]);
 
   // Use controlled value if provided, otherwise internal state
   const code = value !== undefined ? value : internalSql;
@@ -518,16 +549,14 @@ export function SqlEditor({
           </TooltipProvider>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Clock className="w-4 h-4" />
-          <span>
-            {queryResults?.executionTime
-              ? `Last executed: ${queryResults.executionTime}`
-              : "Ready"}
-          </span>
-          <div className="w-px h-3 bg-border mx-2" />
-          <span className="text-xs">
-            {schemaOverview ? "Schema Loaded" : "Loading Schema..."}
-          </span>
+          {resultStatus && (
+            <>
+              <span className={`text-xs inline-flex items-center gap-1 ${resultStatus.toneClass}`}>
+                <resultStatus.Icon className="w-3.5 h-3.5" />
+                {resultStatus.text}
+              </span>
+            </>
+          )}
           {queryResults && !queryResults.error && (
             <>
               <div className="w-px h-3 bg-border mx-2" />

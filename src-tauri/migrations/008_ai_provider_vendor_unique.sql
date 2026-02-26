@@ -47,7 +47,7 @@ ON ai_providers(provider_type);
 CREATE TRIGGER IF NOT EXISTS trg_ai_providers_provider_type_insert
 BEFORE INSERT ON ai_providers
 FOR EACH ROW
-WHEN NEW.provider_type NOT IN ('openai', 'kimi', 'glm')
+WHEN lower(NEW.provider_type) NOT IN ('openai', 'kimi', 'glm')
 BEGIN
     SELECT RAISE(ABORT, 'provider_type must be one of: openai, kimi, glm');
 END;
@@ -55,7 +55,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS trg_ai_providers_provider_type_update
 BEFORE UPDATE OF provider_type ON ai_providers
 FOR EACH ROW
-WHEN NEW.provider_type NOT IN ('openai', 'kimi', 'glm')
+WHEN lower(NEW.provider_type) NOT IN ('openai', 'kimi', 'glm')
 BEGIN
     SELECT RAISE(ABORT, 'provider_type must be one of: openai, kimi, glm');
 END;
