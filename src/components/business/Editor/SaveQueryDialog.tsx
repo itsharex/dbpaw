@@ -15,7 +15,7 @@ import { isModKey } from "@/lib/keyboard";
 interface SaveQueryDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (name: string, description: string) => void;
+  onSave: (name: string, description: string) => void | Promise<void>;
   initialName?: string;
   initialDescription?: string;
 }
@@ -29,6 +29,7 @@ export function SaveQueryDialog({
 }: SaveQueryDialogProps) {
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState(initialDescription);
+  const [isSaving, setIsSaving] = useState(false);
   const canSave = name.trim().length > 0;
 
   useEffect(() => {
@@ -38,15 +39,20 @@ export function SaveQueryDialog({
     }
   }, [open, initialName, initialDescription]);
 
-  const submitSave = () => {
-    if (!canSave) return;
-    onSave(name, description);
-    onOpenChange(false);
+  const submitSave = async () => {
+    if (!canSave || isSaving) return;
+    setIsSaving(true);
+    try {
+      await onSave(name, description);
+      onOpenChange(false);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    submitSave();
+    void submitSave();
   };
 
   return (
@@ -76,7 +82,7 @@ export function SaveQueryDialog({
                   if (e.key !== "Enter") return;
                   if (e.shiftKey && !isModKey(e)) return;
                   e.preventDefault();
-                  submitSave();
+                  void submitSave();
                 }}
                 placeholder="What does this query do?"
               />
@@ -86,7 +92,7 @@ export function SaveQueryDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!canSave}>
+            <Button type="submit" disabled={!canSave || isSaving}>
               Save
             </Button>
           </DialogFooter>
