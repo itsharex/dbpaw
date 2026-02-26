@@ -15,9 +15,17 @@ import {
   Save,
   Undo2,
   Loader2,
+  RotateCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -71,7 +79,12 @@ interface TableViewProps {
     schema: string;
     table: string;
   }) => void;
-  onDataRefresh?: () => void;
+  onDataRefresh?: (params?: {
+    page?: number;
+    limit?: number;
+    filter?: string;
+    orderBy?: string;
+  }) => void;
   tableContext?: {
     connectionId: number;
     database: string;
@@ -101,6 +114,7 @@ export function TableView({
   onDataRefresh,
   tableContext,
 }: TableViewProps) {
+  const PAGE_SIZE_OPTIONS = ["10", "50", "100", "200", "500", "1000"] as const;
   const [whereInput, setWhereInput] = useState(controlledFilter || "");
   const [orderByInput, setOrderByInput] = useState(controlledOrderBy || "");
   const [pageInput, setPageInput] = useState(String(page));
@@ -176,7 +190,8 @@ export function TableView({
   }, [page]);
 
   useEffect(() => {
-    setPageSizeInput(String(pageSize));
+    const next = String(pageSize);
+    setPageSizeInput(PAGE_SIZE_OPTIONS.includes(next as typeof PAGE_SIZE_OPTIONS[number]) ? next : "100");
   }, [pageSize]);
 
   // --- Cell selection & editing state ---
@@ -579,6 +594,32 @@ export function TableView({
     }
   }, [tableContext, hasPendingChanges, generateUpdateSQL, onDataRefresh]);
 
+  const handleRefreshClick = useCallback(() => {
+    if (hasPendingChanges) {
+      const confirmed = window.confirm(
+        "You have unsaved changes. Refreshing may discard your editing context. Continue?",
+      );
+      if (!confirmed) return;
+    }
+
+    const parsedPage = Number.parseInt(pageInput, 10);
+    const nextPage = Number.isNaN(parsedPage) || parsedPage < 1 ? page : parsedPage;
+    const parsedLimit = Number.parseInt(pageSizeInput, 10);
+    const nextLimit =
+      Number.isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 10000
+        ? pageSize
+        : parsedLimit;
+    const nextFilter = whereInput.trim() || undefined;
+    const nextOrderBy = orderByInput.trim() || undefined;
+
+    onDataRefresh?.({
+      page: nextPage,
+      limit: nextLimit,
+      filter: nextFilter,
+      orderBy: nextOrderBy,
+    });
+  }, [hasPendingChanges, pageInput, page, pageSizeInput, pageSize, whereInput, orderByInput, onDataRefresh]);
+
   // Helper: get display value for a cell (considering pending changes)
   const getCellDisplayValue = useCallback(
     (rowIndex: number, column: string, originalValue: any) => {
@@ -676,11 +717,10 @@ export function TableView({
     }
   };
 
-  const handlePageSizeInputCommit = () => {
-    const parsed = Number.parseInt(pageSizeInput, 10);
-    const nextPageSize = Number.isNaN(parsed) ? pageSize : Math.min(Math.max(parsed, 1), 10000);
-    setPageSizeInput(String(nextPageSize));
-    if (nextPageSize !== pageSize) {
+  const handlePageSizeChange = (value: string) => {
+    setPageSizeInput(value);
+    const nextPageSize = Number.parseInt(value, 10);
+    if (!Number.isNaN(nextPageSize) && nextPageSize !== pageSize) {
       onPageSizeChange?.(nextPageSize);
     }
   };
@@ -776,7 +816,7 @@ export function TableView({
               <Input
                 type="text"
                 inputMode="numeric"
-                className="h-7 w-6 px-2 text-xs"
+                className="h-7 w-8 px-2 text-xs"
                 value={pageInput}
                 onChange={(e) => setPageInput(e.target.value.replace(/\D/g, ""))}
                 onBlur={handlePageInputCommit}
@@ -805,19 +845,29 @@ export function TableView({
                 <ChevronRight className="w-4 h-4" />
               </Button>
               <span className="text-xs text-muted-foreground">limit</span>
-              <Input
-                type="text"
-                inputMode="numeric"
-                className="h-7 w-12 px-2 text-xs"
-                value={pageSizeInput}
-                onChange={(e) => setPageSizeInput(e.target.value.replace(/\D/g, ""))}
-                onBlur={handlePageSizeInputCommit}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    handlePageSizeInputCommit();
-                  }
-                }}
-              />
+              <Select value={pageSizeInput} onValueChange={handlePageSizeChange}>
+                <SelectTrigger className="!h-7 w-20 text-xs [&_svg]:size-3">
+                  <SelectValue placeholder="100" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PAGE_SIZE_OPTIONS.map((size) => (
+                    <SelectItem key={size} value={size}>
+                      {size}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {tableContext && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-2"
+                  onClick={handleRefreshClick}
+                  title="Refresh"
+                >
+                  <RotateCw className="w-4 h-4" />
+                </Button>
+              )}
             </div>
 
             <div className="flex items-center gap-2">

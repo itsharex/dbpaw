@@ -80,6 +80,13 @@ interface TabItem {
   savedQueryDescription?: string;
 }
 
+type TableRefreshOverrides = {
+  page?: number;
+  limit?: number;
+  filter?: string;
+  orderBy?: string;
+};
+
 const DEFAULT_SQL = "";
 
 const TAB_TRIGGER_CLASS =
@@ -461,6 +468,52 @@ export default function App() {
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTab(tabId);
+  };
+
+  const handleTableRefresh = async (tabId: string, overrides?: TableRefreshOverrides) => {
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
+
+    const hasOwn = <K extends keyof TableRefreshOverrides>(key: K) =>
+      !!overrides && Object.prototype.hasOwnProperty.call(overrides, key);
+
+    const nextPage = overrides?.page ?? tab.page ?? 1;
+    const nextLimit = overrides?.limit ?? tab.pageSize ?? 100;
+    const nextFilter = hasOwn("filter") ? overrides?.filter : tab.filter;
+    const nextOrderBy = hasOwn("orderBy") ? overrides?.orderBy : tab.orderBy;
+
+    try {
+      const schema = tab.driver === "mysql" ? tab.database : "public";
+      const resp = await api.tableData.get({
+        id: tab.connectionId,
+        schema: schema || "public",
+        table: tab.tableName,
+        page: nextPage,
+        limit: nextLimit,
+        filter: nextFilter || undefined,
+        sortColumn: tab.sortColumn,
+        sortDirection: tab.sortDirection,
+        orderBy: nextOrderBy || undefined,
+      });
+
+      setTabs((prev) =>
+        prev.map((t) => {
+          if (t.id !== tabId) return t;
+          return {
+            ...t,
+            data: resp.data,
+            total: resp.total,
+            page: resp.page,
+            pageSize: resp.limit,
+            executionTimeMs: resp.executionTimeMs,
+            filter: nextFilter,
+            orderBy: nextOrderBy,
+          };
+        }),
+      );
+    } catch (e) {
+      console.error("handleTableRefresh failed", e instanceof Error ? e.message : String(e));
+    }
   };
 
   const handlePageChange = async (tabId: string, page: number) => {
@@ -916,7 +969,7 @@ export default function App() {
                             handleFilterChange(tab.id, f, ob)
                           }
                           onOpenDDL={handleOpenTableDDL}
-                          onDataRefresh={() => handlePageChange(tab.id, tab.page || 1)}
+                          onDataRefresh={(params) => handleTableRefresh(tab.id, params)}
                           tableContext={
                             tab.connectionId && tab.database && tab.tableName && tab.driver
                               ? {
