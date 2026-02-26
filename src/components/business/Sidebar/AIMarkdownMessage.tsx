@@ -51,8 +51,11 @@ function CodeBlock({
         <Copy className="h-3.5 w-3.5" />
         Copy
       </Button>
-      <pre className="overflow-x-auto rounded-lg border border-border/70 bg-muted/40 p-3 text-sm leading-6">
-        <code className={cn("font-mono text-foreground", className)} {...props}>
+      <pre className="w-full min-w-0 max-w-full overflow-x-auto rounded-lg border border-border/70 bg-muted/40 p-3 text-sm leading-6">
+        <code
+          className={cn("block whitespace-pre-wrap break-words font-mono text-foreground", className)}
+          {...props}
+        >
           {rawCode}
         </code>
       </pre>
@@ -64,7 +67,7 @@ export function AIMarkdownMessage({ content, className }: AIMarkdownMessageProps
   return (
     <div
       className={cn(
-        "max-w-full text-sm leading-7 text-foreground",
+        "w-full min-w-0 max-w-full overflow-hidden text-sm leading-7 text-foreground",
         className,
       )}
     >
@@ -74,29 +77,31 @@ export function AIMarkdownMessage({ content, className }: AIMarkdownMessageProps
           h1: ({ children }) => <h1 className="text-lg">{children}</h1>,
           h2: ({ children }) => <h2 className="text-base">{children}</h2>,
           h3: ({ children }) => <h3 className="text-sm">{children}</h3>,
-          p: ({ children }) => <p>{children}</p>,
-          ul: ({ children }) => <ul className="list-disc pl-6">{children}</ul>,
-          ol: ({ children }) => <ol className="list-decimal pl-6">{children}</ol>,
-          li: ({ children }) => <li>{children}</li>,
+          p: ({ children }) => <p className="break-words">{children}</p>,
+          ul: ({ children }) => <ul className="list-disc break-words pl-6">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal break-words pl-6">{children}</ol>,
+          li: ({ children }) => <li className="break-words">{children}</li>,
           blockquote: ({ children }) => (
-            <blockquote className="my-3 border-l-2 border-border pl-3 text-muted-foreground">
+            <blockquote className="my-3 break-words border-l-2 border-border pl-3 text-muted-foreground">
               {children}
             </blockquote>
           ),
           table: ({ children }) => (
-            <div className="my-3 overflow-x-auto">
-              <table className="w-full min-w-[420px] border-collapse text-left text-xs">
+            <div className="my-3 w-full min-w-0 overflow-x-auto">
+              <table className="w-full min-w-0 table-fixed border-collapse text-left text-xs">
                 {children}
               </table>
             </div>
           ),
           th: ({ children }) => (
-            <th className="border border-border/70 bg-muted/50 px-2 py-1.5 font-semibold">
+            <th className="break-words border border-border/70 bg-muted/50 px-2 py-1.5 font-semibold">
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td className="border border-border/70 px-2 py-1.5 align-top">{children}</td>
+            <td className="break-words border border-border/70 px-2 py-1.5 align-top">
+              {children}
+            </td>
           ),
           code: CodeBlock,
           a: ({ children, href }) => (

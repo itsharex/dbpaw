@@ -9,8 +9,8 @@ export interface ChatMessageItemProps {
 export function ChatMessageItem({ message, variant }: ChatMessageItemProps) {
   if (variant === "user") {
     return (
-      <div className="ml-auto max-w-[86%] rounded-xl border border-border/80 bg-muted/40 px-3 py-2">
-        <div className="whitespace-pre-wrap text-sm leading-6 text-foreground">
+      <div className="ml-auto min-w-0 max-w-[86%] rounded-xl border border-border/80 bg-muted/40 px-3 py-2">
+        <div className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
           {message.content}
         </div>
       </div>
@@ -18,9 +18,6 @@ export function ChatMessageItem({ message, variant }: ChatMessageItemProps) {
   }
 
   return (
-    <AIMarkdownMessage
-      content={message.content}
-      className="max-w-[92%] rounded-md border border-border/50 bg-background/80 px-1"
-    />
+    <AIMarkdownMessage content={message.content} className="min-w-0 w-full max-w-full" />
   );
 }

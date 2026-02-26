@@ -33,35 +33,37 @@ export function ChatComposer({
   onProviderChange,
 }: ChatComposerProps) {
   return (
-    <div className="shrink-0 border-t border-border/70 p-3">
-      <div className="rounded-xl border border-border/80 bg-muted/20 p-2">
+    <div className="shrink-0 min-w-0 border-t border-border/70 p-3">
+      <div className="min-w-0 rounded-xl border border-border/80 bg-muted/20 p-2">
         <Textarea
           placeholder="Describe SQL to generate or optimize..."
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
           onKeyDown={onKeyDown}
-          className="min-h-[84px] resize-none border-0 bg-transparent px-2 py-1 shadow-none focus-visible:ring-0"
+          className="min-h-[84px] w-full min-w-0 resize-none border-0 bg-transparent px-2 py-1 shadow-none focus-visible:ring-0"
           rows={3}
         />
-        <div className="mt-2 flex items-center justify-between gap-2 border-t border-border/70 px-1 pt-2">
-          <Select value={selectedProviderId} onValueChange={onProviderChange}>
-            <SelectTrigger className="h-8 w-full max-w-[72%] border-border/70 bg-background text-xs">
-              <SelectValue placeholder="Select AI provider" />
-            </SelectTrigger>
-            <SelectContent align="start">
-              {providers.map((p) => (
-                <SelectItem key={p.id} value={String(p.id)}>
-                  {p.name} / {p.model}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="mt-2 flex min-w-0 items-center gap-2 border-t border-border/70 px-1 pt-2">
+          <div className="min-w-0 flex-1">
+            <Select value={selectedProviderId} onValueChange={onProviderChange}>
+              <SelectTrigger className="h-8 w-full min-w-0 border-border/70 bg-background text-xs">
+                <SelectValue placeholder="Select AI provider" />
+              </SelectTrigger>
+              <SelectContent align="start">
+                {providers.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>
+                    {p.name} / {p.model}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <Button
             type="button"
             onClick={onSend}
             disabled={!input.trim() || isLoading || !selectedProviderId}
             size="icon"
-            className="h-8 w-8 rounded-lg"
+            className="h-8 w-8 shrink-0 rounded-lg"
             title="Send"
             aria-label="Send message"
           >

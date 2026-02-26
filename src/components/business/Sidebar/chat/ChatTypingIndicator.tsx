@@ -10,7 +10,7 @@ export function ChatTypingIndicator({
   streamStatus,
 }: ChatTypingIndicatorProps) {
   return (
-    <div className="max-w-[92%]">
+    <div className="min-w-0 w-full max-w-full">
       <AIMarkdownMessage content={streamingContent || streamStatus || "Thinking..."} />
     </div>
   );
