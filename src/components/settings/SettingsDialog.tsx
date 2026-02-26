@@ -26,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import packageJson from "../../../package.json";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -75,6 +76,9 @@ const AI_PROVIDER_OPTIONS_BY_TYPE = AI_PROVIDER_OPTIONS.reduce(
 
 const isAIProviderType = (value: string): value is AIProviderType =>
   value === "openai" || value === "kimi" || value === "glm";
+
+const GITHUB_URL = "https://github.com/codeErrorSleep/dbpaw";
+const APP_VERSION = packageJson.version;
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const { theme, setTheme, accentColor, setAccentColor } = useTheme();
@@ -378,7 +382,39 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 </div>
 
                 <div className="rounded-md border p-3 text-xs text-muted-foreground">
-                  Configured providers: {providers.length}/3
+                  <div>Configured providers: {providers.length}/3</div>
+                  <div className="mt-2 border-t border-border/60 pt-2">
+                    <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/90">
+                      Configured details
+                    </div>
+                    {providers.length > 0 ? (
+                      <div className="space-y-1">
+                        {providers.map((provider) => {
+                          const label =
+                            AI_PROVIDER_OPTIONS_BY_TYPE[provider.providerType]?.label ||
+                            provider.name ||
+                            provider.providerType;
+                          return (
+                            <div
+                              key={provider.id}
+                              className="flex items-center justify-between gap-2 rounded-sm bg-muted/40 px-2 py-1"
+                            >
+                              <span className="truncate">
+                                {label} · {provider.model}
+                              </span>
+                              {provider.isDefault && (
+                                <span className="shrink-0 rounded border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                  Default
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div>No providers configured yet</div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -391,11 +427,28 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 <div className="bg-muted/50 rounded-lg p-4 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-medium">DbPaw</span>
-                    <span className="text-sm text-muted-foreground">v0.1.0</span>
+                    <span className="text-sm text-muted-foreground">v{APP_VERSION}</span>
                   </div>
                   <p className="text-sm text-muted-foreground">
                     A modern database management tool providing a smooth development experience.
                   </p>
+                  <div className="grid grid-cols-[88px_1fr] gap-x-2 gap-y-1 text-xs text-muted-foreground pt-1">
+                    <span className="font-medium text-foreground/90">GitHub</span>
+                    <a
+                      href={GITHUB_URL}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="truncate underline-offset-4 hover:underline"
+                    >
+                      {GITHUB_URL}
+                    </a>
+                    <span className="font-medium text-foreground/90">Tech</span>
+                    <span>Tauri + React + TypeScript</span>
+                    <span className="font-medium text-foreground/90">License</span>
+                    <span>MIT</span>
+                    <span className="font-medium text-foreground/90">Platforms</span>
+                    <span>macOS / Windows / Linux</span>
+                  </div>
                 </div>
               </div>
             )}
