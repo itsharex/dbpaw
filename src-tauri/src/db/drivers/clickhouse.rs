@@ -43,6 +43,21 @@ struct ClickHouseJsonResponse {
     rows: Option<u64>,
 }
 
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+struct ClickHouseSummary {
+    read_rows: Option<i64>,
+    written_rows: Option<i64>,
+    result_rows: Option<i64>,
+    total_rows_to_read: Option<i64>,
+}
+
+#[derive(Debug)]
+struct ClickHouseRawResponse {
+    body: String,
+    summary: Option<ClickHouseSummary>,
+}
+
 fn build_config(form: &ConnectionForm) -> Result<ClickHouseConfig, String> {
     let host = form
         .host
@@ -191,6 +206,40 @@ fn value_to_string(v: &Value) -> Option<String> {
     }
 }
 
+fn parse_summary_header(headers: &reqwest::header::HeaderMap) -> Option<ClickHouseSummary> {
+    let header = headers.get("X-ClickHouse-Summary")?;
+    let text = header.to_str().ok()?;
+    serde_json::from_str::<ClickHouseSummary>(text).ok()
+}
+
+fn raw_text_to_query_result(body: String, time_taken_ms: i64) -> QueryResult {
+    let trimmed = body.trim_end().to_string();
+    if trimmed.is_empty() {
+        return QueryResult {
+            data: vec![],
+            row_count: 0,
+            columns: vec![],
+            time_taken_ms,
+            success: true,
+            error: None,
+        };
+    }
+
+    let mut row = serde_json::Map::new();
+    row.insert("result".to_string(), Value::String(trimmed));
+    QueryResult {
+        data: vec![Value::Object(row)],
+        row_count: 1,
+        columns: vec![QueryColumn {
+            name: "result".to_string(),
+            r#type: "String".to_string(),
+        }],
+        time_taken_ms,
+        success: true,
+        error: None,
+    }
+}
+
 impl ClickHouseDriver {
     pub async fn connect(form: &ConnectionForm) -> Result<Self, String> {
         let mut dsn_form = form.clone();
@@ -219,7 +268,7 @@ impl ClickHouseDriver {
         })
     }
 
-    async fn execute_raw(&self, sql: &str) -> Result<String, String> {
+    async fn execute_raw(&self, sql: &str) -> Result<ClickHouseRawResponse, String> {
         let response = self
             .client
             .post(&self.base_url)
@@ -231,6 +280,7 @@ impl ClickHouseDriver {
             .map_err(|e| format!("[QUERY_ERROR] HTTP request failed: {e}"))?;
 
         let status = response.status();
+        let summary = parse_summary_header(response.headers());
         let body = response
             .text()
             .await
@@ -241,11 +291,12 @@ impl ClickHouseDriver {
             return Err(format!("[QUERY_ERROR] HTTP {}: {}", status, message));
         }
 
-        Ok(body)
+        Ok(ClickHouseRawResponse { body, summary })
     }
 
     async fn execute_json(&self, sql: &str) -> Result<ClickHouseJsonResponse, String> {
-        let body = self.execute_raw(sql).await?;
+        let raw = self.execute_raw(sql).await?;
+        let body = raw.body;
         serde_json::from_str::<ClickHouseJsonResponse>(&body).map_err(|e| {
             let snippet = if body.len() > 240 {
                 format!("{}...", &body[..240])
@@ -254,6 +305,25 @@ impl ClickHouseDriver {
             };
             format!("[PARSE_ERROR] Failed to parse ClickHouse JSON response: {} | body: {}", e, snippet)
         })
+    }
+
+    async fn estimate_total_rows(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<Option<i64>, String> {
+        let sql = format!(
+            "SELECT total_rows FROM system.tables WHERE database = {} AND name = {} FORMAT JSON",
+            quote_literal(schema),
+            quote_literal(table)
+        );
+        let resp = self.execute_json(&sql).await?;
+        let total = resp
+            .data
+            .first()
+            .and_then(|v| v.get("total_rows"))
+            .and_then(value_to_i64);
+        Ok(total.filter(|v| *v >= 0))
     }
 }
 
@@ -477,17 +547,36 @@ impl DatabaseDriver for ClickHouseDriver {
             _ => String::new(),
         };
 
-        let count_sql = format!(
-            "SELECT count() AS total FROM {}{} FORMAT JSON",
-            qualified, where_clause
-        );
-        let count_resp = self.execute_json(&count_sql).await?;
-        let total = count_resp
-            .data
-            .first()
-            .and_then(|v| v.get("total"))
-            .and_then(value_to_i64)
-            .unwrap_or(0);
+        let total = if where_clause.is_empty() {
+            match self.estimate_total_rows(&target_schema, &table).await? {
+                Some(estimated) => estimated,
+                None => {
+                    let count_sql = format!(
+                        "SELECT count() AS total FROM {}{} FORMAT JSON",
+                        qualified, where_clause
+                    );
+                    let count_resp = self.execute_json(&count_sql).await?;
+                    count_resp
+                        .data
+                        .first()
+                        .and_then(|v| v.get("total"))
+                        .and_then(value_to_i64)
+                        .unwrap_or(0)
+                }
+            }
+        } else {
+            let count_sql = format!(
+                "SELECT count() AS total FROM {}{} FORMAT JSON",
+                qualified, where_clause
+            );
+            let count_resp = self.execute_json(&count_sql).await?;
+            count_resp
+                .data
+                .first()
+                .and_then(|v| v.get("total"))
+                .and_then(value_to_i64)
+                .unwrap_or(0)
+        };
 
         let order_clause = if let Some(ref ob) = order_by {
             if ob.trim().is_empty() {
@@ -575,9 +664,12 @@ impl DatabaseDriver for ClickHouseDriver {
 
         if should_fetch_rows {
             if has_format_clause(&sql) && !is_json_format(&sql) {
-                return Err(
-                    "[UNSUPPORTED] Non-JSON FORMAT is not supported in query mode. Remove FORMAT or use FORMAT JSON.".to_string(),
-                );
+                let raw = self.execute_raw(&sql).await?;
+                let duration = start.elapsed();
+                return Ok(raw_text_to_query_result(
+                    raw.body,
+                    duration.as_millis() as i64,
+                ));
             }
 
             let query_sql = ensure_json_format(&sql);
@@ -604,11 +696,18 @@ impl DatabaseDriver for ClickHouseDriver {
             });
         }
 
-        self.execute_raw(&sql).await?;
+        let raw = self.execute_raw(&sql).await?;
+        let summary = raw.summary.unwrap_or_default();
+        let affected = summary
+            .written_rows
+            .or(summary.result_rows)
+            .or(summary.read_rows)
+            .or(summary.total_rows_to_read)
+            .unwrap_or(0);
         let duration = start.elapsed();
         Ok(QueryResult {
             data: vec![],
-            row_count: 0,
+            row_count: affected,
             columns: vec![],
             time_taken_ms: duration.as_millis() as i64,
             success: true,
