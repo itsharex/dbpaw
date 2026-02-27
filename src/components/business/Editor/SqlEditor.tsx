@@ -206,6 +206,7 @@ export function SqlEditor({
         postgresql: "postgresql",
         mysql: "mysql",
         sqlite: "sqlite",
+        clickhouse: "sql",
       };
       const language = ((driver && dialectMap[driver]) || "sql") as any;
       const formatted = format(code, {
@@ -331,6 +332,7 @@ export function SqlEditor({
       case "postgres": return PostgreSQL;
       case "mysql": return MySQL;
       case "sqlite": return SQLite;
+      case "clickhouse": return StandardSQL;
       default: return StandardSQL;
     }
   }, [driver]);

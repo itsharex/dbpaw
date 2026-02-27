@@ -1,7 +1,8 @@
 export const FAQS = [
   {
     question: 'Which databases are currently supported?',
-    answer: 'DbPaw currently supports PostgreSQL and MySQL, with more drivers planned in future updates.'
+    answer:
+      'DbPaw currently supports PostgreSQL, MySQL, SQLite, and ClickHouse (Preview, Read-only), with more drivers planned in future updates.'
   },
   {
     question: 'Does DbPaw work with remote databases?',

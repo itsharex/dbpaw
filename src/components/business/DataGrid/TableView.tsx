@@ -357,7 +357,8 @@ export function TableView({
     setSaveError(null);
   }, [data, page]);
 
-  const isEditable = !!tableContext && primaryKeys.length > 0;
+  const isReadOnlyDriver = tableContext?.driver === "clickhouse";
+  const isEditable = !!tableContext && !isReadOnlyDriver && primaryKeys.length > 0;
   const hasPendingChanges = pendingChanges.size > 0;
 
   // --- Cell interaction handlers ---
@@ -452,7 +453,7 @@ export function TableView({
   // MySQL uses backticks, PostgreSQL uses double quotes
   const quoteIdent = useCallback(
     (name: string): string => {
-      if (tableContext?.driver === "mysql") {
+      if (tableContext?.driver === "mysql" || tableContext?.driver === "clickhouse") {
         return `\`${name}\``;
       }
       return `"${name}"`;
@@ -1030,8 +1031,8 @@ export function TableView({
                   }}
                 />
               </div>
-              {tableContext && !isEditable && primaryKeys.length === 0 && (
-                <span className="text-xs text-muted-foreground italic" title="This table has no primary key and does not support inline editing">
+              {tableContext && !isEditable && (primaryKeys.length === 0 || isReadOnlyDriver) && (
+                <span className="text-xs text-muted-foreground italic" title={isReadOnlyDriver ? "ClickHouse is read-only in this version." : "This table has no primary key and does not support inline editing"}>
                   Read-only
                 </span>
               )}
@@ -1039,8 +1040,8 @@ export function TableView({
           ) : (
             tableContext &&
             !isEditable &&
-            primaryKeys.length === 0 && (
-              <span className="text-xs text-muted-foreground italic" title="This table has no primary key and does not support inline editing">
+            (primaryKeys.length === 0 || isReadOnlyDriver) && (
+              <span className="text-xs text-muted-foreground italic" title={isReadOnlyDriver ? "ClickHouse is read-only in this version." : "This table has no primary key and does not support inline editing"}>
                 Read-only
               </span>
             )
@@ -1283,44 +1284,46 @@ export function TableView({
                         >
                           Copy as Insert SQL
                         </ContextMenuItem>
-                        <ContextMenuItem
-                          onClick={() => {
-                            if (!tableContext || primaryKeys.length === 0) return;
-                            const { schema, table, driver } = tableContext;
-                            const tableName =
-                              driver === "mysql"
-                                ? `${quoteIdent(table)}`
-                                : `${quoteIdent(schema)}.${quoteIdent(table)}`;
+                        {isEditable && (
+                          <ContextMenuItem
+                            onClick={() => {
+                              if (!tableContext || primaryKeys.length === 0) return;
+                              const { schema, table, driver } = tableContext;
+                              const tableName =
+                                driver === "mysql"
+                                  ? `${quoteIdent(table)}`
+                                  : `${quoteIdent(schema)}.${quoteIdent(table)}`;
 
-                            const setClauses = columns.map((col) => {
-                              const val = getCellDisplayValue(rowIndex, col, row[col]);
-                              const formattedValue = formatSQLValue(
-                                val === null || val === undefined ? "" : String(val),
-                                row[col],
-                                "copy"
-                              );
-                              return `${quoteIdent(col)} = ${formattedValue}`;
-                            });
+                              const setClauses = columns.map((col) => {
+                                const val = getCellDisplayValue(rowIndex, col, row[col]);
+                                const formattedValue = formatSQLValue(
+                                  val === null || val === undefined ? "" : String(val),
+                                  row[col],
+                                  "copy"
+                                );
+                                return `${quoteIdent(col)} = ${formattedValue}`;
+                              });
 
-                            const whereClauses = primaryKeys.map((pk) => {
-                              const pkValue = row[pk];
-                              if (pkValue === null || pkValue === undefined) {
-                                return `${quoteIdent(pk)} IS NULL`;
-                              }
-                              if (typeof pkValue === "number") {
-                                return `${quoteIdent(pk)} = ${pkValue}`;
-                              }
-                              return `${quoteIdent(pk)} = '${escapeSQL(String(pkValue))}'`;
-                            });
+                              const whereClauses = primaryKeys.map((pk) => {
+                                const pkValue = row[pk];
+                                if (pkValue === null || pkValue === undefined) {
+                                  return `${quoteIdent(pk)} IS NULL`;
+                                }
+                                if (typeof pkValue === "number") {
+                                  return `${quoteIdent(pk)} = ${pkValue}`;
+                                }
+                                return `${quoteIdent(pk)} = '${escapeSQL(String(pkValue))}'`;
+                              });
 
-                            const sql = `UPDATE ${tableName} SET ${setClauses.join(
-                              ", "
-                            )} WHERE ${whereClauses.join(" AND ")};`;
-                            handleCopy(sql);
-                          }}
-                        >
-                          Copy as Update SQL
-                        </ContextMenuItem>
+                              const sql = `UPDATE ${tableName} SET ${setClauses.join(
+                                ", "
+                              )} WHERE ${whereClauses.join(" AND ")};`;
+                              handleCopy(sql);
+                            }}
+                          >
+                            Copy as Update SQL
+                          </ContextMenuItem>
+                        )}
                       </ContextMenuSubContent>
                     </ContextMenuSub>
                   </ContextMenuContent>

@@ -138,6 +138,8 @@ const getConnectionIcon = (driver: Driver | string): React.ReactNode => {
     case "sqlite":
     case "sqlite3":
       return renderSimpleIcon(siSqlite);
+    case "clickhouse":
+      return <Database className="w-4 h-4" />;
     default:
       return <Server className="w-4 h-4" />;
   }
@@ -827,6 +829,8 @@ export function ConnectionList({
                               ? 5432
                               : v === "mysql"
                                 ? 3306
+                                : v === "clickhouse"
+                                  ? 8123
                                 : f.port,
                         }))
                       }
@@ -838,6 +842,7 @@ export function ConnectionList({
                         <SelectItem value="postgres">PostgreSQL</SelectItem>
                         <SelectItem value="mysql">MySQL</SelectItem>
                         <SelectItem value="sqlite">SQLite</SelectItem>
+                        <SelectItem value="clickhouse">ClickHouse</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -873,7 +878,11 @@ export function ConnectionList({
                           <Input
                             id="port"
                             placeholder={
-                              form.driver === "postgres" ? "5432" : "3306"
+                              form.driver === "postgres"
+                                ? "5432"
+                                : form.driver === "mysql"
+                                  ? "3306"
+                                  : "8123"
                             }
                             value={String(form.port || "")}
                             onChange={(e) =>

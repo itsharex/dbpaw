@@ -400,7 +400,8 @@ export default function App() {
       return;
     }
     try {
-      const schema = driver === "mysql" ? database : "public";
+      const schema =
+        driver === "mysql" || driver === "clickhouse" ? database : "public";
 
       const resp = await api.tableData.get({
         id: connectionId,
@@ -500,7 +501,10 @@ export default function App() {
     const nextOrderBy = hasOwn("orderBy") ? overrides?.orderBy : tab.orderBy;
 
     try {
-      const schema = tab.driver === "mysql" ? tab.database : "public";
+      const schema =
+        tab.driver === "mysql" || tab.driver === "clickhouse"
+          ? tab.database
+          : "public";
       const resp = await api.tableData.get({
         id: tab.connectionId,
         schema: schema || "public",
@@ -538,7 +542,10 @@ export default function App() {
     if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
 
     try {
-      const schema = tab.driver === "mysql" ? tab.database : "public";
+      const schema =
+        tab.driver === "mysql" || tab.driver === "clickhouse"
+          ? tab.database
+          : "public";
       const resp = await api.tableData.get({
         id: tab.connectionId,
         schema: schema || "public",
@@ -573,7 +580,10 @@ export default function App() {
     if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
 
     try {
-      const schema = tab.driver === "mysql" ? tab.database : "public";
+      const schema =
+        tab.driver === "mysql" || tab.driver === "clickhouse"
+          ? tab.database
+          : "public";
       const resp = await api.tableData.get({
         id: tab.connectionId,
         schema: schema || "public",
@@ -617,7 +627,10 @@ export default function App() {
     );
 
     try {
-      const schema = tab.driver === "mysql" ? tab.database : "public";
+      const schema =
+        tab.driver === "mysql" || tab.driver === "clickhouse"
+          ? tab.database
+          : "public";
       const resp = await api.tableData.get({
         id: tab.connectionId,
         schema: schema || "public",
@@ -662,7 +675,10 @@ export default function App() {
     );
 
     try {
-      const schema = tab.driver === "mysql" ? tab.database : "public";
+      const schema =
+        tab.driver === "mysql" || tab.driver === "clickhouse"
+          ? tab.database
+          : "public";
       const resp = await api.tableData.get({
         id: tab.connectionId,
         schema: schema || "public",
@@ -1178,7 +1194,7 @@ export default function App() {
                                 connectionId: tab.connectionId,
                                 database: tab.database,
                                 schema:
-                                  tab.driver === "mysql"
+                                  tab.driver === "mysql" || tab.driver === "clickhouse"
                                     ? tab.database
                                     : "public",
                                 table: tab.tableName,

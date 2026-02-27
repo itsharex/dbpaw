@@ -177,7 +177,7 @@ pub struct TableDataResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionForm {
-    pub driver: String, // "postgres" | "mysql" | "sqlite"
+    pub driver: String, // "postgres" | "mysql" | "sqlite" | "clickhouse"
     pub name: Option<String>,
     pub host: Option<String>,
     pub port: Option<i64>,

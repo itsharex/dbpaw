@@ -44,7 +44,7 @@ export interface QueryResult {
   error?: string;
 }
 
-export type Driver = "postgres" | "sqlite" | "mysql";
+export type Driver = "postgres" | "sqlite" | "mysql" | "clickhouse";
 export interface ConnectionForm {
   driver: Driver;
   name?: string;

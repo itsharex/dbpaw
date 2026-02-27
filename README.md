@@ -14,7 +14,7 @@ English | [简体中文](README_CN.md)
 
 ## ✨ Features
 
-- **🔌 Multi-Database Support**: Connect to **PostgreSQL** and **MySQL** databases with ease.
+- **🔌 Multi-Database Support**: Connect to **PostgreSQL**, **MySQL**, **SQLite**, and **ClickHouse (Preview, Read-only)** with ease.
 - **🤖 AI-Powered Assistance**: Integrated AI sidebar to help you write complex SQL queries, explain execution plans, and optimize performance.
 - **🔒 Secure Connectivity**: Support for **SSH Tunneling** to securely access remote databases.
 - **📝 Advanced SQL Editor**:

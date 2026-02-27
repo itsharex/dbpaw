@@ -1,3 +1,4 @@
+use self::clickhouse::ClickHouseDriver;
 use self::mysql::MysqlDriver;
 use self::postgres::PostgresDriver;
 use self::sqlite::SqliteDriver;
@@ -7,6 +8,7 @@ use crate::models::{
 };
 use async_trait::async_trait;
 
+pub mod clickhouse;
 pub mod mysql;
 pub mod postgres;
 pub mod sqlite;
@@ -76,6 +78,10 @@ pub async fn connect(form: &ConnectionForm) -> Result<Box<dyn DatabaseDriver>, S
         }
         "sqlite" => {
             let driver = SqliteDriver::connect(form).await?;
+            Ok(Box::new(driver) as Box<dyn DatabaseDriver>)
+        }
+        "clickhouse" => {
+            let driver = ClickHouseDriver::connect(form).await?;
             Ok(Box::new(driver) as Box<dyn DatabaseDriver>)
         }
         _ => Err(format!(

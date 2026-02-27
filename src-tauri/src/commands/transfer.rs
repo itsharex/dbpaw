@@ -452,7 +452,7 @@ fn sql_value(value: &Value) -> String {
 }
 
 fn quote_ident(name: &str, driver: &str) -> String {
-    if driver.eq_ignore_ascii_case("mysql") {
+    if driver.eq_ignore_ascii_case("mysql") || driver.eq_ignore_ascii_case("clickhouse") {
         format!("`{}`", name.replace('`', "``"))
     } else {
         format!("\"{}\"", name.replace('"', "\"\""))
@@ -496,6 +496,10 @@ mod tests {
         );
         assert_eq!(
             quote_target(Some("analytics"), "events", "mysql"),
+            "`analytics`.`events`"
+        );
+        assert_eq!(
+            quote_target(Some("analytics"), "events", "clickhouse"),
             "`analytics`.`events`"
         );
     }
