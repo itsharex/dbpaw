@@ -410,7 +410,25 @@ export default function App() {
         page: 1,
         limit: 100,
       });
-      const columns = resp.data.length > 0 ? Object.keys(resp.data[0]) : [];
+      let columns = resp.data.length > 0 ? Object.keys(resp.data[0]) : [];
+
+      // If data is empty, fetch columns from metadata
+      if (columns.length === 0) {
+        try {
+          const meta = await api.metadata.getTableMetadata(
+            connectionId,
+            database,
+            schema,
+            table,
+          );
+          if (meta && meta.columns) {
+            columns = meta.columns.map((c) => c.name);
+          }
+        } catch (e) {
+          console.warn("Failed to fetch metadata for empty table:", e);
+        }
+      }
+
       const newTab: TabItem = {
         id: tabId,
         type: "table",
