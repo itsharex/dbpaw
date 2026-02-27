@@ -202,11 +202,16 @@ export interface AIConversationDetail {
 export interface AITableSummary {
   schema: string;
   name: string;
-  columns: { name: string; type: string }[];
+  columns: { name: string; type: string; nullable?: boolean }[];
 }
 
 export interface AISchemaOverview {
   tables: AITableSummary[];
+}
+
+export interface AISelectedTableRef {
+  schema: string;
+  name: string;
 }
 
 export interface AIChatRequest {
@@ -219,6 +224,7 @@ export interface AIChatRequest {
   connectionId?: number;
   database?: string;
   schemaOverview?: AISchemaOverview;
+  selectedTables?: AISelectedTableRef[];
 }
 
 export interface AIChatResponse {

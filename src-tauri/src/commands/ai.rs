@@ -2,8 +2,8 @@ use crate::ai::openai_compat::OpenAICompatProvider;
 use crate::ai::prompt::build_prompt_bundle;
 use crate::ai::provider::AIProvider;
 use crate::ai::types::{
-    AiChatMessage, AiChatRequest, AiChunkPayload, AiDonePayload, AiErrorPayload, AiStartResponse,
-    AiStartedPayload,
+    AiChatMessage, AiChatRequest, AiChunkPayload, AiColumnSummary, AiDonePayload, AiErrorPayload,
+    AiSchemaOverview, AiStartResponse, AiStartedPayload, AiTableSummary,
 };
 use crate::models::{AiConversation, AiMessage, AiProviderForm};
 use crate::state::AppState;
@@ -78,7 +78,7 @@ fn emit_ai_error(
     error: String,
 ) {
     let _ = app.emit(
-        "ai.error",
+        "ai/error",
         AiErrorPayload {
             request_id,
             conversation_id,
@@ -223,10 +223,54 @@ async fn run_chat(
         )
         .await?;
 
+    let mut schema_override: Option<AiSchemaOverview> = None;
+    let mut selection_hint = String::new();
+    if let (Some(conn_id), Some(selected)) = (request.connection_id, request.selected_tables.as_ref())
+    {
+        if !selected.is_empty() {
+            let driver =
+                super::ensure_connection_with_db(&state, conn_id, request.database.clone()).await?;
+            let mut tables: Vec<AiTableSummary> = Vec::new();
+            for t in selected {
+                let structure = driver
+                    .get_table_structure(t.schema.clone(), t.name.clone())
+                    .await?;
+                let columns = structure
+                    .columns
+                    .into_iter()
+                    .map(|c| AiColumnSummary {
+                        name: c.name,
+                        column_type: c.r#type,
+                        nullable: Some(c.nullable),
+                    })
+                    .collect();
+                tables.push(AiTableSummary {
+                    schema: t.schema.clone(),
+                    name: t.name.clone(),
+                    columns,
+                });
+            }
+            selection_hint = selected
+                .iter()
+                .map(|t| t.name.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            schema_override = Some(AiSchemaOverview { tables });
+        }
+    }
+
+    let input_for_prompt = if selection_hint.is_empty() {
+        request.input.clone()
+    } else {
+        format!("{} {}", request.input, selection_hint)
+    };
+
     let bundle = build_prompt_bundle(
         &request.scenario,
-        &request.input,
-        request.schema_overview.as_ref(),
+        &input_for_prompt,
+        schema_override
+            .as_ref()
+            .or_else(|| request.schema_overview.as_ref()),
     );
 
     let mut history: Vec<AiChatMessage> = Vec::new();
@@ -263,7 +307,7 @@ async fn run_chat(
     final_messages.extend(history);
 
     let _ = app.emit(
-        "ai.started",
+        "ai/started",
         AiStartedPayload {
             request_id: request.request_id.clone(),
             conversation_id: conversation.id,
@@ -275,7 +319,7 @@ async fn run_chat(
     let response = match provider
         .chat_stream(final_messages, |piece| {
             let _ = app.emit(
-                "ai.chunk",
+                "ai/chunk",
                 AiChunkPayload {
                     request_id: request.request_id.clone(),
                     conversation_id: conversation.id,
@@ -309,7 +353,7 @@ async fn run_chat(
     let _ = db.touch_ai_conversation(conversation.id).await;
 
     let _ = app.emit(
-        "ai.done",
+        "ai/done",
         AiDonePayload {
             request_id: request.request_id,
             conversation_id: conversation.id,

@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { AIHistoryPopover } from "./AIHistoryPopover";
 import { ChatComposer } from "./chat/ChatComposer";
 import { ChatMessageList } from "./chat/ChatMessageList";
+import { TableSelector, type SelectedTableRef } from "./chat/TableSelector";
 
 interface AISidebarProps {
   connectionId?: number;
@@ -56,6 +57,8 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [streamStatus, setStreamStatus] = useState("");
+  const [selectedTables, setSelectedTables] = useState<SelectedTableRef[]>([]);
+  const [availableTables, setAvailableTables] = useState<SelectedTableRef[]>([]);
 
   const requestIdRef = useRef<string>("");
   const errorNotifiedRef = useRef(false);
@@ -124,6 +127,34 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
   }, [connectionId, database]);
 
   useEffect(() => {
+    setSelectedTables([]);
+  }, [connectionId, database]);
+
+  useEffect(() => {
+    if (!connectionId) {
+      setAvailableTables([]);
+      return;
+    }
+    let cancelled = false;
+    api.metadata
+      .listTables(connectionId, database)
+      .then((items) => {
+        if (cancelled) return;
+        const tables = items.map((t) => ({ schema: t.schema, name: t.name }));
+        setAvailableTables(tables);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        console.error("Failed to load tables for AI selector", e);
+        const fallback = schemaOverview?.tables?.map((t) => ({ schema: t.schema, name: t.name })) || [];
+        setAvailableTables(fallback);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connectionId, database, schemaOverview]);
+
+  useEffect(() => {
     isLoadingRef.current = isLoading;
   }, [isLoading]);
 
@@ -165,18 +196,18 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
         });
     };
 
-    registerListener<AiStartedPayload>("ai.started", (evt) => {
+    registerListener<AiStartedPayload>("ai/started", (evt) => {
       if (evt.payload.requestId !== requestIdRef.current) return;
       setStreamStatus(`Request sent (${evt.payload.model}), waiting for first token...`);
     });
 
-    registerListener<AiChunkPayload>("ai.chunk", (evt) => {
+    registerListener<AiChunkPayload>("ai/chunk", (evt) => {
       if (evt.payload.requestId !== requestIdRef.current) return;
       setStreamStatus("Receiving response...");
       streamQueueRef.current += evt.payload.chunk;
     });
 
-    registerListener<AiDonePayload>("ai.done", (evt) => {
+    registerListener<AiDonePayload>("ai/done", (evt) => {
       if (evt.payload.requestId !== requestIdRef.current) return;
       setStreamStatus("Finalizing response...");
       setActiveConversationId(evt.payload.conversationId);
@@ -199,7 +230,7 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
       finish();
     });
 
-    registerListener<AiErrorPayload>("ai.error", (evt) => {
+    registerListener<AiErrorPayload>("ai/error", (evt) => {
       if (evt.payload.requestId !== requestIdRef.current) return;
       setIsLoading(false);
       setStreamingContent("");
@@ -297,6 +328,7 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
       connectionId,
       database,
       schemaOverview,
+      selectedTables,
     };
 
     try {
@@ -405,6 +437,17 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
           </Button>
         </div>
       </div>
+
+      {availableTables.length ? (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-2">
+          <TableSelector
+            tables={availableTables}
+            value={selectedTables}
+            onChange={setSelectedTables}
+            disabled={isLoading}
+          />
+        </div>
+      ) : null}
 
       <ChatMessageList
         messages={messages}
