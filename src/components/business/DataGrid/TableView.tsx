@@ -204,6 +204,7 @@ export function TableView({
   const [editValue, setEditValue] = useState<string>("");
   const [pendingChanges, setPendingChanges] = useState<Map<string, PendingChange>>(new Map());
   const [primaryKeys, setPrimaryKeys] = useState<string[]>([]);
+  const [columnComments, setColumnComments] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -328,6 +329,7 @@ export function TableView({
   useEffect(() => {
     if (!tableContext) {
       setPrimaryKeys([]);
+      setColumnComments({});
       return;
     }
     api.metadata
@@ -342,10 +344,20 @@ export function TableView({
           .filter((c) => c.primaryKey)
           .map((c) => c.name);
         setPrimaryKeys(pks);
+
+        const comments: Record<string, string> = {};
+        meta.columns.forEach((c) => {
+          const comment = c.comment?.trim();
+          if (comment) {
+            comments[c.name] = comment;
+          }
+        });
+        setColumnComments(comments);
       })
       .catch((e) => {
         console.error("Failed to fetch primary keys:", e);
         setPrimaryKeys([]);
+        setColumnComments({});
       });
   }, [tableContext?.connectionId, tableContext?.database, tableContext?.schema, tableContext?.table]);
 
@@ -1076,6 +1088,8 @@ export function TableView({
               {columns.map((column) => {
                 const isSorted = activeSortColumn === column;
                 const direction = isSorted ? activeSortDirection : undefined;
+                const comment = columnComments[column]?.trim();
+                const headerTooltip = comment || column;
                 return (
                   <th
                     key={column}
@@ -1094,7 +1108,7 @@ export function TableView({
                         className="flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors min-w-0 flex-1"
                         onClick={() => handleSortClick(column)}
                       >
-                        <span className="truncate" title={column}>
+                        <span className="truncate" title={headerTooltip}>
                           {column}
                         </span>
                         <span className="flex-shrink-0 w-3.5 h-3.5 flex items-center justify-center">
