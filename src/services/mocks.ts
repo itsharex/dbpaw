@@ -7,7 +7,6 @@ import {
   SavedQuery,
   ExportResult,
   AIProviderConfig,
-  AIProviderType,
   AIConversation,
   AIConversationDetail,
 } from "./api";
@@ -343,9 +342,6 @@ const mockAiMessages: Record<number, AIConversationDetail["messages"]> = {
     },
   ],
 };
-
-const isAIProviderType = (value: string): value is AIProviderType =>
-  value === "openai" || value === "kimi" || value === "glm";
 
 const mockDDL = `CREATE TABLE public.users (
   id integer NOT NULL,
@@ -895,9 +891,6 @@ export async function invokeMock<T>(cmd: string, args?: any): Promise<T> {
 
     case "ai_create_provider": {
       const requestedType = String(args.config.providerType || "openai");
-      if (!isAIProviderType(requestedType)) {
-        throw new Error("providerType must be one of: openai, kimi, glm");
-      }
 
       const now = new Date().toISOString();
       const isDefault = args.config.isDefault ?? true;
@@ -941,9 +934,6 @@ export async function invokeMock<T>(cmd: string, args?: any): Promise<T> {
       const requestedType = String(
         args.config.providerType || mockAiProviders[idx].providerType
       );
-      if (!isAIProviderType(requestedType)) {
-        throw new Error("providerType must be one of: openai, kimi, glm");
-      }
       const conflict = mockAiProviders.find(
         (p) => p.providerType === requestedType && p.id !== args.id
       );

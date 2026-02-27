@@ -39,7 +39,7 @@ export function AIHistoryPopover({
           <History className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[320px] p-2">
+      <PopoverContent align="end" className="w-[320px] max-w-[calc(100vw-24px)] p-2">
         <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
           Conversation History
         </div>
@@ -49,12 +49,12 @@ export function AIHistoryPopover({
           </div>
         ) : (
           <ScrollArea className="max-h-[60vh]">
-            <div className="space-y-1 pr-2">
+            <div className="space-y-1">
               {conversations.map((conversation) => (
                 <div
                   key={conversation.id}
                   className={cn(
-                    "group flex cursor-pointer items-start gap-2 rounded-md border border-transparent px-2 py-2 transition-colors",
+                    "group grid cursor-pointer grid-cols-[14px_minmax(0,1fr)_24px] items-start gap-2 overflow-hidden rounded-md border border-transparent px-2 py-2 transition-colors",
                     activeConversationId === conversation.id
                       ? "bg-accent text-accent-foreground"
                       : "hover:bg-muted/60",
@@ -66,7 +66,12 @@ export function AIHistoryPopover({
                 >
                   <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-medium">{conversation.title}</div>
+                    <div
+                      className="truncate text-xs font-medium"
+                      title={conversation.title}
+                    >
+                      {conversation.title}
+                    </div>
                     <div className="text-[11px] text-muted-foreground">
                       {formatDistanceToNow(new Date(conversation.updatedAt), {
                         addSuffix: true,
@@ -77,7 +82,7 @@ export function AIHistoryPopover({
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="h-6 w-6 shrink-0 rounded-md opacity-0 transition-opacity group-hover:opacity-100"
+                    className="h-6 w-6 shrink-0 rounded-md text-muted-foreground opacity-70 transition-opacity hover:opacity-100"
                     onClick={(event) => {
                       event.stopPropagation();
                       onDelete(conversation.id);

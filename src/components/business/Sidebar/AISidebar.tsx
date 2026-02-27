@@ -7,7 +7,6 @@ import {
   AIConversation,
   AIMessage,
   AIProviderConfig,
-  AIProviderType,
   isTauri,
 } from "@/services/api";
 import { isModKey } from "@/lib/keyboard";
@@ -47,9 +46,6 @@ interface AiErrorPayload {
   error: string;
 }
 
-const isAIProviderType = (value: string): value is AIProviderType =>
-  value === "openai" || value === "kimi" || value === "glm";
-
 export function AISidebar({ connectionId, database, schemaOverview }: AISidebarProps) {
   const [providers, setProviders] = useState<AIProviderConfig[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string>("");
@@ -79,7 +75,7 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
   const reloadProviders = async () => {
     try {
       const list = await api.ai.providers.list();
-      const available = list.filter((p) => p.enabled && isAIProviderType(p.providerType));
+      const available = list.filter((p) => p.enabled);
       setProviders(available);
       const defaultProvider = available.find((p) => p.isDefault) || available[0];
       setSelectedProviderId(defaultProvider ? String(defaultProvider.id) : "");

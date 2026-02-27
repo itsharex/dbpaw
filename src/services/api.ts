@@ -152,7 +152,7 @@ export interface AIProviderConfig {
   updatedAt: string;
 }
 
-export type AIProviderType = "openai" | "kimi" | "glm";
+export type AIProviderType = string;
 
 export interface AIProviderForm {
   name: string;

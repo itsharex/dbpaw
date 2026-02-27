@@ -17,12 +17,21 @@ pub struct AiConversationDetail {
     pub messages: Vec<AiMessage>,
 }
 
-fn normalize_provider_type(value: &str) -> Option<&'static str> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "openai" | "openai_compat" => Some("openai"),
-        "kimi" => Some("kimi"),
-        "glm" => Some("glm"),
-        _ => None,
+fn normalize_provider_type(value: &str) -> Result<String, String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return Err("providerType is required".to_string());
+    }
+    if normalized == "openai_compat" {
+        return Ok("openai".to_string());
+    }
+    if normalized
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' || ch == '.')
+    {
+        Ok(normalized)
+    } else {
+        Err("providerType has invalid format".to_string())
     }
 }
 
@@ -37,9 +46,8 @@ fn normalize_provider_form(
             None => return Ok(()),
         },
     };
-    let normalized = normalize_provider_type(raw)
-        .ok_or_else(|| "providerType must be one of: openai, kimi, glm".to_string())?;
-    form.provider_type = Some(normalized.to_string());
+    let normalized = normalize_provider_type(raw)?;
+    form.provider_type = Some(normalized);
     Ok(())
 }
 
