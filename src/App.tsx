@@ -400,11 +400,13 @@ export default function App() {
       return;
     }
     try {
-      const schema =
-        driver === "mysql" || driver === "clickhouse" ? database : "public";
+      const isMySQLLike = driver === "mysql" || driver === "clickhouse";
+      const schema = isMySQLLike ? database : "public";
+      const dbParam = isMySQLLike ? undefined : database;
 
       const resp = await api.tableData.get({
         id: connectionId,
+        database: dbParam,
         schema,
         table,
         page: 1,
@@ -568,12 +570,12 @@ export default function App() {
     if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
 
     try {
-      const schema =
-        tab.driver === "mysql" || tab.driver === "clickhouse"
-          ? tab.database
-          : "public";
+      const isMySQLLike = tab.driver === "mysql" || tab.driver === "clickhouse";
+      const schema = isMySQLLike ? tab.database : "public";
+      const dbParam = isMySQLLike ? undefined : tab.database;
       const resp = await api.tableData.get({
         id: tab.connectionId,
+        database: dbParam,
         schema: schema || "public",
         table: tab.tableName,
         page,
@@ -610,12 +612,12 @@ export default function App() {
     if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
 
     try {
-      const schema =
-        tab.driver === "mysql" || tab.driver === "clickhouse"
-          ? tab.database
-          : "public";
+      const isMySQLLike = tab.driver === "mysql" || tab.driver === "clickhouse";
+      const schema = isMySQLLike ? tab.database : "public";
+      const dbParam = isMySQLLike ? undefined : tab.database;
       const resp = await api.tableData.get({
         id: tab.connectionId,
+        database: dbParam,
         schema: schema || "public",
         table: tab.tableName,
         page: 1,
@@ -661,12 +663,12 @@ export default function App() {
     );
 
     try {
-      const schema =
-        tab.driver === "mysql" || tab.driver === "clickhouse"
-          ? tab.database
-          : "public";
+      const isMySQLLike = tab.driver === "mysql" || tab.driver === "clickhouse";
+      const schema = isMySQLLike ? tab.database : "public";
+      const dbParam = isMySQLLike ? undefined : tab.database;
       const resp = await api.tableData.get({
         id: tab.connectionId,
+        database: dbParam,
         schema: schema || "public",
         table: tab.tableName,
         page: 1, // Reset to first page on sort change
@@ -713,12 +715,12 @@ export default function App() {
     );
 
     try {
-      const schema =
-        tab.driver === "mysql" || tab.driver === "clickhouse"
-          ? tab.database
-          : "public";
+      const isMySQLLike = tab.driver === "mysql" || tab.driver === "clickhouse";
+      const schema = isMySQLLike ? tab.database : "public";
+      const dbParam = isMySQLLike ? undefined : tab.database;
       const resp = await api.tableData.get({
         id: tab.connectionId,
+        database: dbParam,
         schema: schema || "public",
         table: tab.tableName,
         page: 1, // Reset to first page on filter change
