@@ -62,22 +62,16 @@ const AI_PROVIDER_OPTIONS: AIProviderPreset[] = [
     model: "gpt-4.1-mini",
   },
   {
-    type: "anthropic",
-    label: "Anthropic",
-    baseUrl: "https://api.anthropic.com/v1",
-    model: "claude-3-5-sonnet-20241022",
-  },
-  {
     type: "gemini",
     label: "Gemini",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
     model: "gemini-2.0-flash",
   },
   {
-    type: "groq",
-    label: "Groq",
-    baseUrl: "https://api.groq.com/openai/v1",
-    model: "llama-3.3-70b-versatile",
+    type: "anthropic",
+    label: "Anthropic",
+    baseUrl: "https://api.anthropic.com/v1",
+    model: "claude-3-5-sonnet-20241022",
   },
   {
     type: "deepseek",
@@ -98,16 +92,22 @@ const AI_PROVIDER_OPTIONS: AIProviderPreset[] = [
     model: "moonshot-v1-8k",
   },
   {
-    type: "glm",
-    label: "GLM",
-    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
-    model: "glm-4-flash",
-  },
-  {
     type: "siliconflow",
     label: "SiliconFlow",
     baseUrl: "https://api.siliconflow.cn/v1",
     model: "Qwen/Qwen2.5-72B-Instruct",
+  },
+  {
+    type: "groq",
+    label: "Groq",
+    baseUrl: "https://api.groq.com/openai/v1",
+    model: "llama-3.3-70b-versatile",
+  },
+  {
+    type: "glm",
+    label: "GLM",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    model: "glm-4-flash",
   },
   {
     type: "openrouter",
