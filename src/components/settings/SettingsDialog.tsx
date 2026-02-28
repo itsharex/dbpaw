@@ -12,7 +12,7 @@ import {
   installAvailableUpdate,
   relaunchAfterUpdate,
 } from "@/services/updater";
-import { AIProviderConfig, AIProviderType, api } from "@/services/api";
+import { AIProviderConfig, AIProviderForm, AIProviderType, api } from "@/services/api";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -151,7 +151,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [providerModel, setProviderModel] = useState(
     AI_PROVIDER_OPTIONS[0].model,
   );
-  const [providerApiKey, setProviderApiKey] = useState("");
+  const [providerApiKeyInput, setProviderApiKeyInput] = useState("");
+  const [providerHasApiKey, setProviderHasApiKey] = useState(false);
+  const [showProviderApiKey, setShowProviderApiKey] = useState(false);
   const [fontSizeInput, setFontSizeInput] = useState(String(fontSizePx));
 
   const clampFontSize = (size: number) => {
@@ -196,7 +198,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     setSelectedProviderType(option.type);
     setProviderBaseUrl(existing?.baseUrl ?? option.baseUrl);
     setProviderModel(existing?.model ?? option.model);
-    setProviderApiKey(existing?.apiKey ?? "");
+    setProviderHasApiKey(existing?.hasApiKey ?? false);
+    setProviderApiKeyInput("");
+    setShowProviderApiKey(false);
   }
 
   const reloadProviders = async () => {
@@ -255,14 +259,6 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   };
 
   const handleSaveProvider = async () => {
-    if (
-      !providerBaseUrl.trim() ||
-      !providerModel.trim() ||
-      !providerApiKey.trim()
-    ) {
-      toast.error("Please fill all provider fields");
-      return;
-    }
     try {
       const selectedOption =
         AI_PROVIDER_OPTIONS_BY_TYPE[selectedProviderType] ??
@@ -270,15 +266,22 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       const existing = providers.find(
         (p) => p.providerType === selectedProviderType,
       );
-      const payload = {
+      const apiKey = providerApiKeyInput.trim();
+      const requireApiKey = !existing || !existing.hasApiKey;
+      if (!providerBaseUrl.trim() || !providerModel.trim() || (requireApiKey && !apiKey)) {
+        toast.error("Please fill all provider fields");
+        return;
+      }
+
+      const payload: AIProviderForm = {
         name: selectedOption.label,
         providerType: selectedProviderType,
         baseUrl: providerBaseUrl.trim(),
         model: providerModel.trim(),
-        apiKey: providerApiKey.trim(),
         enabled: true,
         isDefault: true,
-      } as const;
+        ...(apiKey ? { apiKey } : {}),
+      };
 
       if (existing) {
         await api.ai.providers.update(existing.id, payload);
@@ -292,6 +295,20 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       toast.success("AI provider saved");
     } catch (e) {
       toast.error("Failed to save AI provider", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    }
+  };
+
+  const handleClearProviderApiKey = async () => {
+    if (!providerHasApiKey) return;
+    try {
+      await api.ai.providers.clearApiKey(selectedProviderType);
+      const updated = await reloadProviders();
+      applyProviderToForm(selectedProviderType, updated);
+      toast.success("API key cleared");
+    } catch (e) {
+      toast.error("Failed to clear API key", {
         description: e instanceof Error ? e.message : String(e),
       });
     }
@@ -514,13 +531,37 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       value={providerModel}
                       onChange={(e) => setProviderModel(e.target.value)}
                     />
-                    <Input
-                      placeholder="API Key"
-                      value={providerApiKey}
-                      onChange={(e) => setProviderApiKey(e.target.value)}
-                    />
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="API Key"
+                        type={showProviderApiKey ? "text" : "password"}
+                        value={providerApiKeyInput}
+                        onChange={(e) => setProviderApiKeyInput(e.target.value)}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowProviderApiKey((v) => !v)}
+                      >
+                        {showProviderApiKey ? "Hide" : "Show"}
+                      </Button>
+                    </div>
+                    {providerHasApiKey && !providerApiKeyInput.trim() && (
+                      <div className="text-xs text-muted-foreground">
+                        API key saved. Leave blank to keep unchanged.
+                      </div>
+                    )}
                   </div>
                   <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleClearProviderApiKey}
+                      disabled={!providerHasApiKey}
+                    >
+                      Clear Key
+                    </Button>
                     <Button onClick={handleSaveProvider} className="flex-1">
                       Save Provider
                     </Button>

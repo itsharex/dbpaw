@@ -166,7 +166,7 @@ export interface AIProviderConfig {
   providerType: AIProviderType;
   baseUrl: string;
   model: string;
-  apiKey: string;
+  hasApiKey: boolean;
   isDefault: boolean;
   enabled: boolean;
   extraJson?: string | null;
@@ -181,7 +181,7 @@ export interface AIProviderForm {
   providerType?: AIProviderType;
   baseUrl: string;
   model: string;
-  apiKey: string;
+  apiKey?: string;
   isDefault?: boolean;
   enabled?: boolean;
   extraJson?: string;
@@ -431,6 +431,8 @@ export const api = {
       delete: (id: number) => invoke<void>("ai_delete_provider", { id }),
       setDefault: (id: number) =>
         invoke<void>("ai_set_default_provider", { id }),
+      clearApiKey: (providerType: string) =>
+        invoke<void>("ai_clear_provider_api_key", { provider_type: providerType }),
     },
     chat: {
       start: (request: AIChatRequest) =>

@@ -1,16 +1,24 @@
 use crate::models::{
-    AiConversation, AiMessage, AiProvider, AiProviderForm, Connection, ConnectionForm, SavedQuery,
-    SqlExecutionLog,
+    AiConversation, AiMessage, AiProvider, AiProviderForm, AiProviderPublic, Connection,
+    ConnectionForm, SavedQuery, SqlExecutionLog,
 };
+use aes_gcm::aead::Aead;
+use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+use base64::{engine::general_purpose, Engine as _};
+use rand::RngCore;
 use sqlx::{sqlite::SqlitePoolOptions, Pool, Row, Sqlite};
 use std::fs;
+use std::path::Path;
 use tauri::Manager;
 
 pub struct LocalDb {
     pool: Pool<Sqlite>,
+    ai_master_key: [u8; 32],
 }
 
 impl LocalDb {
+    const AI_KEY_PREFIX: &'static str = "enc:v1:";
+
     pub async fn init(app_handle: &tauri::AppHandle) -> Result<Self, String> {
         let app_dir = app_handle
             .path()
@@ -19,6 +27,7 @@ impl LocalDb {
         if !app_dir.exists() {
             fs::create_dir_all(&app_dir).map_err(|e| e.to_string())?;
         }
+        let ai_master_key = Self::load_or_create_ai_master_key(&app_dir)?;
         let db_path = app_dir.join("dbpaw.sqlite");
         let db_url = format!("sqlite://{}?mode=rwc", db_path.to_string_lossy());
 
@@ -163,7 +172,86 @@ impl LocalDb {
                 .map_err(|e| format!("[MIGRATION_010_ERROR] {e}"))?;
         }
 
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            ai_master_key,
+        })
+    }
+
+    pub fn encrypt_ai_api_key(&self, plaintext: &str) -> Result<String, String> {
+        Self::encrypt_ai_api_key_raw(&self.ai_master_key, plaintext)
+    }
+
+    pub fn decrypt_ai_api_key(&self, encrypted: &str) -> Result<String, String> {
+        Self::decrypt_ai_api_key_raw(&self.ai_master_key, encrypted)
+    }
+
+    pub fn has_encrypted_ai_api_key(value: &str) -> bool {
+        let trimmed = value.trim();
+        trimmed.starts_with(Self::AI_KEY_PREFIX) && trimmed.len() > Self::AI_KEY_PREFIX.len()
+    }
+
+    fn load_or_create_ai_master_key(app_dir: &Path) -> Result<[u8; 32], String> {
+        let key_path = app_dir.join("ai_master.key");
+        if key_path.exists() {
+            let bytes = fs::read(&key_path).map_err(|e| format!("[AI_MASTER_KEY_READ] {e}"))?;
+            if bytes.len() != 32 {
+                return Err("[AI_MASTER_KEY_INVALID] Invalid master key length".to_string());
+            }
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&bytes);
+            return Ok(key);
+        }
+
+        let mut key = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut key);
+        fs::write(&key_path, &key).map_err(|e| format!("[AI_MASTER_KEY_WRITE] {e}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perm = fs::Permissions::from_mode(0o600);
+            let _ = fs::set_permissions(&key_path, perm);
+        }
+        Ok(key)
+    }
+
+    fn encrypt_ai_api_key_raw(master_key: &[u8; 32], plaintext: &str) -> Result<String, String> {
+        let cipher =
+            Aes256Gcm::new_from_slice(master_key).map_err(|e| format!("[AI_KEY_CIPHER] {e}"))?;
+        let mut nonce_bytes = [0u8; 12];
+        rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ciphertext = cipher
+            .encrypt(nonce, plaintext.as_bytes())
+            .map_err(|e| format!("[AI_KEY_ENCRYPT] {e}"))?;
+
+        let mut payload = Vec::with_capacity(nonce_bytes.len() + ciphertext.len());
+        payload.extend_from_slice(&nonce_bytes);
+        payload.extend_from_slice(&ciphertext);
+        let encoded = general_purpose::STANDARD.encode(payload);
+        Ok(format!("{}{}", LocalDb::AI_KEY_PREFIX, encoded))
+    }
+
+    fn decrypt_ai_api_key_raw(master_key: &[u8; 32], encrypted: &str) -> Result<String, String> {
+        let trimmed = encrypted.trim();
+        if !trimmed.starts_with(LocalDb::AI_KEY_PREFIX) {
+            return Err("[AI_KEY_FORMAT] Missing encryption prefix".to_string());
+        }
+        let b64 = &trimmed[LocalDb::AI_KEY_PREFIX.len()..];
+        let payload = general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| format!("[AI_KEY_BASE64] {e}"))?;
+        if payload.len() < 13 {
+            return Err("[AI_KEY_FORMAT] Payload too short".to_string());
+        }
+        let (nonce_bytes, ciphertext) = payload.split_at(12);
+        let cipher =
+            Aes256Gcm::new_from_slice(master_key).map_err(|e| format!("[AI_KEY_CIPHER] {e}"))?;
+        let nonce = Nonce::from_slice(nonce_bytes);
+        let plaintext = cipher
+            .decrypt(nonce, ciphertext)
+            .map_err(|e| format!("[AI_KEY_DECRYPT] {e}"))?;
+        String::from_utf8(plaintext).map_err(|e| format!("[AI_KEY_UTF8] {e}"))
     }
 
     pub async fn create_connection(&self, form: ConnectionForm) -> Result<Connection, String> {
@@ -445,6 +533,34 @@ impl LocalDb {
         .map_err(|e| format!("[LIST_AI_PROVIDERS_ERROR] {e}"))
     }
 
+    pub async fn list_ai_providers_public(&self) -> Result<Vec<AiProviderPublic>, String> {
+        sqlx::query_as::<_, AiProviderPublic>(
+            "SELECT id, name, provider_type, base_url, model, CASE WHEN api_key LIKE 'enc:v1:%' THEN 1 ELSE 0 END AS has_api_key, is_default, enabled, extra_json, created_at, updated_at FROM ai_providers ORDER BY is_default DESC, updated_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("[LIST_AI_PROVIDERS_PUBLIC_ERROR] {e}"))
+    }
+
+    pub async fn get_ai_provider_public_by_id(&self, id: i64) -> Result<AiProviderPublic, String> {
+        sqlx::query_as::<_, AiProviderPublic>(
+            "SELECT id, name, provider_type, base_url, model, CASE WHEN api_key LIKE 'enc:v1:%' THEN 1 ELSE 0 END AS has_api_key, is_default, enabled, extra_json, created_at, updated_at FROM ai_providers WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("[GET_AI_PROVIDER_PUBLIC_ERROR] {e}"))
+    }
+
+    pub async fn clear_ai_provider_api_key(&self, provider_type: &str) -> Result<(), String> {
+        sqlx::query("UPDATE ai_providers SET api_key = '', updated_at = datetime('now') WHERE provider_type = ?")
+            .bind(provider_type)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| format!("[CLEAR_AI_PROVIDER_API_KEY_ERROR] {e}"))?;
+        Ok(())
+    }
+
     pub async fn get_ai_provider_by_id(&self, id: i64) -> Result<AiProvider, String> {
         sqlx::query_as::<_, AiProvider>(
             "SELECT id, name, provider_type, base_url, model, api_key, is_default, enabled, extra_json, created_at, updated_at FROM ai_providers WHERE id = ?",
@@ -470,6 +586,11 @@ impl LocalDb {
 
     pub async fn create_ai_provider(&self, form: AiProviderForm) -> Result<AiProvider, String> {
         let provider_type = form.provider_type.unwrap_or_else(|| "openai".to_string());
+        let api_key_plain = form.api_key.as_deref().unwrap_or("").trim();
+        if api_key_plain.is_empty() {
+            return Err("apiKey is required".to_string());
+        }
+        let api_key = self.encrypt_ai_api_key(api_key_plain)?;
         let has_default_provider: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM ai_providers WHERE is_default = 1 AND enabled = 1)",
         )
@@ -504,7 +625,7 @@ impl LocalDb {
                 .bind(form.name)
                 .bind(form.base_url)
                 .bind(form.model)
-                .bind(form.api_key)
+                .bind(api_key)
                 .bind(is_default)
                 .bind(enabled)
                 .bind(form.extra_json)
@@ -530,7 +651,7 @@ impl LocalDb {
                 .bind(provider_type)
                 .bind(form.base_url)
                 .bind(form.model)
-                .bind(form.api_key)
+                .bind(api_key)
                 .bind(is_default)
                 .bind(enabled)
                 .bind(form.extra_json)
@@ -553,6 +674,10 @@ impl LocalDb {
             .provider_type
             .clone()
             .unwrap_or(existing.provider_type.clone());
+        let api_key = match form.api_key.as_deref().map(str::trim) {
+            Some(v) if !v.is_empty() => self.encrypt_ai_api_key(v)?,
+            _ => existing.api_key.clone(),
+        };
         let is_default = form.is_default.unwrap_or(existing.is_default);
         let enabled = form.enabled.unwrap_or(existing.enabled);
         let extra_json = form.extra_json.clone().or(existing.extra_json.clone());
@@ -571,7 +696,7 @@ impl LocalDb {
         .bind(provider_type)
         .bind(form.base_url)
         .bind(form.model)
-        .bind(form.api_key)
+        .bind(api_key)
         .bind(is_default)
         .bind(enabled)
         .bind(extra_json)

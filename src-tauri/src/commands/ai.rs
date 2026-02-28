@@ -5,7 +5,7 @@ use crate::ai::types::{
     AiChatMessage, AiChatRequest, AiChunkPayload, AiColumnSummary, AiDonePayload, AiErrorPayload,
     AiSchemaOverview, AiStartResponse, AiStartedPayload, AiTableSummary,
 };
-use crate::models::{AiConversation, AiMessage, AiProviderForm};
+use crate::models::{AiConversation, AiMessage, AiProviderForm, AiProviderPublic};
 use crate::state::AppState;
 use std::sync::Arc;
 use tauri::{Emitter, State};
@@ -59,11 +59,11 @@ async fn get_db(state: &State<'_, AppState>) -> Result<Arc<crate::db::local::Loc
     local_db.ok_or_else(|| "Local DB not initialized".to_string())
 }
 
-fn provider_from_model(p: crate::models::AiProvider) -> OpenAICompatProvider {
+fn provider_from_model(p: crate::models::AiProvider, api_key: String) -> OpenAICompatProvider {
     OpenAICompatProvider {
         name: p.name,
         base_url: p.base_url,
-        api_key: p.api_key,
+        api_key,
         model: p.model,
         temperature: 0.1,
         max_tokens: 2048,
@@ -90,19 +90,20 @@ fn emit_ai_error(
 #[tauri::command]
 pub async fn ai_list_providers(
     state: State<'_, AppState>,
-) -> Result<Vec<crate::models::AiProvider>, String> {
+) -> Result<Vec<AiProviderPublic>, String> {
     let db = get_db(&state).await?;
-    db.list_ai_providers().await
+    db.list_ai_providers_public().await
 }
 
 #[tauri::command]
 pub async fn ai_create_provider(
     state: State<'_, AppState>,
     mut config: AiProviderForm,
-) -> Result<crate::models::AiProvider, String> {
+) -> Result<AiProviderPublic, String> {
     normalize_provider_form(&mut config, Some("openai"))?;
     let db = get_db(&state).await?;
-    db.create_ai_provider(config).await
+    let created = db.create_ai_provider(config).await?;
+    db.get_ai_provider_public_by_id(created.id).await
 }
 
 #[tauri::command]
@@ -110,10 +111,11 @@ pub async fn ai_update_provider(
     state: State<'_, AppState>,
     id: i64,
     mut config: AiProviderForm,
-) -> Result<crate::models::AiProvider, String> {
+) -> Result<AiProviderPublic, String> {
     normalize_provider_form(&mut config, None)?;
     let db = get_db(&state).await?;
-    db.update_ai_provider(id, config).await
+    let updated = db.update_ai_provider(id, config).await?;
+    db.get_ai_provider_public_by_id(updated.id).await
 }
 
 #[tauri::command]
@@ -126,6 +128,16 @@ pub async fn ai_delete_provider(state: State<'_, AppState>, id: i64) -> Result<(
 pub async fn ai_set_default_provider(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let db = get_db(&state).await?;
     db.set_default_ai_provider(id).await
+}
+
+#[tauri::command]
+pub async fn ai_clear_provider_api_key(
+    state: State<'_, AppState>,
+    provider_type: String,
+) -> Result<(), String> {
+    let provider_type = normalize_provider_type(&provider_type)?;
+    let db = get_db(&state).await?;
+    db.clear_ai_provider_api_key(&provider_type).await
 }
 
 #[tauri::command]
@@ -203,7 +215,13 @@ async fn run_chat(
         return Err(msg);
     }
 
-    let provider = provider_from_model(provider_record.clone());
+    let api_key = db
+        .decrypt_ai_api_key(&provider_record.api_key)
+        .map_err(|_| {
+            "AI provider apiKey is missing or invalid. Please re-save it in AI Provider settings."
+                .to_string()
+        })?;
+    let provider = provider_from_model(provider_record.clone(), api_key);
     if let Err(e) = provider.validate_config() {
         emit_ai_error(&app, request.request_id, request.conversation_id, e.clone());
         return Err(e);

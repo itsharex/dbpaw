@@ -132,6 +132,7 @@ pub fn run() {
             commands::ai::ai_update_provider,
             commands::ai::ai_delete_provider,
             commands::ai::ai_set_default_provider,
+            commands::ai::ai_clear_provider_api_key,
             commands::ai::ai_chat_start,
             commands::ai::ai_chat_continue,
             commands::ai::ai_list_conversations,
