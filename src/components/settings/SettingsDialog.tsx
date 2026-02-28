@@ -6,9 +6,12 @@ import {
   MAX_FONT_SIZE_PX,
 } from "@/components/theme-provider";
 import { useState, useEffect } from "react";
-import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { getSetting, saveSetting } from "@/services/store";
+import {
+  checkForUpdates,
+  installAvailableUpdate,
+  relaunchAfterUpdate,
+} from "@/services/updater";
 import { AIProviderConfig, AIProviderType, api } from "@/services/api";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
@@ -138,6 +141,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     useState<SettingsSection>("general");
   const [autoUpdate, setAutoUpdate] = useState(true);
   const [checking, setChecking] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const [providers, setProviders] = useState<AIProviderConfig[]>([]);
   const [selectedProviderType, setSelectedProviderType] =
     useState<AIProviderType>(AI_PROVIDER_OPTIONS[0].type);
@@ -206,27 +210,36 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   };
 
   const handleCheckUpdate = async () => {
+    if (checking || updating) return;
     setChecking(true);
     try {
-      const update = await check();
-      if (update?.available) {
-        toast.info(`New version ${update.version} available!`, {
+      const result = await checkForUpdates();
+      if (result.state === "available" && result.update) {
+        toast.info(`New version ${result.update.version} available!`, {
           action: {
             label: "Update",
             onClick: async () => {
+              if (updating) return;
               try {
+                setUpdating(true);
                 toast.info("Downloading update...");
-                await update.downloadAndInstall();
-                toast.success("Update installed, restarting...");
-                await relaunch();
+                const installResult = await installAvailableUpdate(result.update);
+                if (installResult.state === "ready_to_restart") {
+                  toast.success("Update installed, restarting...");
+                  await relaunchAfterUpdate();
+                } else {
+                  toast.info(installResult.message ?? "No update available.");
+                }
               } catch (e) {
                 toast.error("Failed to update");
+              } finally {
+                setUpdating(false);
               }
             },
           },
         });
       } else {
-        toast.success("You are on the latest version.");
+        toast.success(result.message ?? "You are on the latest version.");
       }
     } catch (error) {
       console.error(error);
@@ -456,9 +469,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     variant="outline"
                     className="w-full"
                     onClick={handleCheckUpdate}
-                    disabled={checking}
+                    disabled={checking || updating}
                   >
-                    {checking ? "Checking..." : "Check for updates now"}
+                    {checking
+                      ? "Checking..."
+                      : updating
+                        ? "Updating..."
+                        : "Check for updates now"}
                   </Button>
                 </div>
               </div>
