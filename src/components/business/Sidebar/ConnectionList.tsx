@@ -5,6 +5,9 @@ import {
   Server,
   ChevronRight,
   ChevronDown,
+  CircleDot,
+  CheckCircle2,
+  XCircle,
   Table,
   Key,
   Plus,
@@ -95,6 +98,8 @@ interface Connection {
   sshKeyPath?: string;
   databases: DatabaseInfo[];
   isConnected: boolean;
+  connectState: "idle" | "connecting" | "success" | "error";
+  connectError?: string;
 }
 
 const defaultForm: ConnectionForm = {
@@ -156,9 +161,13 @@ interface TreeNodeProps {
   label: string;
   isExpanded?: boolean;
   onToggle?: () => void;
+  canToggle?: boolean;
+  forceShowToggle?: boolean;
   toggleOnRowClick?: boolean;
   onDoubleClick?: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
+  leadingIndicator?: React.ReactNode;
+  statusIndicator?: React.ReactNode;
   actions?: React.ReactNode;
 }
 
@@ -169,12 +178,17 @@ const TreeNode = ({
   label,
   isExpanded,
   onToggle,
+  canToggle = true,
+  forceShowToggle = false,
   toggleOnRowClick = true,
   onDoubleClick,
   onContextMenu,
+  leadingIndicator,
+  statusIndicator,
   actions,
 }: TreeNodeProps) => {
   const hasChildren = children !== null && children !== undefined;
+  const showToggle = forceShowToggle || hasChildren;
 
   return (
     <div>
@@ -185,14 +199,21 @@ const TreeNode = ({
         onDoubleClick={onDoubleClick}
         onContextMenu={onContextMenu}
       >
-        {hasChildren && (
+        {leadingIndicator ? (
+          <span className="inline-flex w-4 items-center justify-center shrink-0">
+            {leadingIndicator}
+          </span>
+        ) : showToggle ? (
           <button
             type="button"
-            className="text-muted-foreground"
+            className={`text-muted-foreground ${!canToggle ? "opacity-50 cursor-not-allowed" : ""}`}
             onClick={(e) => {
               e.stopPropagation();
+              if (!canToggle) return;
               onToggle?.();
             }}
+            disabled={!canToggle}
+            aria-label={isExpanded ? "Collapse" : "Expand"}
           >
             {isExpanded ? (
               <ChevronDown className="w-4 h-4" />
@@ -200,10 +221,12 @@ const TreeNode = ({
               <ChevronRight className="w-4 h-4" />
             )}
           </button>
+        ) : (
+          <span className="w-4" />
         )}
-        {!hasChildren && <span className="w-4" />}
         <span className="text-muted-foreground">{icon}</span>
         <span className="flex-1 text-sm truncate">{label}</span>
+        {statusIndicator}
         {actions && (
           <span className="opacity-0 group-hover:opacity-100">{actions}</span>
         )}
@@ -348,6 +371,8 @@ export function ConnectionList({
           sshPassword: c.sshPassword || "",
           sshKeyPath: c.sshKeyPath || "",
           isConnected: false,
+          connectState: "idle",
+          connectError: undefined,
           databases: [],
         })),
       );
@@ -359,20 +384,19 @@ export function ConnectionList({
   };
 
   const toggleConnection = (id: string) => {
+    const connection = connections.find((conn) => conn.id === id);
+    if (!connection || connection.connectState !== "success") return;
+
     const newExpanded = new Set(expandedConnections);
     if (newExpanded.has(id)) {
       newExpanded.delete(id);
     } else {
       newExpanded.add(id);
-      const conn = connections.find((c) => c.id === id);
-      if (conn && !conn.isConnected) {
-        fetchAndSetDatabases(id);
-      }
     }
     setExpandedConnections(newExpanded);
   };
 
-  const fetchAndSetDatabases = async (connectionId: string) => {
+  const fetchAndSetDatabases = async (connectionId: string): Promise<boolean> => {
     try {
       const dbNames = await api.metadata.listDatabasesById(
         Number(connectionId),
@@ -383,6 +407,8 @@ export function ConnectionList({
           return {
             ...conn,
             isConnected: true,
+            connectState: "success",
+            connectError: undefined,
             databases: dbNames.map((name) => ({
               name,
               tables: [],
@@ -390,12 +416,83 @@ export function ConnectionList({
           };
         }),
       );
+      return true;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       const sanitizedMessage = sanitizeConnectionErrorMessage(message);
       console.error("listDatabasesById failed", message);
+      setConnections((prev) =>
+        prev.map((conn) => {
+          if (conn.id !== connectionId) return conn;
+          return {
+            ...conn,
+            isConnected: false,
+            connectState: "error",
+            connectError: sanitizedMessage || message,
+            databases: [],
+          };
+        }),
+      );
       toast.error("Failed to load databases", { description: sanitizedMessage || message });
+      return false;
     }
+  };
+
+  const connectConnection = async (
+    connectionId: string,
+    options?: { resetTree?: boolean },
+  ) => {
+    const target = connections.find((conn) => conn.id === connectionId);
+    if (!target || target.connectState === "connecting") return;
+
+    if (options?.resetTree) {
+      setExpandedConnections((prev) => {
+        const next = new Set(prev);
+        next.delete(connectionId);
+        return next;
+      });
+      setExpandedDatabases((prev) => {
+        const next = new Set(
+          [...prev].filter((key) => !key.startsWith(`${connectionId}-`)),
+        );
+        return next;
+      });
+      setExpandedTables((prev) => {
+        const next = new Set(
+          [...prev].filter((key) => !key.startsWith(`${connectionId}-`)),
+        );
+        return next;
+      });
+    }
+
+    setConnections((prev) =>
+      prev.map((conn) => {
+        if (conn.id !== connectionId) return conn;
+        return {
+          ...conn,
+          isConnected: false,
+          connectState: "connecting",
+          connectError: undefined,
+          databases: options?.resetTree ? [] : conn.databases,
+        };
+      }),
+    );
+
+    const ok = await fetchAndSetDatabases(connectionId);
+    if (ok) {
+      setExpandedConnections((prev) => {
+        const next = new Set(prev);
+        next.add(connectionId);
+        return next;
+      });
+      return;
+    }
+
+    setExpandedConnections((prev) => {
+      const next = new Set(prev);
+      next.delete(connectionId);
+      return next;
+    });
   };
 
   const fetchAndSetTables = async (
@@ -596,6 +693,8 @@ export function ConnectionList({
           sshPassword: "",
           sshKeyPath: res.sshKeyPath || "",
           isConnected: false,
+          connectState: "idle",
+          connectError: undefined,
           databases: [],
         },
         ...prev,
@@ -684,25 +783,7 @@ export function ConnectionList({
   };
 
   const handleReconnect = async (connectionId: string) => {
-    setConnections((prev) =>
-      prev.map((conn) => {
-        if (conn.id !== connectionId) return conn;
-        return { ...conn, isConnected: false, databases: [] };
-      }),
-    );
-    setExpandedDatabases((prev) => {
-      const next = new Set(
-        [...prev].filter((key) => !key.startsWith(`${connectionId}-`)),
-      );
-      return next;
-    });
-    setExpandedTables((prev) => {
-      const next = new Set(
-        [...prev].filter((key) => !key.startsWith(`${connectionId}-`)),
-      );
-      return next;
-    });
-    await fetchAndSetDatabases(connectionId);
+    await connectConnection(connectionId, { resetTree: true });
   };
 
   const handleDeleteConnection = async (connectionId: string) => {
@@ -788,6 +869,36 @@ export function ConnectionList({
         description: e instanceof Error ? e.message : String(e),
       });
     }
+  };
+
+  const getConnectionStatusLabel = (connection: Connection) => {
+    if (connection.connectState === "success") return "Connected";
+    if (connection.connectState === "error") {
+      if (connection.connectError) {
+        return `Connection failed: ${connection.connectError}`;
+      }
+      return "Connection failed";
+    }
+    if (connection.connectState === "connecting") return "Connecting";
+    return "Not connected";
+  };
+
+  const renderConnectionStatusIndicator = (connection: Connection) => {
+    if (connection.connectState === "success") {
+      return <CheckCircle2 className="h-3.5 w-3.5 text-green-500" aria-hidden="true" />;
+    }
+    if (connection.connectState === "error") {
+      return <XCircle className="h-3.5 w-3.5 text-red-500" aria-hidden="true" />;
+    }
+    if (connection.connectState === "connecting") {
+      return (
+        <Loader2
+          className="h-3.5 w-3.5 text-muted-foreground animate-spin"
+          aria-hidden="true"
+        />
+      );
+    }
+    return <CircleDot className="h-3.5 w-3.5 text-muted-foreground/60" aria-hidden="true" />;
   };
 
   return (
@@ -1210,7 +1321,11 @@ export function ConnectionList({
             icon={getConnectionIcon(connection.type)}
             label={connection.name}
             isExpanded={expandedConnections.has(connection.id)}
+            toggleOnRowClick={connection.connectState === "success"}
             onToggle={() => toggleConnection(connection.id)}
+            onDoubleClick={() => {
+              void connectConnection(connection.id);
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -1222,8 +1337,18 @@ export function ConnectionList({
                 type: "connection",
               });
             }}
+            leadingIndicator={
+              <span
+                className="inline-flex items-center justify-center shrink-0"
+                role="status"
+                aria-label={getConnectionStatusLabel(connection)}
+                title={getConnectionStatusLabel(connection)}
+              >
+                {renderConnectionStatusIndicator(connection)}
+              </span>
+            }
           >
-            {connection.isConnected ? (
+            {connection.connectState === "success" ? (
               <>
                 {connection.databases
                   .filter((database) => !["information_schema", "performance_schema"].includes(database.name.toLowerCase()))
