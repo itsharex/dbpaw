@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type TableMetadata } from "@/services/api";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Copy, Check } from "lucide-react";
+import { toast } from "sonner";
 import {
   Table,
   TableBody,
@@ -16,6 +19,43 @@ function extractCreateTableStatement(ddl: string): string {
 
   const match = trimmed.match(/create\s+table\b[\s\S]*?;/i);
   return (match?.[0] ?? trimmed).trim();
+}
+
+interface CopyButtonProps {
+  text: string | null;
+}
+
+function CopyButton({ text }: CopyButtonProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      toast.success("Copied");
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("Copy failed");
+    }
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={handleCopy}
+      disabled={!text}
+      className="h-7 px-2 text-xs"
+    >
+      {copied ? (
+        <Check className="h-3.5 w-3.5 mr-1" />
+      ) : (
+        <Copy className="h-3.5 w-3.5 mr-1" />
+      )}
+      {copied ? "Copied" : "Copy"}
+    </Button>
+  );
 }
 
 interface TableMetadataViewProps {
@@ -238,7 +278,10 @@ export function TableMetadataView({
       </section>
 
       <section className="space-y-2">
-        <div className="text-sm font-semibold">Create Table SQL</div>
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold">Create Table SQL</div>
+          <CopyButton text={ddl} />
+        </div>
         <div className="border border-border rounded-md bg-muted/10">
           {ddlLoading ? (
             <div className="p-3 text-sm text-muted-foreground">
