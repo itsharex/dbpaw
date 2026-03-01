@@ -72,36 +72,30 @@ fn skip_block_comment(bytes: &[u8], mut i: usize) -> usize {
     i
 }
 
-fn first_keyword(sql: &str) -> Option<String> {
-    let bytes = sql.as_bytes();
-    let mut i = 0;
+fn statement_kind_for_limit_guard(sql: &str) -> Option<&'static str> {
+    let tokens = collect_top_level_keywords(sql);
+    let first = tokens.first()?.as_str();
 
-    while i < bytes.len() {
-        let b = bytes[i];
-        if b.is_ascii_whitespace() || b == b';' {
-            i += 1;
-            continue;
-        }
-        if i + 1 < bytes.len() && b == b'-' && bytes[i + 1] == b'-' {
-            i = skip_line_comment(bytes, i);
-            continue;
-        }
-        if i + 1 < bytes.len() && b == b'/' && bytes[i + 1] == b'*' {
-            i = skip_block_comment(bytes, i);
-            continue;
-        }
-        break;
+    if first == "select" {
+        return Some("select");
+    }
+    if first != "with" {
+        return Some("non_select");
     }
 
-    if i >= bytes.len() || !bytes[i].is_ascii_alphabetic() {
-        return None;
+    for token in tokens.iter().skip(1) {
+        if token == "select" {
+            return Some("select");
+        }
+        if matches!(
+            token.as_str(),
+            "insert" | "update" | "delete" | "merge" | "replace" | "values"
+        ) {
+            return Some("non_select");
+        }
     }
 
-    let start = i;
-    while i < bytes.len() && bytes[i].is_ascii_alphabetic() {
-        i += 1;
-    }
-    Some(sql[start..i].to_ascii_lowercase())
+    Some("non_select")
 }
 
 fn is_single_statement(sql: &str) -> bool {
@@ -225,7 +219,140 @@ fn collect_top_level_keywords(sql: &str) -> Vec<String> {
 }
 
 fn has_top_level_limit(sql: &str) -> bool {
-    collect_top_level_keywords(sql).iter().any(|t| t == "limit")
+    fn is_reserved_after_limit(word: &str) -> bool {
+        matches!(
+            word,
+            "from"
+                | "where"
+                | "group"
+                | "having"
+                | "order"
+                | "union"
+                | "intersect"
+                | "except"
+                | "join"
+                | "left"
+                | "right"
+                | "inner"
+                | "outer"
+                | "cross"
+                | "on"
+                | "as"
+                | "asc"
+                | "desc"
+                | "limit"
+                | "offset"
+                | "fetch"
+        )
+    }
+
+    fn next_non_comment_token(bytes: &[u8], mut i: usize) -> Option<(bool, String)> {
+        while i < bytes.len() {
+            let b = bytes[i];
+            if b.is_ascii_whitespace() {
+                i += 1;
+                continue;
+            }
+            if i + 1 < bytes.len() && b == b'-' && bytes[i + 1] == b'-' {
+                i = skip_line_comment(bytes, i);
+                continue;
+            }
+            if i + 1 < bytes.len() && b == b'/' && bytes[i + 1] == b'*' {
+                i = skip_block_comment(bytes, i);
+                continue;
+            }
+
+            if b.is_ascii_alphabetic() || b == b'_' {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                    i += 1;
+                }
+                return Some((true, String::from_utf8_lossy(&bytes[start..i]).to_ascii_lowercase()));
+            }
+
+            if b.is_ascii_digit() {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+                    i += 1;
+                }
+                return Some((false, String::from_utf8_lossy(&bytes[start..i]).to_string()));
+            }
+
+            return Some((false, (b as char).to_string()));
+        }
+
+        None
+    }
+
+    let bytes = sql.as_bytes();
+    let mut i = 0;
+    let mut depth = 0_i32;
+
+    while i < bytes.len() {
+        let b = bytes[i];
+        if i + 1 < bytes.len() && b == b'-' && bytes[i + 1] == b'-' {
+            i = skip_line_comment(bytes, i);
+            continue;
+        }
+        if i + 1 < bytes.len() && b == b'/' && bytes[i + 1] == b'*' {
+            i = skip_block_comment(bytes, i);
+            continue;
+        }
+        if b == b'\'' {
+            i = skip_single_quote(bytes, i);
+            continue;
+        }
+        if b == b'"' {
+            i = skip_double_quote(bytes, i);
+            continue;
+        }
+        if b == b'`' {
+            i = skip_backtick_quote(bytes, i);
+            continue;
+        }
+        if b == b'(' {
+            depth += 1;
+            i += 1;
+            continue;
+        }
+        if b == b')' {
+            depth = (depth - 1).max(0);
+            i += 1;
+            continue;
+        }
+
+        if depth == 0 && (b.is_ascii_alphabetic() || b == b'_') {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+
+            if sql[start..i].eq_ignore_ascii_case("limit") {
+                if let Some((is_word, token)) = next_non_comment_token(bytes, i) {
+                    if is_word {
+                        if !is_reserved_after_limit(&token) {
+                            return true;
+                        }
+                    } else {
+                        let ch = token.as_bytes()[0];
+                        if ch.is_ascii_digit()
+                            || matches!(ch, b'?' | b':' | b'$' | b'@' | b'(' | b'+' | b'-')
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
+        i += 1;
+    }
+
+    false
 }
 
 fn has_top_level_fetch_first_next_rows_only(sql: &str) -> bool {
@@ -278,7 +405,7 @@ fn maybe_apply_default_limit(sql: &str) -> String {
     if !is_single_statement(normalized) {
         return sql.to_string();
     }
-    if first_keyword(normalized).as_deref() != Some("select") {
+    if statement_kind_for_limit_guard(normalized) != Some("select") {
         return sql.to_string();
     }
     if has_top_level_limit(normalized) {
@@ -526,6 +653,30 @@ mod tests {
     }
 
     #[test]
+    fn ignores_limit_column_name() {
+        assert_eq!(
+            maybe_apply_default_limit("SELECT limit FROM t"),
+            "SELECT limit FROM t LIMIT 1000"
+        );
+    }
+
+    #[test]
+    fn ignores_limit_alias() {
+        assert_eq!(
+            maybe_apply_default_limit("SELECT a AS limit FROM t"),
+            "SELECT a AS limit FROM t LIMIT 1000"
+        );
+    }
+
+    #[test]
+    fn ignores_limit_identifier_in_where() {
+        assert_eq!(
+            maybe_apply_default_limit("SELECT * FROM t WHERE limit > 10"),
+            "SELECT * FROM t WHERE limit > 10 LIMIT 1000"
+        );
+    }
+
+    #[test]
     fn keeps_fetch_first_rows_only() {
         assert_eq!(
             maybe_apply_default_limit("SELECT * FROM t FETCH FIRST 20 ROWS ONLY"),
@@ -566,10 +717,18 @@ mod tests {
     }
 
     #[test]
-    fn skips_with_queries_conservatively() {
+    fn applies_to_with_select_queries() {
         assert_eq!(
             maybe_apply_default_limit("WITH cte AS (SELECT 1) SELECT * FROM cte"),
-            "WITH cte AS (SELECT 1) SELECT * FROM cte"
+            "WITH cte AS (SELECT 1) SELECT * FROM cte LIMIT 1000"
+        );
+    }
+
+    #[test]
+    fn skips_with_non_select_queries() {
+        assert_eq!(
+            maybe_apply_default_limit("WITH cte AS (SELECT 1) INSERT INTO t SELECT * FROM cte"),
+            "WITH cte AS (SELECT 1) INSERT INTO t SELECT * FROM cte"
         );
     }
 
