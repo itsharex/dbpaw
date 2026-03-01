@@ -1,7 +1,9 @@
 ---
 import Layout from '@/components/Layout.astro';
-import { FAQS } from '@/config/faqs';
-import { FEATURES } from '@/config/features';
+import Cta from '@/components/landing/Cta.astro';
+import Faq from '@/components/landing/Faq.astro';
+import Features from '@/components/landing/Features.astro';
+import Hero from '@/components/landing/Hero.astro';
 import { SITE } from '@/config/site';
 import { getReleaseSnapshot } from '@/lib/release';
 
@@ -14,53 +16,18 @@ const releasedDate = new Date(snapshot.release.publishedAt).toLocaleDateString('
 ---
 
 <Layout title={SITE.title} description={SITE.description} path="/">
-  <section class="hero">
-    <span class="badge">Data Command Center</span>
-    <h1>Control your SQL workflow with AI speed and native reliability.</h1>
-    <p>
-      DbPaw is a modern database client for PostgreSQL and MySQL. Connect securely over SSH,
-      write better SQL with AI assistance, and explore data faster across macOS, Windows, and Linux.
-    </p>
-    <div class="hero-actions">
-      <a class="button primary" href="/download">Download {snapshot.release.version}</a>
-      <a class="button ghost" href="/features">View Features</a>
-    </div>
-    <p class="notice">
-      Latest release: <span class="inline-code">{snapshot.release.version}</span> on {releasedDate}
-      ({snapshot.source === 'github' ? 'live from GitHub Releases' : 'fallback mode'})
-    </p>
-  </section>
-
-  <section>
-    <h2 class="section-title">What makes DbPaw different</h2>
-    <div class="panel-grid">
-      {
-        FEATURES.map((feature) => (
-          <article class="panel">
-            <span class="badge">{feature.tag}</span>
-            <h3>{feature.title}</h3>
-            <p>{feature.summary}</p>
-          </article>
-        ))
-      }
-    </div>
-  </section>
-
-  <section>
-    <h2 class="section-title">Fast answers before you install</h2>
-    {
-      FAQS.slice(0, 3).map((item) => (
-        <article class="faq-item">
-          <h3>{item.question}</h3>
-          <p>{item.answer}</p>
-        </article>
-      ))
-    }
-    <div class="hero-actions">
-      <a class="button ghost" href="/faq">Read Full FAQ</a>
-      <a class="button ghost" href={SITE.repo} target="_blank" rel="noreferrer">
-        Star on GitHub
-      </a>
-    </div>
-  </section>
+  <Hero
+    version={snapshot.release.version}
+    releasedDate={releasedDate}
+    releaseNotesUrl={snapshot.release.notesUrl}
+    source={snapshot.source}
+    downloads={snapshot.downloads}
+  />
+  <Features />
+  <Cta
+    version={snapshot.release.version}
+    releaseNotesUrl={snapshot.release.notesUrl}
+    downloads={snapshot.downloads}
+  />
+  <Faq />
 </Layout>

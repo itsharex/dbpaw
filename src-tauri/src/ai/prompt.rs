@@ -1,8 +1,9 @@
-use super::types::{AiPromptBundle, AiSchemaOverview, AiTableSummary, AiChatMessage};
+use super::types::{AiChatMessage, AiPromptBundle, AiSchemaOverview, AiTableSummary};
 
 const PROMPT_VERSION: &str = "v1.0.0";
 const MAX_TABLES: usize = 8;
 const MAX_COLUMNS: usize = 12;
+const MAX_SCHEMA_CHARS: usize = 6000;
 
 pub fn build_prompt_bundle(
     scenario: &str,
@@ -43,9 +44,7 @@ fn build_template(scenario: &str, schema_summary: &str) -> String {
         _ => "Task: generate SQL from natural language. Return SQL only.",
     };
 
-    format!(
-        "{base_rules}\n{scenario_rules}\n\nAvailable schema summary:\n{schema_summary}",
-    )
+    format!("{base_rules}\n{scenario_rules}\n\nAvailable tables and schemas:\n{schema_summary}",)
 }
 
 fn select_tables(input: &str, schema_overview: Option<&AiSchemaOverview>) -> Vec<AiTableSummary> {
@@ -80,7 +79,11 @@ fn select_tables(input: &str, schema_overview: Option<&AiSchemaOverview>) -> Vec
         })
         .collect();
 
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.schema.cmp(&b.1.schema))
+            .then_with(|| a.1.name.cmp(&b.1.name))
+    });
 
     let mut selected = Vec::new();
     for (idx, (_, table)) in scored.iter().enumerate() {
@@ -93,26 +96,11 @@ fn select_tables(input: &str, schema_overview: Option<&AiSchemaOverview>) -> Vec
         if idx > 0 && scored[idx].0 <= 0 {
             continue;
         }
-        let mut copy = (*table).clone();
-        if copy.columns.len() > MAX_COLUMNS {
-            copy.columns = copy.columns.into_iter().take(MAX_COLUMNS).collect();
-        }
-        selected.push(copy);
+        selected.push((*table).clone());
     }
 
     if selected.is_empty() {
-        selected = overview
-            .tables
-            .iter()
-            .take(MAX_TABLES)
-            .map(|t| {
-                let mut copy = t.clone();
-                if copy.columns.len() > MAX_COLUMNS {
-                    copy.columns = copy.columns.into_iter().take(MAX_COLUMNS).collect();
-                }
-                copy
-            })
-            .collect();
+        selected = overview.tables.iter().take(MAX_TABLES).cloned().collect();
     }
 
     selected
@@ -124,16 +112,122 @@ fn render_schema_summary(tables: &[AiTableSummary]) -> String {
     }
 
     let mut out = String::new();
-    for table in tables {
-        out.push_str(&format!("- {}.{}: ", table.schema, table.name));
-        let cols = table
-            .columns
-            .iter()
-            .map(|c| format!("{}:{}", c.name, c.column_type))
-            .collect::<Vec<_>>()
-            .join(", ");
-        out.push_str(&cols);
+    let mut rendered_tables = 0usize;
+    for table in tables.iter().take(MAX_TABLES) {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+
+        out.push_str(&format!("{}.{}\n", table.schema, table.name));
+
+        let mut cols = Vec::new();
+        let mut truncated_cols = false;
+        for (idx, c) in table.columns.iter().enumerate() {
+            if idx >= MAX_COLUMNS {
+                truncated_cols = true;
+                break;
+            }
+            let mut piece = format!("{} ({}", c.name, c.column_type);
+            if c.nullable.unwrap_or(false) {
+                piece.push_str(", nullable");
+            }
+            piece.push(')');
+            cols.push(piece);
+        }
+
+        out.push_str("  Columns: ");
+        out.push_str(&cols.join(", "));
+        if truncated_cols {
+            out.push_str(", ... (truncated)");
+        }
         out.push('\n');
+
+        rendered_tables += 1;
+        if out.len() >= MAX_SCHEMA_CHARS {
+            out.truncate(MAX_SCHEMA_CHARS);
+            out.push_str("\n... (truncated)");
+            return out;
+        }
+    }
+
+    if tables.len() > rendered_tables {
+        if out.len() + 18 < MAX_SCHEMA_CHARS {
+            out.push_str("\n... (truncated)");
+        } else {
+            out.truncate(MAX_SCHEMA_CHARS);
+            out.push_str("\n... (truncated)");
+        }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ai::types;
+
+    fn col(name: &str, ty: &str, nullable: Option<bool>) -> types::AiColumnSummary {
+        types::AiColumnSummary {
+            name: name.to_string(),
+            column_type: ty.to_string(),
+            nullable,
+        }
+    }
+
+    fn table(schema: &str, name: &str, columns: Vec<types::AiColumnSummary>) -> AiTableSummary {
+        AiTableSummary {
+            schema: schema.to_string(),
+            name: name.to_string(),
+            columns,
+        }
+    }
+
+    #[test]
+    fn schema_format_matches_spec() {
+        let users = table(
+            "public",
+            "users",
+            vec![
+                col("id", "int", Some(false)),
+                col("email", "text", Some(true)),
+            ],
+        );
+        let orders = table(
+            "public",
+            "orders",
+            vec![
+                col("id", "int", Some(false)),
+                col("user_id", "int", Some(false)),
+            ],
+        );
+
+        let out = render_schema_summary(&[users, orders]);
+        assert!(out.contains("public.users\n  Columns: id (int), email (text, nullable)\n"));
+        assert!(out.contains("\n\npublic.orders\n  Columns: id (int), user_id (int)\n"));
+    }
+
+    #[test]
+    fn schema_truncates_columns_deterministically() {
+        let mut columns = Vec::new();
+        for i in 0..(MAX_COLUMNS + 3) {
+            columns.push(col(&format!("c{i}"), "text", Some(true)));
+        }
+        let t = table("public", "wide", columns);
+        let out = render_schema_summary(&[t]);
+        assert!(out.contains("... (truncated)\n"));
+    }
+
+    #[test]
+    fn schema_truncates_tables_deterministically() {
+        let mut tables = Vec::new();
+        for i in 0..(MAX_TABLES + 2) {
+            tables.push(table(
+                "public",
+                &format!("t{i}"),
+                vec![col("id", "int", Some(false))],
+            ));
+        }
+        let out = render_schema_summary(&tables);
+        assert!(out.contains("... (truncated)"));
+    }
 }

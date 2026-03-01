@@ -71,10 +71,7 @@ impl AIProvider for OpenAICompatProvider {
     async fn chat_once(&self, messages: Vec<AiChatMessage>) -> Result<AiChatResponse, String> {
         self.validate_config()?;
 
-        let endpoint = format!(
-            "{}/chat/completions",
-            self.base_url.trim_end_matches('/'),
-        );
+        let endpoint = format!("{}/chat/completions", self.base_url.trim_end_matches('/'),);
 
         let mut headers = HeaderMap::new();
         let auth = format!("Bearer {}", self.api_key);
@@ -184,10 +181,7 @@ impl OpenAICompatProvider {
     {
         self.validate_config()?;
 
-        let endpoint = format!(
-            "{}/chat/completions",
-            self.base_url.trim_end_matches('/'),
-        );
+        let endpoint = format!("{}/chat/completions", self.base_url.trim_end_matches('/'),);
 
         let mut headers = HeaderMap::new();
         let auth = format!("Bearer {}", self.api_key);

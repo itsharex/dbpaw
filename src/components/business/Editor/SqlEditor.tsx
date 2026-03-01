@@ -1,7 +1,14 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import CodeMirror, { Extension } from "@uiw/react-codemirror";
-import { sql, PostgreSQL, MySQL, SQLite, StandardSQL, SQLNamespace } from "@codemirror/lang-sql";
+import {
+  sql,
+  PostgreSQL,
+  MySQL,
+  SQLite,
+  StandardSQL,
+  SQLNamespace,
+} from "@codemirror/lang-sql";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { keymap, EditorView } from "@codemirror/view";
 import { CompletionContext, acceptCompletion } from "@codemirror/autocomplete";
@@ -25,7 +32,13 @@ import {
 } from "lucide-react";
 import { TableView } from "@/components/business/DataGrid/TableView";
 import { useTheme } from "@/components/theme-provider";
-import { SchemaOverview, api, SavedQuery, TransferFormat, isTauri } from "@/services/api";
+import {
+  SchemaOverview,
+  api,
+  SavedQuery,
+  TransferFormat,
+  isTauri,
+} from "@/services/api";
 import { format } from "sql-formatter";
 import { SaveQueryDialog } from "./SaveQueryDialog";
 import {
@@ -41,45 +54,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
-
-const aiDarkEditorOverrides = EditorView.theme(
-  {
-    "&": {
-      backgroundColor: "#1f2128",
-      color: "#e6eaf2",
-    },
-    ".cm-content": {
-      caretColor: "#e6eaf2",
-    },
-    ".cm-gutters": {
-      backgroundColor: "#242730",
-      color: "#aab2c0",
-      borderRight: "1px solid #353944",
-    },
-    ".cm-activeLine": {
-      backgroundColor: "rgba(255, 255, 255, 0.04)",
-    },
-    ".cm-activeLineGutter": {
-      backgroundColor: "rgba(255, 255, 255, 0.04)",
-    },
-    ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": {
-      backgroundColor: "rgba(140, 170, 255, 0.25)",
-    },
-    ".cm-cursor, .cm-dropCursor": {
-      borderLeftColor: "#e6eaf2",
-    },
-    ".cm-tooltip": {
-      backgroundColor: "#2a2f3a",
-      color: "#e6eaf2",
-      border: "1px solid #3b4250",
-    },
-    ".cm-tooltip-autocomplete ul li[aria-selected]": {
-      backgroundColor: "rgba(140, 170, 255, 0.20)",
-      color: "#f2f5fb",
-    },
-  },
-  { dark: true },
-);
+import { sqlEditorThemeDark, sqlEditorThemeLight } from "./codemirrorTheme";
 
 const editorFontSizeExtension = EditorView.theme({
   ".cm-scroller": {
@@ -124,7 +99,7 @@ export function SqlEditor({
   onSaveSuccess,
 }: SqlEditorProps) {
   const [internalSql, setInternalSql] = useState("");
-  const { theme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const resultStatus = useMemo(() => {
@@ -163,24 +138,27 @@ export function SqlEditor({
   }, []);
 
   // Debounce onChange to prevent excessive parent re-renders
-  const handleSqlChange = useCallback((val: string) => {
-    // Always update internal state immediately if we are using it
-    if (value === undefined) {
-      setInternalSql(val);
-    }
-
-    // Clear previous timeout
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-
-    // Debounce the callback to parent
-    timeoutRef.current = setTimeout(() => {
-      if (onChange) {
-        onChange(val);
+  const handleSqlChange = useCallback(
+    (val: string) => {
+      // Always update internal state immediately if we are using it
+      if (value === undefined) {
+        setInternalSql(val);
       }
-    }, 300);
-  }, [onChange, value]);
+
+      // Clear previous timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+
+      // Debounce the callback to parent
+      timeoutRef.current = setTimeout(() => {
+        if (onChange) {
+          onChange(val);
+        }
+      }, 300);
+    },
+    [onChange, value],
+  );
 
   const handleExecute = useCallback(() => {
     if (onExecute) {
@@ -188,18 +166,21 @@ export function SqlEditor({
     }
   }, [onExecute, code]);
 
-  const executeFromEditorSelection = useCallback((view: EditorView) => {
-    if (!onExecute) {
-      return;
-    }
+  const executeFromEditorSelection = useCallback(
+    (view: EditorView) => {
+      if (!onExecute) {
+        return;
+      }
 
-    const selectedSql = view.state.selection.ranges
-      .map(range => view.state.sliceDoc(range.from, range.to))
-      .filter(text => text.trim().length > 0)
-      .join("\n");
+      const selectedSql = view.state.selection.ranges
+        .map((range) => view.state.sliceDoc(range.from, range.to))
+        .filter((text) => text.trim().length > 0)
+        .join("\n");
 
-    onExecute(selectedSql || view.state.doc.toString());
-  }, [onExecute]);
+      onExecute(selectedSql || view.state.doc.toString());
+    },
+    [onExecute],
+  );
 
   const handleClear = () => {
     handleSqlChange("");
@@ -231,34 +212,37 @@ export function SqlEditor({
     savedQueryIdRef.current = savedQueryId;
   }, [savedQueryId]);
 
-  const executeSave = useCallback(async (name: string, description: string) => {
-    try {
-      const currentId = savedQueryIdRef.current;
-      let result: SavedQuery;
-      if (currentId) {
-        result = await api.queries.update(currentId, {
-          name,
-          description,
-          query: code,
-          connectionId: _connectionId || undefined,
-          database: databaseName,
-        });
-      } else {
-        result = await api.queries.create({
-          name,
-          description,
-          query: code,
-          connectionId: _connectionId || undefined,
-          database: databaseName,
-        });
+  const executeSave = useCallback(
+    async (name: string, description: string) => {
+      try {
+        const currentId = savedQueryIdRef.current;
+        let result: SavedQuery;
+        if (currentId) {
+          result = await api.queries.update(currentId, {
+            name,
+            description,
+            query: code,
+            connectionId: _connectionId || undefined,
+            database: databaseName,
+          });
+        } else {
+          result = await api.queries.create({
+            name,
+            description,
+            query: code,
+            connectionId: _connectionId || undefined,
+            database: databaseName,
+          });
+        }
+        if (onSaveSuccess) {
+          onSaveSuccess(result);
+        }
+      } catch (e) {
+        console.error("Failed to save query", e);
       }
-      if (onSaveSuccess) {
-        onSaveSuccess(result);
-      }
-    } catch (e) {
-      console.error("Failed to save query", e);
-    }
-  }, [code, _connectionId, databaseName, onSaveSuccess]);
+    },
+    [code, _connectionId, databaseName, onSaveSuccess],
+  );
 
   const handleSave = async (name: string, description: string) => {
     await executeSave(name, description);
@@ -335,11 +319,16 @@ export function SqlEditor({
   // Determine Dialect
   const dialect = useMemo(() => {
     switch (driver) {
-      case "postgres": return PostgreSQL;
-      case "mysql": return MySQL;
-      case "sqlite": return SQLite;
-      case "clickhouse": return StandardSQL;
-      default: return StandardSQL;
+      case "postgres":
+        return PostgreSQL;
+      case "mysql":
+        return MySQL;
+      case "sqlite":
+        return SQLite;
+      case "clickhouse":
+        return StandardSQL;
+      default:
+        return StandardSQL;
     }
   }, [driver]);
 
@@ -351,8 +340,8 @@ export function SqlEditor({
 
     const schemaMap: SQLNamespace = {};
 
-    schemaOverview.tables.forEach(t => {
-      const colNames = t.columns.map(c => c.name);
+    schemaOverview.tables.forEach((t) => {
+      const colNames = t.columns.map((c) => c.name);
       // Add table
       schemaMap[t.name] = colNames;
       // Add schema.table
@@ -369,21 +358,21 @@ export function SqlEditor({
     if (!schemaOverview) return null;
 
     // Flatten all columns from all tables
-    const options = schemaOverview.tables.flatMap(t =>
-      t.columns.map(c => ({
+    const options = schemaOverview.tables.flatMap((t) =>
+      t.columns.map((c) => ({
         label: c.name,
         type: "property", // Icon type
-        detail: t.name,   // Show table name as detail
-        boost: -1         // Lower priority than keywords/tables usually, but available
-      }))
+        detail: t.name, // Show table name as detail
+        boost: -1, // Lower priority than keywords/tables usually, but available
+      })),
     );
 
     // Add tables as well for quick access without context
-    const tableOptions = schemaOverview.tables.map(t => ({
+    const tableOptions = schemaOverview.tables.map((t) => ({
       label: t.name,
       type: "class",
       detail: t.schema || "table",
-      boost: 0
+      boost: 0,
     }));
 
     const allOptions = [...options, ...tableOptions];
@@ -397,7 +386,7 @@ export function SqlEditor({
 
       return {
         from: word.from,
-        options: allOptions
+        options: allOptions,
       };
     };
   }, [schemaOverview]);
@@ -414,50 +403,60 @@ export function SqlEditor({
       }),
       Prec.high(
         keymap.of([
-        {
-          key: "Tab",
-          run: (view) => acceptCompletion(view) || insertTab(view),
-        },
-        {
-          key: "Mod-Enter",
-          run: (view) => {
-            executeFromEditorSelection(view);
-            return true;
+          {
+            key: "Tab",
+            run: (view) => acceptCompletion(view) || insertTab(view),
           },
-        },
-        {
-          key: "Shift-Alt-f",
-          run: () => {
-            handleFormat();
-            return true;
+          {
+            key: "Mod-Enter",
+            run: (view) => {
+              executeFromEditorSelection(view);
+              return true;
+            },
           },
-        },
-        {
-          key: "Mod-s",
-          run: () => {
-            triggerSave();
-            return true;
+          {
+            key: "Shift-Alt-f",
+            run: () => {
+              handleFormat();
+              return true;
+            },
           },
-        },
+          {
+            key: "Mod-s",
+            run: () => {
+              triggerSave();
+              return true;
+            },
+          },
         ]),
       ),
     ];
 
     // Inject global completion if available
     if (globalCompletion) {
-      exts.push(dialect.language.data.of({
-        autocomplete: globalCompletion
-      }));
+      exts.push(
+        dialect.language.data.of({
+          autocomplete: globalCompletion,
+        }),
+      );
     }
 
     return exts;
-  }, [dialect, sqlSchema, executeFromEditorSelection, handleFormat, globalCompletion, triggerSave]);
+  }, [
+    dialect,
+    sqlSchema,
+    executeFromEditorSelection,
+    handleFormat,
+    globalCompletion,
+    triggerSave,
+  ]);
 
   // Theme
   const editorTheme = useMemo(() => {
-    const isDark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-    return isDark ? [oneDark, aiDarkEditorOverrides] : [];
-  }, [theme]);
+    return resolvedTheme === "dark"
+      ? [oneDark, sqlEditorThemeDark]
+      : [sqlEditorThemeLight];
+  }, [resolvedTheme]);
 
   return (
     <div className="h-full flex flex-col bg-background">
@@ -465,9 +464,15 @@ export function SqlEditor({
         <div className="flex items-center gap-2">
           {databaseName && (
             <div className="flex items-center gap-2 px-3 py-1 bg-muted/50 rounded text-xs text-muted-foreground border border-border">
-              <Database className={`w-3 h-3 ${schemaOverview ? "text-green-500" : "text-muted-foreground"}`} />
+              <Database
+                className={`w-3 h-3 ${schemaOverview ? "text-green-500" : "text-muted-foreground"}`}
+              />
               <span>{databaseName}</span>
-              {savedQueryId && <span className="text-[10px] opacity-50 ml-1">#{savedQueryId}</span>}
+              {savedQueryId && (
+                <span className="text-[10px] opacity-50 ml-1">
+                  #{savedQueryId}
+                </span>
+              )}
             </div>
           )}
 
@@ -560,7 +565,9 @@ export function SqlEditor({
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           {resultStatus && (
             <>
-              <span className={`text-xs inline-flex items-center gap-1 ${resultStatus.toneClass}`}>
+              <span
+                className={`text-xs inline-flex items-center gap-1 ${resultStatus.toneClass}`}
+              >
                 <resultStatus.Icon className="w-3.5 h-3.5" />
                 {resultStatus.text}
               </span>
@@ -577,13 +584,19 @@ export function SqlEditor({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => void handleExportResult("csv")}>
+                  <DropdownMenuItem
+                    onClick={() => void handleExportResult("csv")}
+                  >
                     CSV
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void handleExportResult("json")}>
+                  <DropdownMenuItem
+                    onClick={() => void handleExportResult("json")}
+                  >
                     JSON
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => void handleExportResult("sql")}>
+                  <DropdownMenuItem
+                    onClick={() => void handleExportResult("sql")}
+                  >
                     SQL
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -623,7 +636,9 @@ export function SqlEditor({
                 <div className="h-full flex flex-col">
                   {queryResults.error ? (
                     <div className="h-full p-4 bg-destructive/10 text-destructive overflow-auto font-mono text-sm whitespace-pre-wrap">
-                      <div className="font-bold mb-2">Error executing query:</div>
+                      <div className="font-bold mb-2">
+                        Error executing query:
+                      </div>
                       {queryResults.error}
                     </div>
                   ) : (

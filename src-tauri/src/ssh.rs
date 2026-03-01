@@ -33,7 +33,10 @@ pub fn start_ssh_tunnel(config: &ConnectionForm) -> Result<SshTunnel, String> {
     }
     let ssh_port = ssh_port as u16;
 
-    let ssh_user = config.ssh_username.clone().ok_or("SSH Username is required")?;
+    let ssh_user = config
+        .ssh_username
+        .clone()
+        .ok_or("SSH Username is required")?;
     let ssh_password = config.ssh_password.clone();
     let ssh_key_path = config.ssh_key_path.clone();
 
@@ -144,7 +147,7 @@ fn handle_connection(
 
     let mut buf_local = [0u8; 8192];
     let mut buf_remote = [0u8; 8192];
-    
+
     // We need to keep track of closed ends
     let mut local_closed = false;
     let mut remote_closed = false;
@@ -243,18 +246,24 @@ mod tests {
         let mut config = ConnectionForm::default();
         config.ssh_host = Some("example.com".to_string());
         config.ssh_username = Some("user".to_string());
-        
+
         // Test negative port
         config.ssh_port = Some(-1);
         let result = start_ssh_tunnel(&config);
         assert!(result.is_err());
-        assert_eq!(result.err().unwrap(), "SSH port must be between 1 and 65535");
+        assert_eq!(
+            result.err().unwrap(),
+            "SSH port must be between 1 and 65535"
+        );
 
         // Test out of range port
         config.ssh_port = Some(70000);
         let result = start_ssh_tunnel(&config);
         assert!(result.is_err());
-        assert_eq!(result.err().unwrap(), "SSH port must be between 1 and 65535");
+        assert_eq!(
+            result.err().unwrap(),
+            "SSH port must be between 1 and 65535"
+        );
     }
 
     #[test]
@@ -268,12 +277,18 @@ mod tests {
         config.port = Some(-1);
         let result = start_ssh_tunnel(&config);
         assert!(result.is_err());
-        assert_eq!(result.err().unwrap(), "Target port must be between 1 and 65535");
+        assert_eq!(
+            result.err().unwrap(),
+            "Target port must be between 1 and 65535"
+        );
 
         // Test out of range
         config.port = Some(70000);
         let result = start_ssh_tunnel(&config);
         assert!(result.is_err());
-        assert_eq!(result.err().unwrap(), "Target port must be between 1 and 65535");
+        assert_eq!(
+            result.err().unwrap(),
+            "Target port must be between 1 and 65535"
+        );
     }
 }

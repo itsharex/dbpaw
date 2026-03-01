@@ -78,7 +78,7 @@ pub async fn update_connection(
     if let Some(db) = local_db {
         // If connection is updated, we should remove it from pool so next usage reconnects with new config
         state.pool_manager.remove_by_prefix(&id.to_string()).await;
-        
+
         db.update_connection(id, form).await
     } else {
         Err("Local DB not initialized".to_string())
@@ -94,7 +94,7 @@ pub async fn delete_connection(state: State<'_, AppState>, id: i64) -> Result<()
     if let Some(db) = local_db {
         // Remove from pool
         state.pool_manager.remove_by_prefix(&id.to_string()).await;
-        
+
         db.delete_connection(id).await
     } else {
         Err("Local DB not initialized".to_string())

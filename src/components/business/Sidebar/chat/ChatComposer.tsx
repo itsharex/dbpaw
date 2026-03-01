@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { AIProviderConfig } from "@/services/api";
+import { TableSelector, type SelectedTableRef } from "./TableSelector";
 
 export interface ChatComposerProps {
   input: string;
@@ -20,6 +21,9 @@ export interface ChatComposerProps {
   providers: AIProviderConfig[];
   selectedProviderId: string;
   onProviderChange: (value: string) => void;
+  availableTables: SelectedTableRef[];
+  selectedTables: SelectedTableRef[];
+  onSelectedTablesChange: (next: SelectedTableRef[]) => void;
 }
 
 export function ChatComposer({
@@ -31,6 +35,9 @@ export function ChatComposer({
   providers,
   selectedProviderId,
   onProviderChange,
+  availableTables,
+  selectedTables,
+  onSelectedTablesChange,
 }: ChatComposerProps) {
   return (
     <div className="shrink-0 min-w-0 border-t border-border/60 px-3 py-2.5">
@@ -44,7 +51,7 @@ export function ChatComposer({
           rows={3}
         />
         <div className="mt-1.5 flex min-w-0 items-center gap-2 px-1 pb-0.5">
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 basis-0">
             <Select value={selectedProviderId} onValueChange={onProviderChange}>
               <SelectTrigger className="h-8 w-full min-w-0 border-border/60 bg-muted/30 text-xs">
                 <SelectValue placeholder="Select AI provider" />
@@ -58,6 +65,16 @@ export function ChatComposer({
               </SelectContent>
             </Select>
           </div>
+          {availableTables.length ? (
+            <div className="min-w-0 flex-1 basis-0">
+              <TableSelector
+                tables={availableTables}
+                value={selectedTables}
+                onChange={onSelectedTablesChange}
+                disabled={isLoading}
+              />
+            </div>
+          ) : null}
           <Button
             type="button"
             onClick={onSend}

@@ -26,7 +26,7 @@ const invoke = async <T>(cmd: string, args?: any): Promise<T> => {
   // If not in Tauri and Mock mode is disabled, throw error
   console.warn(`[API] invoke ${cmd}`, args);
   throw new Error(
-    "Tauri API not available. Please run 'bun tauri dev' or enable Mock mode with 'VITE_USE_MOCK=true'."
+    "Tauri API not available. Please run 'bun tauri dev' or enable Mock mode with 'VITE_USE_MOCK=true'.",
   );
 };
 
@@ -42,6 +42,23 @@ export interface QueryResult {
   timeTakenMs: number;
   success: boolean;
   error?: string;
+}
+
+export type SqlExecutionSource =
+  | "sql_editor"
+  | "table_view_save"
+  | "execute_by_conn"
+  | "unknown";
+
+export interface SqlExecutionLog {
+  id: number;
+  sql: string;
+  source?: string | null;
+  connectionId?: number | null;
+  database?: string | null;
+  success: boolean;
+  error?: string | null;
+  executedAt: string;
 }
 
 export type Driver = "postgres" | "sqlite" | "mysql" | "clickhouse";
@@ -132,7 +149,12 @@ export interface SqliteConnectionIssue {
   connectionId: number;
   connectionName: string;
   filePath: string;
-  issueType: "locked" | "corrupted" | "permission_denied" | "not_found" | string;
+  issueType:
+    | "locked"
+    | "corrupted"
+    | "permission_denied"
+    | "not_found"
+    | string;
   description: string;
   detectedAt: string;
   resolvedAt?: string | null;
@@ -144,7 +166,7 @@ export interface AIProviderConfig {
   providerType: AIProviderType;
   baseUrl: string;
   model: string;
-  apiKey: string;
+  hasApiKey: boolean;
   isDefault: boolean;
   enabled: boolean;
   extraJson?: string | null;
@@ -159,7 +181,7 @@ export interface AIProviderForm {
   providerType?: AIProviderType;
   baseUrl: string;
   model: string;
-  apiKey: string;
+  apiKey?: string;
   isDefault?: boolean;
   enabled?: boolean;
   extraJson?: string;
@@ -202,11 +224,16 @@ export interface AIConversationDetail {
 export interface AITableSummary {
   schema: string;
   name: string;
-  columns: { name: string; type: string }[];
+  columns: { name: string; type: string; nullable?: boolean }[];
 }
 
 export interface AISchemaOverview {
   tables: AITableSummary[];
+}
+
+export interface AISelectedTableRef {
+  schema: string;
+  name: string;
 }
 
 export interface AIChatRequest {
@@ -219,6 +246,7 @@ export interface AIChatRequest {
   connectionId?: number;
   database?: string;
   schemaOverview?: AISchemaOverview;
+  selectedTables?: AISelectedTableRef[];
 }
 
 export interface AIChatResponse {
@@ -241,12 +269,20 @@ export interface ExportResult {
 
 export const api = {
   query: {
-    execute: (id: number, query: string, database?: string) =>
-      invoke<QueryResult>("execute_query", { id, query, database }),
+    execute: (
+      id: number,
+      query: string,
+      database?: string,
+      source?: SqlExecutionSource,
+    ) => invoke<QueryResult>("execute_query", { id, query, database, source }),
     cancel: (uuid: string, queryId: string) =>
       invoke<boolean>("cancel_query", { uuid, queryId }),
     executeByConn: (form: ConnectionForm, sql: string) =>
       invoke<QueryResult>("execute_by_conn", { form, sql }),
+  },
+  sqlLogs: {
+    list: (limit = 100) =>
+      invoke<SqlExecutionLog[]>("list_sql_execution_logs", { limit }),
   },
   metadata: {
     listTables: (id: number, database?: string, schema?: string) =>
@@ -272,7 +308,12 @@ export const api = {
       schema: string,
       table: string,
     ) =>
-      invoke<TableMetadata>("get_table_metadata", { id, database, schema, table }),
+      invoke<TableMetadata>("get_table_metadata", {
+        id,
+        database,
+        schema,
+        table,
+      }),
     listTablesByConn: (form: ConnectionForm) =>
       invoke<{ schema: string; name: string; type: string }[]>(
         "list_tables_by_conn",
@@ -349,7 +390,8 @@ export const api = {
   },
   connections: {
     list: () => invoke<any[]>("get_connections"),
-    create: (form: ConnectionForm) => invoke<any>("create_connection", { form }),
+    create: (form: ConnectionForm) =>
+      invoke<any>("create_connection", { form }),
     update: (id: number, form: ConnectionForm) =>
       invoke<any>("update_connection", { id, form }),
     delete: (id: number) => invoke<void>("delete_connection", { id }),
@@ -389,6 +431,8 @@ export const api = {
       delete: (id: number) => invoke<void>("ai_delete_provider", { id }),
       setDefault: (id: number) =>
         invoke<void>("ai_set_default_provider", { id }),
+      clearApiKey: (providerType: string) =>
+        invoke<void>("ai_clear_provider_api_key", { provider_type: providerType }),
     },
     chat: {
       start: (request: AIChatRequest) =>

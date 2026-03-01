@@ -17,7 +17,10 @@ pub struct MysqlDriver {
 }
 
 fn build_dsn(form: &ConnectionForm) -> Result<String, String> {
-    let host = form.host.clone().ok_or("[VALIDATION_ERROR] host cannot be empty")?;
+    let host = form
+        .host
+        .clone()
+        .ok_or("[VALIDATION_ERROR] host cannot be empty")?;
     let port = form.port.unwrap_or(3306);
     // Allow database to be empty
     let username = form
@@ -63,7 +66,7 @@ impl MysqlDriver {
             .connect(&dsn)
             .await
             .map_err(|e| format!("[CONN_FAILED] {e}"))?;
-        
+
         Ok(Self { pool, ssh_tunnel })
     }
 }
@@ -98,16 +101,17 @@ impl DatabaseDriver for MysqlDriver {
         // But the original code relied on `form.database`.
         // If schema is None, we need to know the current database.
         // We can query it: SELECT DATABASE()
-        
+
         let target_schema = if let Some(s) = schema {
             s
         } else {
-             // Fallback: try to get current database
-             let row: (Option<String>,) = sqlx::query_as("SELECT DATABASE()")
-                 .fetch_one(&self.pool)
-                 .await
-                 .map_err(|e| format!("[QUERY_ERROR] Failed to get current database: {e}"))?;
-             row.0.ok_or("[QUERY_ERROR] No database selected and no schema provided")?
+            // Fallback: try to get current database
+            let row: (Option<String>,) = sqlx::query_as("SELECT DATABASE()")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| format!("[QUERY_ERROR] Failed to get current database: {e}"))?;
+            row.0
+                .ok_or("[QUERY_ERROR] No database selected and no schema provided")?
         };
 
         let rows: Vec<(String, String, String)> = sqlx::query_as(
@@ -414,8 +418,9 @@ impl DatabaseDriver for MysqlDriver {
                 let type_name = col.type_info().name();
 
                 let value = match type_name {
-                    "TINYINT" | "TINYINT UNSIGNED" | "SMALLINT" | "SMALLINT UNSIGNED" | "INT" | "INT UNSIGNED" | "INTEGER" | "INTEGER UNSIGNED" | "MEDIUMINT" | "MEDIUMINT UNSIGNED" | "BIGINT" | "BIGINT UNSIGNED"
-                    | "YEAR" => {
+                    "TINYINT" | "TINYINT UNSIGNED" | "SMALLINT" | "SMALLINT UNSIGNED" | "INT"
+                    | "INT UNSIGNED" | "INTEGER" | "INTEGER UNSIGNED" | "MEDIUMINT"
+                    | "MEDIUMINT UNSIGNED" | "BIGINT" | "BIGINT UNSIGNED" | "YEAR" => {
                         if let Ok(v) = row.try_get::<i64, _>(name) {
                             serde_json::Value::String(v.to_string())
                         } else if let Ok(v) = row.try_get::<u64, _>(name) {
@@ -575,8 +580,9 @@ impl DatabaseDriver for MysqlDriver {
                 let type_name = col.type_info().name();
 
                 let value = match type_name {
-                    "TINYINT" | "TINYINT UNSIGNED" | "SMALLINT" | "SMALLINT UNSIGNED" | "INT" | "INT UNSIGNED" | "INTEGER" | "INTEGER UNSIGNED" | "MEDIUMINT" | "MEDIUMINT UNSIGNED" | "BIGINT" | "BIGINT UNSIGNED"
-                    | "YEAR" => {
+                    "TINYINT" | "TINYINT UNSIGNED" | "SMALLINT" | "SMALLINT UNSIGNED" | "INT"
+                    | "INT UNSIGNED" | "INTEGER" | "INTEGER UNSIGNED" | "MEDIUMINT"
+                    | "MEDIUMINT UNSIGNED" | "BIGINT" | "BIGINT UNSIGNED" | "YEAR" => {
                         if let Ok(v) = row.try_get::<i64, _>(name) {
                             serde_json::Value::String(v.to_string())
                         } else if let Ok(v) = row.try_get::<u64, _>(name) {
@@ -700,28 +706,30 @@ impl DatabaseDriver for MysqlDriver {
             .fetch_all(&self.pool)
             .await
         } else {
-             // Try to use current DB if available in pool, otherwise exclude system schemas
-             // Since we don't have form.database easily available, we check if we can query without specific schema.
-             // But the original code had fallback logic.
-             // Let's assume if no schema provided, we list all non-system schemas OR just the current one if connected to one.
-             // If connected to a specific DB, `SHOW TABLES` works for that DB. But we query `information_schema`.
-             
-             // We can query SELECT DATABASE() first.
-             let db_row: Result<(Option<String>,), _> = sqlx::query_as("SELECT DATABASE()").fetch_one(&self.pool).await;
-             
-             if let Ok((Some(db),)) = db_row {
-                  sqlx::query(&format!(
+            // Try to use current DB if available in pool, otherwise exclude system schemas
+            // Since we don't have form.database easily available, we check if we can query without specific schema.
+            // But the original code had fallback logic.
+            // Let's assume if no schema provided, we list all non-system schemas OR just the current one if connected to one.
+            // If connected to a specific DB, `SHOW TABLES` works for that DB. But we query `information_schema`.
+
+            // We can query SELECT DATABASE() first.
+            let db_row: Result<(Option<String>,), _> = sqlx::query_as("SELECT DATABASE()")
+                .fetch_one(&self.pool)
+                .await;
+
+            if let Ok((Some(db),)) = db_row {
+                sqlx::query(&format!(
                     "{} WHERE table_schema = ? ORDER BY table_schema, table_name, ordinal_position",
                     sql
                 ))
                 .bind(db)
                 .fetch_all(&self.pool)
                 .await
-             } else {
+            } else {
                 sqlx::query(&format!("{} WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') ORDER BY table_schema, table_name, ordinal_position", sql))
                 .fetch_all(&self.pool)
                 .await
-             }
+            }
         };
 
         let rows = rows.map_err(|e| {

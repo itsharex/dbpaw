@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
-import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { getSetting } from "../services/store";
+import {
+  AvailableUpdateRef,
+  checkForUpdates,
+  installAvailableUpdate,
+  relaunchAfterUpdate,
+} from "../services/updater";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,7 +20,7 @@ import { toast } from "sonner";
 
 export function UpdaterChecker() {
   const [updateAvailable, setUpdateAvailable] = useState<boolean>(false);
-  const [updateInfo, setUpdateInfo] = useState<{ version: string; body?: string } | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<AvailableUpdateRef | null>(null);
   const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
@@ -24,12 +28,9 @@ export function UpdaterChecker() {
       try {
         const autoUpdate = await getSetting<boolean>("autoUpdate", true);
         if (autoUpdate) {
-          const update = await check();
-          if (update?.available) {
-            setUpdateInfo({
-              version: update.version,
-              body: update.body,
-            });
+          const result = await checkForUpdates();
+          if (result.state === "available" && result.update) {
+            setUpdateInfo(result.update);
             setUpdateAvailable(true);
           }
         }
@@ -41,15 +42,19 @@ export function UpdaterChecker() {
   }, []);
 
   const handleUpdate = async () => {
+    if (downloading) return;
     try {
       setDownloading(true);
-      const update = await check();
-      if (update?.available) {
-        toast.info("Downloading update...");
-        await update.downloadAndInstall();
+      toast.info("Downloading update...");
+      const result = await installAvailableUpdate(updateInfo);
+      if (result.state === "ready_to_restart") {
         toast.success("Update installed, restarting...");
-        await relaunch();
+        await relaunchAfterUpdate();
+        return;
       }
+      toast.info(result.message ?? "You are on the latest version.");
+      setDownloading(false);
+      setUpdateAvailable(false);
     } catch (error) {
       console.error("Failed to install update:", error);
       toast.error("Failed to install update");
@@ -76,11 +81,11 @@ export function UpdaterChecker() {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={downloading}>Later</AlertDialogCancel>
-          <AlertDialogAction 
+          <AlertDialogAction
             onClick={(e) => {
-              e.preventDefault(); 
-              handleUpdate();
-            }} 
+              e.preventDefault();
+              void handleUpdate();
+            }}
             disabled={downloading}
           >
             {downloading ? "Updating..." : "Update Now"}

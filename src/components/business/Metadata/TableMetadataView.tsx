@@ -140,9 +140,7 @@ export function TableMetadataView({
                         {col.defaultValue ?? ""}
                       </TableCell>
                       <TableCell className="flex items-center gap-2">
-                        {col.primaryKey && (
-                          <Badge variant="default">PK</Badge>
-                        )}
+                        {col.primaryKey && <Badge variant="default">PK</Badge>}
                         {isFk && <Badge variant="outline">FK</Badge>}
                       </TableCell>
                       <TableCell>{col.comment ?? ""}</TableCell>
@@ -243,15 +241,21 @@ export function TableMetadataView({
         <div className="text-sm font-semibold">Create Table SQL</div>
         <div className="border border-border rounded-md bg-muted/10">
           {ddlLoading ? (
-            <div className="p-3 text-sm text-muted-foreground">Loading DDL...</div>
+            <div className="p-3 text-sm text-muted-foreground">
+              Loading DDL...
+            </div>
           ) : ddlError ? (
-            <div className="p-3 text-sm text-destructive break-words">{ddlError}</div>
+            <div className="p-3 text-sm text-destructive break-words">
+              {ddlError}
+            </div>
           ) : ddl ? (
             <pre className="p-3 text-xs font-mono whitespace-pre-wrap break-words overflow-auto max-h-80">
               <code>{ddl}</code>
             </pre>
           ) : (
-            <div className="p-3 text-sm text-muted-foreground">No DDL available</div>
+            <div className="p-3 text-sm text-muted-foreground">
+              No DDL available
+            </div>
           )}
         </div>
       </section>

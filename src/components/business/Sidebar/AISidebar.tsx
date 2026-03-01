@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { Sparkles, Plus } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/button";
@@ -14,12 +20,17 @@ import { toast } from "sonner";
 import { AIHistoryPopover } from "./AIHistoryPopover";
 import { ChatComposer } from "./chat/ChatComposer";
 import { ChatMessageList } from "./chat/ChatMessageList";
+import { type SelectedTableRef } from "./chat/TableSelector";
 
 interface AISidebarProps {
   connectionId?: number;
   database?: string;
   schemaOverview?: {
-    tables: { schema: string; name: string; columns: { name: string; type: string }[] }[];
+    tables: {
+      schema: string;
+      name: string;
+      columns: { name: string; type: string }[];
+    }[];
   };
 }
 
@@ -46,29 +57,46 @@ interface AiErrorPayload {
   error: string;
 }
 
-export function AISidebar({ connectionId, database, schemaOverview }: AISidebarProps) {
+export function AISidebar({
+  connectionId,
+  database,
+  schemaOverview,
+}: AISidebarProps) {
   const [providers, setProviders] = useState<AIProviderConfig[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<string>("");
   const [conversations, setConversations] = useState<AIConversation[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState<
+    number | null
+  >(null);
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
   const [streamStatus, setStreamStatus] = useState("");
+  const [selectedTables, setSelectedTables] = useState<SelectedTableRef[]>([]);
+  const [availableTables, setAvailableTables] = useState<SelectedTableRef[]>(
+    [],
+  );
 
   const requestIdRef = useRef<string>("");
   const errorNotifiedRef = useRef(false);
   const streamQueueRef = useRef<string>("");
-  const streamDrainTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const streamFinalizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const streamDrainTimerRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
+  const streamFinalizeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const isLoadingRef = useRef(false);
   const activeConversationIdRef = useRef<number | null>(null);
   const reloadConversationsRef = useRef<() => Promise<void>>(async () => {});
-  const loadConversationRef = useRef<(conversationId: number) => Promise<void>>(async () => {});
+  const loadConversationRef = useRef<(conversationId: number) => Promise<void>>(
+    async () => {},
+  );
 
   const sortedConversations = useMemo(
-    () => [...conversations].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)),
+    () =>
+      [...conversations].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)),
     [conversations],
   );
 
@@ -77,7 +105,8 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
       const list = await api.ai.providers.list();
       const available = list.filter((p) => p.enabled);
       setProviders(available);
-      const defaultProvider = available.find((p) => p.isDefault) || available[0];
+      const defaultProvider =
+        available.find((p) => p.isDefault) || available[0];
       setSelectedProviderId(defaultProvider ? String(defaultProvider.id) : "");
     } catch (e) {
       console.error("Failed to load AI providers", e);
@@ -103,7 +132,9 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
       const detail = await api.ai.conversations.get(conversationId);
       setMessages(detail.messages);
       setActiveConversationId(conversationId);
-      const hasAssistantReply = detail.messages.some((m) => m.role === "assistant");
+      const hasAssistantReply = detail.messages.some(
+        (m) => m.role === "assistant",
+      );
       if (isLoadingRef.current && hasAssistantReply) {
         setIsLoading(false);
         setStreamStatus("");
@@ -122,6 +153,38 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
     reloadConversations();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectionId, database]);
+
+  useEffect(() => {
+    setSelectedTables([]);
+  }, [connectionId, database]);
+
+  useEffect(() => {
+    if (!connectionId) {
+      setAvailableTables([]);
+      return;
+    }
+    let cancelled = false;
+    api.metadata
+      .listTables(connectionId, database)
+      .then((items) => {
+        if (cancelled) return;
+        const tables = items.map((t) => ({ schema: t.schema, name: t.name }));
+        setAvailableTables(tables);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        console.error("Failed to load tables for AI selector", e);
+        const fallback =
+          schemaOverview?.tables?.map((t) => ({
+            schema: t.schema,
+            name: t.name,
+          })) || [];
+        setAvailableTables(fallback);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [connectionId, database, schemaOverview]);
 
   useEffect(() => {
     isLoadingRef.current = isLoading;
@@ -151,7 +214,10 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
     let disposed = false;
     const unlistenFns: Array<() => void> = [];
 
-    const registerListener = <T,>(event: string, handler: (evt: { payload: T }) => void) => {
+    const registerListener = <T,>(
+      event: string,
+      handler: (evt: { payload: T }) => void,
+    ) => {
       void listen<T>(event, handler)
         .then((unlisten) => {
           if (disposed) {
@@ -165,18 +231,20 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
         });
     };
 
-    registerListener<AiStartedPayload>("ai.started", (evt) => {
+    registerListener<AiStartedPayload>("ai/started", (evt) => {
       if (evt.payload.requestId !== requestIdRef.current) return;
-      setStreamStatus(`Request sent (${evt.payload.model}), waiting for first token...`);
+      setStreamStatus(
+        `Request sent (${evt.payload.model}), waiting for first token...`,
+      );
     });
 
-    registerListener<AiChunkPayload>("ai.chunk", (evt) => {
+    registerListener<AiChunkPayload>("ai/chunk", (evt) => {
       if (evt.payload.requestId !== requestIdRef.current) return;
       setStreamStatus("Receiving response...");
       streamQueueRef.current += evt.payload.chunk;
     });
 
-    registerListener<AiDonePayload>("ai.done", (evt) => {
+    registerListener<AiDonePayload>("ai/done", (evt) => {
       if (evt.payload.requestId !== requestIdRef.current) return;
       setStreamStatus("Finalizing response...");
       setActiveConversationId(evt.payload.conversationId);
@@ -199,7 +267,7 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
       finish();
     });
 
-    registerListener<AiErrorPayload>("ai.error", (evt) => {
+    registerListener<AiErrorPayload>("ai/error", (evt) => {
       if (evt.payload.requestId !== requestIdRef.current) return;
       setIsLoading(false);
       setStreamingContent("");
@@ -297,6 +365,7 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
       connectionId,
       database,
       schemaOverview,
+      selectedTables,
     };
 
     try {
@@ -379,13 +448,17 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
       <div className="flex h-9 shrink-0 min-w-0 items-center justify-between border-b border-border/70 px-3">
         <div className="flex min-w-0 items-center gap-2">
           <Sparkles className="h-4 w-4 text-primary" />
-          <h2 className="truncate text-sm font-semibold text-foreground">AI Assistant</h2>
+          <h2 className="truncate text-sm font-semibold text-foreground">
+            AI Assistant
+          </h2>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <AIHistoryPopover
             conversations={sortedConversations}
             activeConversationId={activeConversationId}
-            onSelect={(conversationId) => setActiveConversationId(conversationId)}
+            onSelect={(conversationId) =>
+              setActiveConversationId(conversationId)
+            }
             onDelete={(conversationId) => {
               void handleDeleteConversation(conversationId);
             }}
@@ -424,6 +497,9 @@ export function AISidebar({ connectionId, database, schemaOverview }: AISidebarP
         providers={providers}
         selectedProviderId={selectedProviderId}
         onProviderChange={setSelectedProviderId}
+        availableTables={availableTables}
+        selectedTables={selectedTables}
+        onSelectedTablesChange={setSelectedTables}
       />
     </div>
   );

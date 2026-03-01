@@ -1,0 +1,64 @@
+---
+import type { PlatformDownloads } from '@/lib/github';
+
+interface Props {
+  version: string;
+  releasedDate: string;
+  releaseNotesUrl: string;
+  source: 'github' | 'fallback';
+  downloads: PlatformDownloads;
+}
+
+const { version, releasedDate, releaseNotesUrl, source, downloads } = Astro.props;
+---
+
+<section class="hero section">
+  <div class="hero-copy">
+    <p class="kicker">Database workflow, rebuilt for speed</p>
+    <h1>DbPaw gives your SQL team a faster path from query to insight.</h1>
+    <p class="lead">
+      A modern desktop database client powered by Rust and AI. Build better SQL, inspect data quickly,
+      and ship safely across macOS, Windows, and Linux.
+    </p>
+    <div class="actions">
+      <a class="button button-primary" id="smart-download" href={downloads.mac ?? releaseNotesUrl}>
+        Download for your platform
+      </a>
+      <a class="button button-ghost" href={releaseNotesUrl} target="_blank" rel="noreferrer">
+        View release notes
+      </a>
+    </div>
+    <p class="meta">
+      Latest release <strong>{version}</strong>, published {releasedDate} ({source === 'github'
+        ? 'live from GitHub'
+        : 'fallback mode'}).
+    </p>
+  </div>
+  <div class="hero-card">
+    <p class="card-label">Why teams choose DbPaw</p>
+    <ul>
+      <li>AI SQL assistance inside your editor</li>
+      <li>SSH tunneling for secure remote access</li>
+      <li>Native-speed startup on all major desktops</li>
+    </ul>
+  </div>
+</section>
+
+<script is:inline define:vars={{ links: downloads, fallback: releaseNotesUrl }}>
+  const downloadButton = document.getElementById('smart-download');
+  if (downloadButton) {
+    const userAgent = navigator.userAgent.toLowerCase();
+    let platform = 'mac';
+    if (userAgent.includes('win')) platform = 'windows';
+    else if (userAgent.includes('linux')) platform = 'linux';
+
+    const target = links[platform] ?? fallback;
+    downloadButton.href = target;
+    downloadButton.textContent =
+      platform === 'mac'
+        ? 'Download for macOS'
+        : platform === 'windows'
+          ? 'Download for Windows'
+          : 'Download for Linux';
+  }
+</script>

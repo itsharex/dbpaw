@@ -1,0 +1,27 @@
+---
+import type { PlatformDownloads } from '@/lib/github';
+
+interface Props {
+  downloads: PlatformDownloads;
+  releaseNotesUrl: string;
+  version: string;
+}
+
+const { downloads, releaseNotesUrl, version } = Astro.props;
+---
+
+<section id="download" class="section cta">
+  <div>
+    <p class="kicker">Download</p>
+    <h2>Install DbPaw {version} on your platform</h2>
+    <p>Pick your installer or open the release notes for checksums and full change details.</p>
+  </div>
+  <div class="download-grid">
+    <a class="download-card" href={downloads.mac ?? releaseNotesUrl}>macOS</a>
+    <a class="download-card" href={downloads.windows ?? releaseNotesUrl}>Windows</a>
+    <a class="download-card" href={downloads.linux ?? releaseNotesUrl}>Linux</a>
+    <a class="download-card notes" href={releaseNotesUrl} target="_blank" rel="noreferrer">
+      Release Notes
+    </a>
+  </div>
+</section>

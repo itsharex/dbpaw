@@ -29,7 +29,10 @@ async fn test_clickhouse_integration_flow() {
         .await
         .expect("Failed to connect to ClickHouse");
 
-    driver.test_connection().await.expect("test_connection failed");
+    driver
+        .test_connection()
+        .await
+        .expect("test_connection failed");
 
     let databases = driver
         .list_databases()

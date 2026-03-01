@@ -6,6 +6,11 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   site: 'https://dbpaw.dev',
   integrations: [sitemap()],
+  redirects: {
+    '/features': { status: 301, destination: '/' },
+    '/faq': { status: 301, destination: '/' },
+    '/download': { status: 301, destination: '/' }
+  },
   vite: {
     plugins: [tailwindcss()],
     resolve: {

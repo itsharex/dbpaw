@@ -39,7 +39,7 @@ pub async fn ensure_connection_with_db(
             let lock = state.local_db.lock().await;
             lock.clone()
         };
-        
+
         if let Some(db) = local_db {
             if db.get_connection_by_id(id).await.is_err() {
                 state.pool_manager.remove_by_prefix(&id.to_string()).await;
@@ -53,7 +53,7 @@ pub async fn ensure_connection_with_db(
         let lock = state.local_db.lock().await;
         lock.clone()
     };
-    
+
     let db = local_db.ok_or("Local DB not initialized")?;
     let mut form = db.get_connection_form_by_id(id).await?;
 

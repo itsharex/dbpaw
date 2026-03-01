@@ -3,7 +3,11 @@ import { formatDistanceToNow } from "date-fns";
 import { History, MessageSquare, Trash2 } from "lucide-react";
 import type { AIConversation } from "@/services/api";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/components/ui/utils";
 
@@ -39,7 +43,10 @@ export function AIHistoryPopover({
           <History className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[320px] max-w-[calc(100vw-24px)] p-2">
+      <PopoverContent
+        align="end"
+        className="w-[320px] max-w-[calc(100vw-24px)] p-2"
+      >
         <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
           Conversation History
         </div>

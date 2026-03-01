@@ -1,0 +1,21 @@
+---
+import { FEATURES } from '@/config/features';
+---
+
+<section id="features" class="section">
+  <div class="section-head">
+    <p class="kicker">Core capabilities</p>
+    <h2>Everything needed for modern database operations</h2>
+  </div>
+  <div class="feature-grid">
+    {
+      FEATURES.map((feature) => (
+        <article class="feature-card">
+          <span class="feature-tag">{feature.tag}</span>
+          <h3>{feature.title}</h3>
+          <p>{feature.summary}</p>
+        </article>
+      ))
+    }
+  </div>
+</section>

@@ -18,6 +18,9 @@ export function ChatMessageItem({ message, variant }: ChatMessageItemProps) {
   }
 
   return (
-    <AIMarkdownMessage content={message.content} className="min-w-0 w-full max-w-full" />
+    <AIMarkdownMessage
+      content={message.content}
+      className="min-w-0 w-full max-w-full"
+    />
   );
 }

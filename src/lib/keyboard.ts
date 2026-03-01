@@ -35,8 +35,5 @@ export function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 export function shouldIgnoreGlobalShortcut(e: KeyboardEvent): boolean {
-  return (
-    isEditableTarget(e.target) ||
-    isEditableTarget(document.activeElement)
-  );
+  return isEditableTarget(e.target) || isEditableTarget(document.activeElement);
 }

@@ -39,7 +39,11 @@ impl PoolManager {
     }
 
     /// Establish new connection and cache it. Return existing one if already present.
-    pub async fn connect(&self, id: &str, form: &ConnectionForm) -> Result<Arc<dyn DatabaseDriver>, String> {
+    pub async fn connect(
+        &self,
+        id: &str,
+        form: &ConnectionForm,
+    ) -> Result<Arc<dyn DatabaseDriver>, String> {
         // 1. Fast path check
         if let Some(driver) = self.get_connection(id).await {
             return Ok(driver);
@@ -63,16 +67,21 @@ impl PoolManager {
 
         // 4. Create new connection
         // Note: connect returns Box<dyn DatabaseDriver>, we need to convert to Arc
-        let driver_box = drivers::connect(form).await.map_err(|e| format!("[POOL_CONNECT_ERROR] {}", e))?;
+        let driver_box = drivers::connect(form)
+            .await
+            .map_err(|e| format!("[POOL_CONNECT_ERROR] {}", e))?;
         let driver: Arc<dyn DatabaseDriver> = Arc::from(driver_box);
 
         // 5. Store in pool
         {
             let mut pools = self.pools.write().await;
-            pools.insert(id.to_string(), PoolEntry {
-                driver: driver.clone(),
-                last_used: Mutex::new(std::time::Instant::now()),
-            });
+            pools.insert(
+                id.to_string(),
+                PoolEntry {
+                    driver: driver.clone(),
+                    last_used: Mutex::new(std::time::Instant::now()),
+                },
+            );
         }
 
         Ok(driver)
@@ -84,7 +93,7 @@ impl PoolManager {
             let mut pools = self.pools.write().await;
             pools.remove(id)
         };
-        
+
         if let Some(entry) = entry {
             // Explicitly close connection, write lock is released at this point
             entry.driver.close().await;
@@ -100,7 +109,7 @@ impl PoolManager {
                 .filter(|k| k == &id || k.starts_with(&format!("{}:", id)))
                 .cloned()
                 .collect();
-            
+
             let mut entries = Vec::new();
             for key in keys_to_remove {
                 if let Some(entry) = pools.remove(&key) {
@@ -130,10 +139,13 @@ impl PoolManager {
     #[cfg(test)]
     pub async fn insert_mock_connection(&self, id: &str, driver: Arc<dyn DatabaseDriver>) {
         let mut pools = self.pools.write().await;
-        pools.insert(id.to_string(), PoolEntry {
-            driver,
-            last_used: Mutex::new(std::time::Instant::now()),
-        });
+        pools.insert(
+            id.to_string(),
+            PoolEntry {
+                driver,
+                last_used: Mutex::new(std::time::Instant::now()),
+            },
+        );
     }
 
     #[cfg(test)]
@@ -158,16 +170,70 @@ mod tests {
     #[async_trait]
     impl DatabaseDriver for MockDriver {
         async fn close(&self) {}
-        async fn test_connection(&self) -> Result<(), String> { Ok(()) }
-        async fn list_databases(&self) -> Result<Vec<String>, String> { Ok(vec![]) }
-        async fn list_tables(&self, _schema: Option<String>) -> Result<Vec<crate::models::TableInfo>, String> { Ok(vec![]) }
-        async fn get_table_structure(&self, _schema: String, _table: String) -> Result<crate::models::TableStructure, String> { Err("Unimplemented".into()) }
-        async fn get_table_metadata(&self, _schema: String, _table: String) -> Result<crate::models::TableMetadata, String> { Err("Unimplemented".into()) }
-        async fn get_table_ddl(&self, _schema: String, _table: String) -> Result<String, String> { Err("Unimplemented".into()) }
-        async fn get_table_data(&self, _schema: String, _table: String, _page: i64, _limit: i64, _sort_column: Option<String>, _sort_direction: Option<String>, _filter: Option<String>, _order_by: Option<String>) -> Result<crate::models::TableDataResponse, String> { Err("Unimplemented".into()) }
-        async fn get_table_data_chunk(&self, _schema: String, _table: String, _page: i64, _limit: i64, _sort_column: Option<String>, _sort_direction: Option<String>, _filter: Option<String>, _order_by: Option<String>) -> Result<crate::models::TableDataResponse, String> { Err("Unimplemented".into()) }
-        async fn execute_query(&self, _sql: String) -> Result<crate::models::QueryResult, String> { Err("Unimplemented".into()) }
-        async fn get_schema_overview(&self, _schema: Option<String>) -> Result<crate::models::SchemaOverview, String> { Err("Unimplemented".into()) }
+        async fn test_connection(&self) -> Result<(), String> {
+            Ok(())
+        }
+        async fn list_databases(&self) -> Result<Vec<String>, String> {
+            Ok(vec![])
+        }
+        async fn list_tables(
+            &self,
+            _schema: Option<String>,
+        ) -> Result<Vec<crate::models::TableInfo>, String> {
+            Ok(vec![])
+        }
+        async fn get_table_structure(
+            &self,
+            _schema: String,
+            _table: String,
+        ) -> Result<crate::models::TableStructure, String> {
+            Err("Unimplemented".into())
+        }
+        async fn get_table_metadata(
+            &self,
+            _schema: String,
+            _table: String,
+        ) -> Result<crate::models::TableMetadata, String> {
+            Err("Unimplemented".into())
+        }
+        async fn get_table_ddl(&self, _schema: String, _table: String) -> Result<String, String> {
+            Err("Unimplemented".into())
+        }
+        async fn get_table_data(
+            &self,
+            _schema: String,
+            _table: String,
+            _page: i64,
+            _limit: i64,
+            _sort_column: Option<String>,
+            _sort_direction: Option<String>,
+            _filter: Option<String>,
+            _order_by: Option<String>,
+        ) -> Result<crate::models::TableDataResponse, String> {
+            Err("Unimplemented".into())
+        }
+        async fn get_table_data_chunk(
+            &self,
+            _schema: String,
+            _table: String,
+            _page: i64,
+            _limit: i64,
+            _sort_column: Option<String>,
+            _sort_direction: Option<String>,
+            _filter: Option<String>,
+            _order_by: Option<String>,
+        ) -> Result<crate::models::TableDataResponse, String> {
+            Err("Unimplemented".into())
+        }
+        async fn execute_query(&self, _sql: String) -> Result<crate::models::QueryResult, String> {
+            Err("Unimplemented".into())
+        }
+        async fn get_schema_overview(
+            &self,
+            _schema: Option<String>,
+        ) -> Result<crate::models::SchemaOverview, String> {
+            Err("Unimplemented".into())
+        }
     }
 
     #[tokio::test]
@@ -176,8 +242,12 @@ mod tests {
         let driver = Arc::new(MockDriver);
 
         manager.insert_mock_connection("1", driver.clone()).await;
-        manager.insert_mock_connection("1:db1", driver.clone()).await;
-        manager.insert_mock_connection("1:db2", driver.clone()).await;
+        manager
+            .insert_mock_connection("1:db1", driver.clone())
+            .await;
+        manager
+            .insert_mock_connection("1:db2", driver.clone())
+            .await;
         manager.insert_mock_connection("2", driver.clone()).await;
         manager.insert_mock_connection("21", driver.clone()).await; // Should NOT be removed
 

@@ -13,7 +13,8 @@ pub async fn save_query(
 ) -> Result<SavedQuery, String> {
     let local_db = state.local_db.lock().await;
     if let Some(db) = local_db.as_ref() {
-        db.create_saved_query(name, query, description, connection_id, database).await
+        db.create_saved_query(name, query, description, connection_id, database)
+            .await
     } else {
         Err("Local DB not initialized".to_string())
     }
@@ -31,17 +32,15 @@ pub async fn update_saved_query(
 ) -> Result<SavedQuery, String> {
     let local_db = state.local_db.lock().await;
     if let Some(db) = local_db.as_ref() {
-        db.update_saved_query(id, name, query, description, connection_id, database).await
+        db.update_saved_query(id, name, query, description, connection_id, database)
+            .await
     } else {
         Err("Local DB not initialized".to_string())
     }
 }
 
 #[tauri::command]
-pub async fn delete_saved_query(
-    state: State<'_, AppState>,
-    id: i64,
-) -> Result<(), String> {
+pub async fn delete_saved_query(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let local_db = state.local_db.lock().await;
     if let Some(db) = local_db.as_ref() {
         db.delete_saved_query(id).await
@@ -51,9 +50,7 @@ pub async fn delete_saved_query(
 }
 
 #[tauri::command]
-pub async fn get_saved_queries(
-    state: State<'_, AppState>,
-) -> Result<Vec<SavedQuery>, String> {
+pub async fn get_saved_queries(state: State<'_, AppState>) -> Result<Vec<SavedQuery>, String> {
     let local_db = state.local_db.lock().await;
     if let Some(db) = local_db.as_ref() {
         db.list_saved_queries().await

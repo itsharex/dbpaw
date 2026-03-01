@@ -120,6 +120,7 @@ pub fn run() {
             commands::metadata::list_tables_by_conn,
             commands::query::get_table_data_by_conn,
             commands::query::execute_by_conn,
+            commands::query::list_sql_execution_logs,
             commands::connection::list_databases,
             commands::connection::list_databases_by_id,
             commands::storage::save_query,
@@ -131,6 +132,7 @@ pub fn run() {
             commands::ai::ai_update_provider,
             commands::ai::ai_delete_provider,
             commands::ai::ai_set_default_provider,
+            commands::ai::ai_clear_provider_api_key,
             commands::ai::ai_chat_start,
             commands::ai::ai_chat_continue,
             commands::ai::ai_list_conversations,
@@ -153,8 +155,8 @@ pub fn run() {
     });
 }
 
-pub mod commands;
 pub mod ai;
+pub mod commands;
 pub mod db;
 pub mod error;
 pub mod events;

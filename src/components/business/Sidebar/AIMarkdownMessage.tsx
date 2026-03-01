@@ -58,7 +58,10 @@ function CodeBlock({
       </Button>
       <pre className="w-full min-w-0 max-w-full overflow-x-auto rounded-lg border border-border/70 bg-muted/40 p-3 text-sm leading-6">
         <code
-          className={cn("block whitespace-pre-wrap break-words font-mono text-foreground", className)}
+          className={cn(
+            "block whitespace-pre-wrap break-words font-mono text-foreground",
+            className,
+          )}
           {...props}
         >
           {rawCode}
@@ -68,7 +71,10 @@ function CodeBlock({
   );
 }
 
-export function AIMarkdownMessage({ content, className }: AIMarkdownMessageProps) {
+export function AIMarkdownMessage({
+  content,
+  className,
+}: AIMarkdownMessageProps) {
   return (
     <div
       className={cn(
@@ -83,8 +89,12 @@ export function AIMarkdownMessage({ content, className }: AIMarkdownMessageProps
           h2: ({ children }) => <h2 className="text-base">{children}</h2>,
           h3: ({ children }) => <h3 className="text-sm">{children}</h3>,
           p: ({ children }) => <p className="break-words">{children}</p>,
-          ul: ({ children }) => <ul className="list-disc break-words pl-6">{children}</ul>,
-          ol: ({ children }) => <ol className="list-decimal break-words pl-6">{children}</ol>,
+          ul: ({ children }) => (
+            <ul className="list-disc break-words pl-6">{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="list-decimal break-words pl-6">{children}</ol>
+          ),
           li: ({ children }) => <li className="break-words">{children}</li>,
           blockquote: ({ children }) => (
             <blockquote className="my-3 break-words border-l-2 border-border pl-3 text-muted-foreground">

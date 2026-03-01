@@ -43,26 +43,26 @@
 }
 
 .dark {
-  --background: oklch(0.18 0.003 260);
-  --foreground: oklch(0.94 0.004 260);
-  --card: oklch(0.22 0.003 260);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.24 0.003 260);
-  --popover-foreground: oklch(0.985 0 0);
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #0f0f12;
+  --card-foreground: #fafafa;
+  --popover: #0f0f12;
+  --popover-foreground: #fafafa;
   --primary: oklch(0.985 0 0);
   --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.27 0.003 260);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.25 0.003 260);
-  --muted-foreground: oklch(0.72 0.004 260);
-  --accent: oklch(0.29 0.004 260);
-  --accent-foreground: oklch(0.985 0 0);
+  --secondary: #18181b;
+  --secondary-foreground: #fafafa;
+  --muted: #18181b;
+  --muted-foreground: #a1a1aa;
+  --accent: #18181b;
+  --accent-foreground: #fafafa;
   --destructive: oklch(0.396 0.141 25.723);
   --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.33 0.003 260);
-  --input: oklch(0.28 0.003 260);
-  --input-background: oklch(0.23 0.003 260);
-  --switch-background: oklch(0.38 0.003 260);
+  --border: #27272a;
+  --input: #27272a;
+  --input-background: #18181b;
+  --switch-background: #3f3f46;
   --ring: oklch(0.6 0.02 255);
   --font-weight-medium: 500;
   --font-weight-normal: 400;
@@ -71,13 +71,13 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.2 0.003 260);
-  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar: #0f0f12;
+  --sidebar-foreground: #fafafa;
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.27 0.003 260);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.32 0.003 260);
+  --sidebar-accent: #18181b;
+  --sidebar-accent-foreground: #fafafa;
+  --sidebar-border: #27272a;
   --sidebar-ring: oklch(0.58 0.02 255);
 }
 
@@ -180,6 +180,37 @@
     font-size: var(--text-base);
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
+  }
+
+  /* Custom scrollbar styles */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
+    border-radius: 3px;
+    transition: background 0.2s ease;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
+  }
+
+  /* Firefox scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(
+        in srgb,
+        var(--muted-foreground) 30%,
+        transparent
+      )
+      transparent;
   }
 
   /* Custom animations */

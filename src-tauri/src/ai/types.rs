@@ -29,6 +29,7 @@ pub struct AiColumnSummary {
     pub name: String,
     #[serde(rename = "type")]
     pub column_type: String,
+    pub nullable: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +58,14 @@ pub struct AiChatRequest {
     pub connection_id: Option<i64>,
     pub database: Option<String>,
     pub schema_overview: Option<AiSchemaOverview>,
+    pub selected_tables: Option<Vec<AiSelectedTableRef>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSelectedTableRef {
+    pub schema: String,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

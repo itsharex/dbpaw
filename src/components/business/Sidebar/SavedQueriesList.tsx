@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { api, SavedQuery, Driver } from "@/services/api";
 import { Button } from "@/components/ui/button";
-import { Database, RefreshCw, Trash2, Edit3, Search, Server } from "lucide-react";
+import {
+  Database,
+  RefreshCw,
+  Trash2,
+  Edit3,
+  Search,
+  Server,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { siMysql, siPostgresql, siSqlite, type SimpleIcon } from "simple-icons";
 
@@ -19,7 +26,9 @@ const renderSimpleIcon = (icon: SimpleIcon) => (
 );
 
 const getConnectionIcon = (driver?: Driver): React.ReactNode => {
-  const normalized = String(driver || "").trim().toLowerCase();
+  const normalized = String(driver || "")
+    .trim()
+    .toLowerCase();
 
   switch (normalized) {
     case "postgres":
@@ -44,10 +53,15 @@ interface SavedQueriesListProps {
   lastUpdated?: number;
 }
 
-export function SavedQueriesList({ onSelectQuery, lastUpdated }: SavedQueriesListProps) {
+export function SavedQueriesList({
+  onSelectQuery,
+  lastUpdated,
+}: SavedQueriesListProps) {
   const [queries, setQueries] = useState<SavedQuery[]>([]);
   const [connections, setConnections] = useState<Record<number, string>>({});
-  const [connectionTypes, setConnectionTypes] = useState<Record<number, Driver>>({});
+  const [connectionTypes, setConnectionTypes] = useState<
+    Record<number, Driver>
+  >({});
   const [searchTerm, setSearchTerm] = useState("");
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
@@ -100,7 +114,7 @@ export function SavedQueriesList({ onSelectQuery, lastUpdated }: SavedQueriesLis
   };
 
   const filteredQueries = queries.filter((q) =>
-    q.name.toLowerCase().includes(searchTerm.toLowerCase())
+    q.name.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
   return (
@@ -149,7 +163,11 @@ export function SavedQueriesList({ onSelectQuery, lastUpdated }: SavedQueriesLis
               });
             }}
           >
-            {getConnectionIcon(query.connectionId ? connectionTypes[query.connectionId] : undefined)}
+            {getConnectionIcon(
+              query.connectionId
+                ? connectionTypes[query.connectionId]
+                : undefined,
+            )}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="truncate font-medium">{query.name}</span>
@@ -183,7 +201,7 @@ export function SavedQueriesList({ onSelectQuery, lastUpdated }: SavedQueriesLis
             className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
             onClick={() => {
               if (contextMenu.queryId) {
-                const query = queries.find(q => q.id === contextMenu.queryId);
+                const query = queries.find((q) => q.id === contextMenu.queryId);
                 if (query) onSelectQuery(query);
               }
               setContextMenu((prev) => ({ ...prev, visible: false }));

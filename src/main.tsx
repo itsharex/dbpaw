@@ -8,5 +8,5 @@ createRoot(document.getElementById("root")!).render(
   <ThemeProvider defaultTheme="system">
     <App />
     <Toaster />
-  </ThemeProvider>
+  </ThemeProvider>,
 );

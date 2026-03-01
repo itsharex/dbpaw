@@ -50,11 +50,7 @@ pub async fn export_table_data(
     file_path: Option<String>,
     chunk_size: Option<i64>,
 ) -> Result<ExportResult, String> {
-    let output_path = resolve_output_path(
-        file_path,
-        &table,
-        extension_for_format(&format),
-    )?;
+    let output_path = resolve_output_path(file_path, &table, extension_for_format(&format))?;
 
     let chunk = chunk_size.unwrap_or(DEFAULT_CHUNK_SIZE).max(1);
 
@@ -78,7 +74,8 @@ pub async fn export_table_data(
                 .map(|c| c.name)
                 .collect::<Vec<_>>();
 
-            let mut writer = ExportWriter::new(output_path.clone(), format.clone(), columns.clone())?;
+            let mut writer =
+                ExportWriter::new(output_path.clone(), format.clone(), columns.clone())?;
             let mut exported = 0i64;
 
             match scope {
@@ -97,13 +94,8 @@ pub async fn export_table_data(
                             order_by.clone(),
                         )
                         .await?;
-                    exported += writer.write_rows(
-                        &resp.data,
-                        &columns,
-                        Some(&schema),
-                        &table,
-                        &driver,
-                    )?;
+                    exported +=
+                        writer.write_rows(&resp.data, &columns, Some(&schema), &table, &driver)?;
                 }
                 ExportScope::Filtered | ExportScope::FullTable => {
                     let filter_for_scope = if matches!(scope, ExportScope::Filtered) {
@@ -180,11 +172,8 @@ pub async fn export_query_result(
     format: ExportFormat,
     file_path: Option<String>,
 ) -> Result<ExportResult, String> {
-    let output_path = resolve_output_path(
-        file_path,
-        "query_result",
-        extension_for_format(&format),
-    )?;
+    let output_path =
+        resolve_output_path(file_path, "query_result", extension_for_format(&format))?;
 
     super::execute_with_retry(&state, id, database, |db_driver| {
         let output_path = output_path.clone();
@@ -193,9 +182,14 @@ pub async fn export_query_result(
         let format = format.clone();
         async move {
             let result = db_driver.execute_query(sql).await?;
-            let columns = result.columns.into_iter().map(|c| c.name).collect::<Vec<_>>();
+            let columns = result
+                .columns
+                .into_iter()
+                .map(|c| c.name)
+                .collect::<Vec<_>>();
             let mut writer = ExportWriter::new(output_path.clone(), format, columns.clone())?;
-            let exported = writer.write_rows(&result.data, &columns, None, "query_result", &driver)?;
+            let exported =
+                writer.write_rows(&result.data, &columns, None, "query_result", &driver)?;
             writer.finish()?;
             Ok(ExportResult {
                 file_path: output_path.to_string_lossy().to_string(),
@@ -294,7 +288,8 @@ struct ExportWriter {
 
 impl ExportWriter {
     fn new(path: PathBuf, format: ExportFormat, columns: Vec<String>) -> Result<Self, String> {
-        let file = File::create(path).map_err(|e| format!("[EXPORT_ERROR] create file failed: {e}"))?;
+        let file =
+            File::create(path).map_err(|e| format!("[EXPORT_ERROR] create file failed: {e}"))?;
         let mut writer = BufWriter::new(file);
 
         match format {
@@ -354,11 +349,7 @@ impl ExportWriter {
             ExportFormat::Csv => {
                 let line = columns
                     .iter()
-                    .map(|c| {
-                        row.get(c)
-                            .map(csv_value)
-                            .unwrap_or_else(|| "".to_string())
-                    })
+                    .map(|c| row.get(c).map(csv_value).unwrap_or_else(|| "".to_string()))
                     .collect::<Vec<_>>()
                     .join(",");
                 self.writer
@@ -386,7 +377,11 @@ impl ExportWriter {
                     .join(", ");
                 let values = columns
                     .iter()
-                    .map(|c| row.get(c).map(sql_value).unwrap_or_else(|| "NULL".to_string()))
+                    .map(|c| {
+                        row.get(c)
+                            .map(sql_value)
+                            .unwrap_or_else(|| "NULL".to_string())
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 let statement = format!(
@@ -485,7 +480,10 @@ mod tests {
     fn sql_value_works() {
         assert_eq!(sql_value(&Value::Null), "NULL");
         assert_eq!(sql_value(&Value::Bool(true)), "TRUE");
-        assert_eq!(sql_value(&Value::String("O'Reilly".to_string())), "'O''Reilly'");
+        assert_eq!(
+            sql_value(&Value::String("O'Reilly".to_string())),
+            "'O''Reilly'"
+        );
     }
 
     #[test]
@@ -506,10 +504,7 @@ mod tests {
 
     #[test]
     fn quote_target_ignores_empty_schema() {
-        assert_eq!(
-            quote_target(Some("  "), "users", "postgres"),
-            "\"users\""
-        );
+        assert_eq!(quote_target(Some("  "), "users", "postgres"), "\"users\"");
         assert_eq!(quote_target(None, "users", "mysql"), "`users`");
     }
 }

@@ -17,10 +17,16 @@ pub struct PostgresDriver {
 }
 
 fn build_dsn(form: &ConnectionForm) -> Result<String, String> {
-    let host = form.host.clone().ok_or("[VALIDATION_ERROR] host cannot be empty")?;
+    let host = form
+        .host
+        .clone()
+        .ok_or("[VALIDATION_ERROR] host cannot be empty")?;
     let port = form.port.unwrap_or(5432);
     // Allow database to be empty, default to postgres
-    let database = form.database.clone().unwrap_or_else(|| "postgres".to_string());
+    let database = form
+        .database
+        .clone()
+        .unwrap_or_else(|| "postgres".to_string());
     let username = form
         .username
         .clone()
@@ -60,7 +66,7 @@ impl PostgresDriver {
             .connect(&dsn)
             .await
             .map_err(|e| format!("[CONN_FAILED] {e}"))?;
-        
+
         Ok(Self { pool, ssh_tunnel })
     }
 }

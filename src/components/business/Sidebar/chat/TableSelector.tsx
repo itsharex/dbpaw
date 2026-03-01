@@ -1,0 +1,131 @@
+import { useMemo, useState } from "react";
+import { Check, ChevronsUpDown, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/components/ui/utils";
+
+export interface SelectedTableRef {
+  schema: string;
+  name: string;
+}
+
+export interface TableSelectorProps {
+  tables: SelectedTableRef[];
+  value: SelectedTableRef[];
+  onChange: (next: SelectedTableRef[]) => void;
+  disabled?: boolean;
+}
+
+function toKey(t: SelectedTableRef) {
+  return `${t.schema}.${t.name}`;
+}
+
+export function TableSelector({
+  tables,
+  value,
+  onChange,
+  disabled,
+}: TableSelectorProps) {
+  const [open, setOpen] = useState(false);
+  const selected = useMemo(() => new Set(value.map(toKey)), [value]);
+  const byKey = useMemo(() => {
+    const map = new Map<string, SelectedTableRef>();
+    for (const t of tables) map.set(toKey(t), t);
+    return map;
+  }, [tables]);
+
+  const toggle = (key: string) => {
+    const next = new Set(selected);
+    if (next.has(key)) {
+      next.delete(key);
+      onChange(value.filter((t) => toKey(t) !== key));
+      return;
+    }
+    next.add(key);
+    const item = byKey.get(key);
+    if (!item) return;
+    onChange([...value, item]);
+  };
+
+  const label =
+    value.length === 0
+      ? "Select table schema (no data)"
+      : `Schema: ${value.length} selected`;
+
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 w-full min-w-0 justify-between gap-2 border-border/60 bg-muted/20 text-xs"
+            disabled={disabled || tables.length === 0}
+            aria-label="Only schema,no data"
+          >
+            <span className="truncate">{label}</span>
+            <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-60" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-[320px] p-0">
+          <Command>
+            <CommandInput placeholder="Search tables..." />
+            <CommandList>
+              <CommandEmpty>No tables found</CommandEmpty>
+              <CommandGroup heading="Tables">
+                {tables.map((t) => {
+                  const key = toKey(t);
+                  const checked = selected.has(key);
+                  return (
+                    <CommandItem
+                      key={key}
+                      value={key}
+                      onSelect={() => toggle(key)}
+                      className="flex items-center gap-2"
+                    >
+                      <Check
+                        className={cn(
+                          "h-4 w-4",
+                          checked ? "opacity-100" : "opacity-0",
+                        )}
+                      />
+                      <span className="truncate">
+                        {t.schema}.{t.name}
+                      </span>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
+
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 shrink-0 rounded-md"
+        disabled={disabled || value.length === 0}
+        onClick={() => onChange([])}
+        title="Clear table selection"
+        aria-label="Clear table selection"
+      >
+        <X className="h-4 w-4 opacity-70" />
+      </Button>
+    </div>
+  );
+}

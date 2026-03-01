@@ -10,14 +10,9 @@ import { SqlEditor } from "@/components/business/Editor/SqlEditor";
 import { SaveQueryDialog } from "@/components/business/Editor/SaveQueryDialog";
 import { TableView } from "@/components/business/DataGrid/TableView";
 import { TableMetadataView } from "@/components/business/Metadata/TableMetadataView";
+import { SqlExecutionLogsDropdown } from "@/components/business/SqlLogs/SqlExecutionLogsDialog";
 import { AISidebar } from "@/components/business/Sidebar/AISidebar";
-import {
-  FileCode,
-  Table,
-  X,
-  Settings,
-  Sparkles,
-} from "lucide-react";
+import { FileCode, Table, X, Settings, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -111,7 +106,9 @@ export default function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [queriesLastUpdated, setQueriesLastUpdated] = useState(0);
   const [pendingCloseTabIds, setPendingCloseTabIds] = useState<string[]>([]);
-  const [currentCloseTabId, setCurrentCloseTabId] = useState<string | null>(null);
+  const [currentCloseTabId, setCurrentCloseTabId] = useState<string | null>(
+    null,
+  );
   const [isUnsavedConfirmOpen, setIsUnsavedConfirmOpen] = useState(false);
   const [isCloseSaveDialogOpen, setIsCloseSaveDialogOpen] = useState(false);
   const closeSaveCompletedRef = useRef(false);
@@ -122,7 +119,7 @@ export default function App() {
       activationConstraint: {
         distance: 8,
       },
-    })
+    }),
   );
 
   const handleDragEnd = (event: DragEndEvent) => {
@@ -142,9 +139,11 @@ export default function App() {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest('[data-no-drag="true"]')) return;
-    getCurrentWindow().startDragging().catch(() => {
-      // Keep attribute drag region as fallback.
-    });
+    getCurrentWindow()
+      .startDragging()
+      .catch(() => {
+        // Keep attribute drag region as fallback.
+      });
   };
 
   const renderWindowActions = () => (
@@ -159,12 +158,17 @@ export default function App() {
       >
         <Settings className="w-4 h-4" />
       </Button>
+      <SqlExecutionLogsDropdown />
       <Button
         variant={aiVisible ? "default" : "ghost"}
         size="sm"
         className="h-7 w-7 p-0"
         onClick={() => setAiVisible((v) => !v)}
-        title={aiVisible ? "Hide AI Panel (Cmd/Ctrl+\\)" : "Show AI Panel (Cmd/Ctrl+\\)"}
+        title={
+          aiVisible
+            ? "Hide AI Panel (Cmd/Ctrl+\\)"
+            : "Show AI Panel (Cmd/Ctrl+\\)"
+        }
         aria-label={aiVisible ? "Hide AI panel" : "Show AI panel"}
       >
         <Sparkles className="w-4 h-4" />
@@ -184,9 +188,11 @@ export default function App() {
       // If needed, we'd need to map evt to a specific tab
     });
 
-    const unlistenProgress = listen("query.progress", () => { });
-    const unlistenDone = listen("query.done", () => { });
-    const unlistenSettings = listen("open-settings", () => setOpenSettings(true));
+    const unlistenProgress = listen("query.progress", () => {});
+    const unlistenDone = listen("query.done", () => {});
+    const unlistenSettings = listen("open-settings", () =>
+      setOpenSettings(true),
+    );
 
     return () => {
       unlistenChunk.then((f) => f());
@@ -252,13 +258,19 @@ export default function App() {
     setActiveTab(newTabId);
 
     // Fetch schema overview for completion
-    api.metadata.getSchemaOverview(connectionId, databaseName)
+    api.metadata
+      .getSchemaOverview(connectionId, databaseName)
       .then((schemaOverview) => {
         setTabs((prev) =>
-          prev.map((t) => (t.id === newTabId ? { ...t, schemaOverview } : t))
+          prev.map((t) => (t.id === newTabId ? { ...t, schemaOverview } : t)),
         );
       })
-      .catch((e) => console.error("Failed to fetch schema overview:", e instanceof Error ? e.message : String(e)));
+      .catch((e) =>
+        console.error(
+          "Failed to fetch schema overview:",
+          e instanceof Error ? e.message : String(e),
+        ),
+      );
   };
 
   const handleOpenSavedQuery = async (query: SavedQuery) => {
@@ -281,15 +293,15 @@ export default function App() {
     if (connectionId) {
       try {
         // We need to get connection details to know driver and default database
-        // But api.connections.list returns all connections. 
+        // But api.connections.list returns all connections.
         // We can iterate or assume if we have a way to get single connection.
         // For now, let's just list and find.
-        // Optimized approach: add get_connection_by_id to api if needed, 
-        // but for now list is cached/fast enough locally? 
+        // Optimized approach: add get_connection_by_id to api if needed,
+        // but for now list is cached/fast enough locally?
         // Actually, we can just let the user select connection if it's missing details,
         // but we want to be helpful.
 
-        // NOTE: Ideally we should have api.connections.get(id). 
+        // NOTE: Ideally we should have api.connections.get(id).
         // But for now, let's just leave driver/database empty if we can't easily get them,
         // or fetch list.
         const conns = await api.connections.list();
@@ -347,7 +359,12 @@ export default function App() {
 
     const start = performance.now();
     try {
-      const result = await api.query.execute(tab.connectionId, sql, tab.database);
+      const result = await api.query.execute(
+        tab.connectionId,
+        sql,
+        tab.database,
+        "sql_editor",
+      );
       const columns = (result.columns || []).map((c) => c.name);
       const execMs = Math.round(
         result.timeTakenMs ?? performance.now() - start,
@@ -400,11 +417,13 @@ export default function App() {
       return;
     }
     try {
-      const schema =
-        driver === "mysql" || driver === "clickhouse" ? database : "public";
+      const isMySQLLike = driver === "mysql" || driver === "clickhouse";
+      const schema = isMySQLLike ? database : "public";
+      const dbParam = isMySQLLike ? undefined : database;
 
       const resp = await api.tableData.get({
         id: connectionId,
+        database: dbParam,
         schema,
         table,
         page: 1,
@@ -456,13 +475,17 @@ export default function App() {
     }
   };
 
-  const handleExportTableFromTree = async (ctx: {
-    connectionId: number;
-    database: string;
-    schema: string;
-    table: string;
-    driver: string;
-  }, format: "csv" | "json" | "sql", filePath: string) => {
+  const handleExportTableFromTree = async (
+    ctx: {
+      connectionId: number;
+      database: string;
+      schema: string;
+      table: string;
+      driver: string;
+    },
+    format: "csv" | "json" | "sql",
+    filePath: string,
+  ) => {
     try {
       const result = await api.transfer.exportTable({
         id: ctx.connectionId,
@@ -510,7 +533,10 @@ export default function App() {
     setActiveTab(tabId);
   };
 
-  const handleTableRefresh = async (tabId: string, overrides?: TableRefreshOverrides) => {
+  const handleTableRefresh = async (
+    tabId: string,
+    overrides?: TableRefreshOverrides,
+  ) => {
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
 
@@ -568,12 +594,12 @@ export default function App() {
     if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
 
     try {
-      const schema =
-        tab.driver === "mysql" || tab.driver === "clickhouse"
-          ? tab.database
-          : "public";
+      const isMySQLLike = tab.driver === "mysql" || tab.driver === "clickhouse";
+      const schema = isMySQLLike ? tab.database : "public";
+      const dbParam = isMySQLLike ? undefined : tab.database;
       const resp = await api.tableData.get({
         id: tab.connectionId,
+        database: dbParam,
         schema: schema || "public",
         table: tab.tableName,
         page,
@@ -610,12 +636,12 @@ export default function App() {
     if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
 
     try {
-      const schema =
-        tab.driver === "mysql" || tab.driver === "clickhouse"
-          ? tab.database
-          : "public";
+      const isMySQLLike = tab.driver === "mysql" || tab.driver === "clickhouse";
+      const schema = isMySQLLike ? tab.database : "public";
+      const dbParam = isMySQLLike ? undefined : tab.database;
       const resp = await api.tableData.get({
         id: tab.connectionId,
+        database: dbParam,
         schema: schema || "public",
         table: tab.tableName,
         page: 1,
@@ -648,7 +674,11 @@ export default function App() {
     }
   };
 
-  const handleSortChange = async (tabId: string, column: string, direction: "asc" | "desc") => {
+  const handleSortChange = async (
+    tabId: string,
+    column: string,
+    direction: "asc" | "desc",
+  ) => {
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
 
@@ -661,12 +691,12 @@ export default function App() {
     );
 
     try {
-      const schema =
-        tab.driver === "mysql" || tab.driver === "clickhouse"
-          ? tab.database
-          : "public";
+      const isMySQLLike = tab.driver === "mysql" || tab.driver === "clickhouse";
+      const schema = isMySQLLike ? tab.database : "public";
+      const dbParam = isMySQLLike ? undefined : tab.database;
       const resp = await api.tableData.get({
         id: tab.connectionId,
+        database: dbParam,
         schema: schema || "public",
         table: tab.tableName,
         page: 1, // Reset to first page on sort change
@@ -700,7 +730,11 @@ export default function App() {
     }
   };
 
-  const handleFilterChange = async (tabId: string, filter: string, orderBy: string) => {
+  const handleFilterChange = async (
+    tabId: string,
+    filter: string,
+    orderBy: string,
+  ) => {
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
 
@@ -713,12 +747,12 @@ export default function App() {
     );
 
     try {
-      const schema =
-        tab.driver === "mysql" || tab.driver === "clickhouse"
-          ? tab.database
-          : "public";
+      const isMySQLLike = tab.driver === "mysql" || tab.driver === "clickhouse";
+      const schema = isMySQLLike ? tab.database : "public";
+      const dbParam = isMySQLLike ? undefined : tab.database;
       const resp = await api.tableData.get({
         id: tab.connectionId,
+        database: dbParam,
         schema: schema || "public",
         table: tab.tableName,
         page: 1, // Reset to first page on filter change
@@ -729,7 +763,8 @@ export default function App() {
         orderBy: orderBy || undefined,
       });
 
-      const columns = resp.data.length > 0 ? Object.keys(resp.data[0]) : tab.columns;
+      const columns =
+        resp.data.length > 0 ? Object.keys(resp.data[0]) : tab.columns;
       setTabs((prev) =>
         prev.map((t) => {
           if (t.id !== tabId) return t;
@@ -797,14 +832,14 @@ export default function App() {
           prev.map((t) =>
             t.id === tab.id
               ? {
-                ...t,
-                savedQueryId: savedQuery.id,
-                title: savedQuery.name,
-                savedQueryDescription: savedQuery.description || undefined,
-                sqlContent: savedQuery.query,
-                lastSavedSql: savedQuery.query,
-                isDirty: false,
-              }
+                  ...t,
+                  savedQueryId: savedQuery.id,
+                  title: savedQuery.name,
+                  savedQueryDescription: savedQuery.description || undefined,
+                  sqlContent: savedQuery.query,
+                  lastSavedSql: savedQuery.query,
+                  isDirty: false,
+                }
               : t,
           ),
         );
@@ -848,7 +883,9 @@ export default function App() {
 
   const requestCloseTabs = useCallback(
     (tabIds: string[]) => {
-      const existingTabIds = tabIds.filter((id) => tabs.some((t) => t.id === id));
+      const existingTabIds = tabIds.filter((id) =>
+        tabs.some((t) => t.id === id),
+      );
       if (existingTabIds.length === 0) return;
       continueCloseFlow(existingTabIds);
     },
@@ -888,7 +925,13 @@ export default function App() {
         ? pendingCloseTabIds.slice(currentIndex + 1)
         : pendingCloseTabIds.filter((id) => id !== currentCloseTabId);
     continueCloseFlow(rest);
-  }, [closeTabNow, continueCloseFlow, currentCloseTabId, pendingCloseTabIds, resetCloseFlow]);
+  }, [
+    closeTabNow,
+    continueCloseFlow,
+    currentCloseTabId,
+    pendingCloseTabIds,
+    resetCloseFlow,
+  ]);
 
   const handleUnsavedCloseSave = useCallback(() => {
     unsavedConfirmActionRef.current = "save";
@@ -995,7 +1038,7 @@ export default function App() {
             handleCreateQuery(
               currentTab.connectionId,
               currentTab.database,
-              currentTab.driver
+              currentTab.driver,
             );
           }
           break;
@@ -1030,7 +1073,9 @@ export default function App() {
           onMouseDown={handleWindowDragStart}
         >
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <span className="text-xs font-medium text-muted-foreground">DbPaw</span>
+            <span className="text-xs font-medium text-muted-foreground">
+              DbPaw
+            </span>
           </div>
           <div
             data-no-drag="true"
@@ -1057,7 +1102,7 @@ export default function App() {
           >
             <Sidebar
               onTableSelect={handleTableSelect}
-              onConnect={() => { }}
+              onConnect={() => {}}
               onCreateQuery={handleCreateQuery}
               onExportTable={handleExportTableFromTree}
               onSelectSavedQuery={handleOpenSavedQuery}
@@ -1068,7 +1113,12 @@ export default function App() {
           <ResizableHandle />
 
           {/* Main Panel - SQL Editor & Results */}
-          <ResizablePanel id="main-panel" order={2} defaultSize={60} minSize={40}>
+          <ResizablePanel
+            id="main-panel"
+            order={2}
+            defaultSize={60}
+            minSize={40}
+          >
             <Tabs
               value={activeTab}
               onValueChange={setActiveTab}
@@ -1108,7 +1158,9 @@ export default function App() {
                                       <FileCode className="w-4 h-4 text-primary" />
                                     )}
                                     <span className="max-w-[120px] flex items-center">
-                                      <span className="truncate">{tab.title}</span>
+                                      <span className="truncate">
+                                        {tab.title}
+                                      </span>
                                       {tab.type === "editor" && tab.isDirty && (
                                         <span
                                           className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ml-1 shrink-0"
@@ -1131,10 +1183,14 @@ export default function App() {
                                 </span>
                               </ContextMenuTrigger>
                               <ContextMenuContent>
-                                <ContextMenuItem onClick={() => handleCloseTab(tab.id)}>
+                                <ContextMenuItem
+                                  onClick={() => handleCloseTab(tab.id)}
+                                >
                                   Close Tab
                                 </ContextMenuItem>
-                                <ContextMenuItem onClick={() => handleCloseOtherTabs(tab.id)}>
+                                <ContextMenuItem
+                                  onClick={() => handleCloseOtherTabs(tab.id)}
+                                >
                                   Close Other Tabs
                                 </ContextMenuItem>
                               </ContextMenuContent>
@@ -1160,7 +1216,9 @@ export default function App() {
                   <div className="h-full flex items-center justify-center text-muted-foreground">
                     <div className="text-center">
                       <FileCode className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                      <p>Select a table or create a new query from the sidebar</p>
+                      <p>
+                        Select a table or create a new query from the sidebar
+                      </p>
                     </div>
                   </div>
                 ) : (
@@ -1184,7 +1242,9 @@ export default function App() {
                           driver={tab.driver}
                           schemaOverview={tab.schemaOverview}
                           savedQueryId={tab.savedQueryId}
-                          initialName={tab.title.startsWith("Query (") ? "" : tab.title}
+                          initialName={
+                            tab.title.startsWith("Query (") ? "" : tab.title
+                          }
                           initialDescription={tab.savedQueryDescription}
                           onSaveSuccess={(savedQuery) => {
                             setQueriesLastUpdated(Date.now());
@@ -1195,14 +1255,15 @@ export default function App() {
                                     ...t,
                                     savedQueryId: savedQuery.id,
                                     title: savedQuery.name,
-                                    savedQueryDescription: savedQuery.description || undefined,
+                                    savedQueryDescription:
+                                      savedQuery.description || undefined,
                                     sqlContent: savedQuery.query,
                                     lastSavedSql: savedQuery.query,
                                     isDirty: false,
                                   };
                                 }
                                 return t;
-                              })
+                              }),
                             );
                           }}
                         />
@@ -1229,19 +1290,25 @@ export default function App() {
                             handleFilterChange(tab.id, f, ob)
                           }
                           onOpenDDL={handleOpenTableDDL}
-                          onDataRefresh={(params) => handleTableRefresh(tab.id, params)}
+                          onDataRefresh={(params) =>
+                            handleTableRefresh(tab.id, params)
+                          }
                           tableContext={
-                            tab.connectionId && tab.database && tab.tableName && tab.driver
+                            tab.connectionId &&
+                            tab.database &&
+                            tab.tableName &&
+                            tab.driver
                               ? {
-                                connectionId: tab.connectionId,
-                                database: tab.database,
-                                schema:
-                                  tab.driver === "mysql" || tab.driver === "clickhouse"
-                                    ? tab.database
-                                    : "public",
-                                table: tab.tableName,
-                                driver: tab.driver,
-                              }
+                                  connectionId: tab.connectionId,
+                                  database: tab.database,
+                                  schema:
+                                    tab.driver === "mysql" ||
+                                    tab.driver === "clickhouse"
+                                      ? tab.database
+                                      : "public",
+                                  table: tab.tableName,
+                                  driver: tab.driver,
+                                }
                               : undefined
                           }
                         />
@@ -1300,7 +1367,8 @@ export default function App() {
           <AlertDialogHeader>
             <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
             <AlertDialogDescription>
-              This SQL tab has unsaved changes. Do you want to save before closing?
+              This SQL tab has unsaved changes. Do you want to save before
+              closing?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

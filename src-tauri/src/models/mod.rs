@@ -38,6 +38,19 @@ pub struct SavedQuery {
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
+pub struct SqlExecutionLog {
+    pub id: i64,
+    pub sql: String,
+    pub source: Option<String>,
+    pub connection_id: Option<i64>,
+    pub database: Option<String>,
+    pub success: bool,
+    pub error: Option<String>,
+    pub executed_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
 pub struct AiProvider {
     pub id: i64,
     pub name: String,
@@ -52,6 +65,22 @@ pub struct AiProvider {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProviderPublic {
+    pub id: i64,
+    pub name: String,
+    pub provider_type: String,
+    pub base_url: String,
+    pub model: String,
+    pub has_api_key: bool,
+    pub is_default: bool,
+    pub enabled: bool,
+    pub extra_json: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiProviderForm {
@@ -59,7 +88,7 @@ pub struct AiProviderForm {
     pub provider_type: Option<String>,
     pub base_url: String,
     pub model: String,
-    pub api_key: String,
+    pub api_key: Option<String>,
     pub is_default: Option<bool>,
     pub enabled: Option<bool>,
     pub extra_json: Option<String>,
