@@ -828,6 +828,8 @@ export function ConnectionList({
                                 ? 3306
                                 : v === "clickhouse"
                                   ? 8123
+                                  : v === "mssql"
+                                    ? 1433
                                   : f.port,
                         }))
                       }
@@ -840,6 +842,7 @@ export function ConnectionList({
                         <SelectItem value="mysql">MySQL</SelectItem>
                         <SelectItem value="sqlite">SQLite</SelectItem>
                         <SelectItem value="clickhouse">ClickHouse</SelectItem>
+                        <SelectItem value="mssql">MSSQL</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -879,6 +882,8 @@ export function ConnectionList({
                                 ? "5432"
                                 : form.driver === "mysql"
                                   ? "3306"
+                                  : form.driver === "mssql"
+                                    ? "1433"
                                   : "8123"
                             }
                             value={String(form.port || "")}

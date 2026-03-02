@@ -122,6 +122,9 @@ export function quoteIdent(driver: string | undefined, name: string): string {
   if (driver === "mysql" || driver === "clickhouse") {
     return `\`${name}\``;
   }
+  if (driver === "mssql") {
+    return `[${name.replace(/]/g, "]]")}]`;
+  }
   return `"${name}"`;
 }
 

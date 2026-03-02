@@ -99,6 +99,14 @@ const TAB_TRIGGER_CLASS =
   "gap-2 group relative pr-8 bg-transparent data-[state=active]:bg-background border-b-2 border-b-transparent data-[state=active]:border-b-primary rounded-none h-9 hover:bg-muted/50 border-r border-r-border/40 last:border-r-0 shrink-0";
 
 export default function App() {
+  const resolveTableScope = (driver: string, database?: string) => {
+    const isDatabaseScoped = driver === "mysql" || driver === "clickhouse";
+    return {
+      schema: isDatabaseScoped ? database || "" : driver === "mssql" ? "dbo" : "public",
+      dbParam: isDatabaseScoped ? undefined : database,
+    };
+  };
+
   const [tabs, setTabs] = useState<TabItem[]>([]);
   const [activeTab, setActiveTab] = useState<string>("");
   const [aiVisible, setAiVisible] = useState(false);
@@ -417,9 +425,7 @@ export default function App() {
       return;
     }
     try {
-      const isMySQLLike = driver === "mysql" || driver === "clickhouse";
-      const schema = isMySQLLike ? database : "public";
-      const dbParam = isMySQLLike ? undefined : database;
+      const { schema, dbParam } = resolveTableScope(driver, database);
 
       const resp = await api.tableData.get({
         id: connectionId,
@@ -549,12 +555,10 @@ export default function App() {
     const nextOrderBy = hasOwn("orderBy") ? overrides?.orderBy : tab.orderBy;
 
     try {
-      const isMySQLLike = tab.driver === "mysql" || tab.driver === "clickhouse";
-      const schema = isMySQLLike ? tab.database : "public";
-      const database = isMySQLLike ? undefined : tab.database;
+      const { schema, dbParam } = resolveTableScope(tab.driver, tab.database);
       const resp = await api.tableData.get({
         id: tab.connectionId,
-        database,
+        database: dbParam,
         schema: schema || "public",
         table: tab.tableName,
         page: nextPage,
@@ -594,9 +598,7 @@ export default function App() {
     if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
 
     try {
-      const isMySQLLike = tab.driver === "mysql" || tab.driver === "clickhouse";
-      const schema = isMySQLLike ? tab.database : "public";
-      const dbParam = isMySQLLike ? undefined : tab.database;
+      const { schema, dbParam } = resolveTableScope(tab.driver, tab.database);
       const resp = await api.tableData.get({
         id: tab.connectionId,
         database: dbParam,
@@ -636,9 +638,7 @@ export default function App() {
     if (!tab || !tab.connectionId || !tab.driver || !tab.tableName) return;
 
     try {
-      const isMySQLLike = tab.driver === "mysql" || tab.driver === "clickhouse";
-      const schema = isMySQLLike ? tab.database : "public";
-      const dbParam = isMySQLLike ? undefined : tab.database;
+      const { schema, dbParam } = resolveTableScope(tab.driver, tab.database);
       const resp = await api.tableData.get({
         id: tab.connectionId,
         database: dbParam,
@@ -691,9 +691,7 @@ export default function App() {
     );
 
     try {
-      const isMySQLLike = tab.driver === "mysql" || tab.driver === "clickhouse";
-      const schema = isMySQLLike ? tab.database : "public";
-      const dbParam = isMySQLLike ? undefined : tab.database;
+      const { schema, dbParam } = resolveTableScope(tab.driver, tab.database);
       const resp = await api.tableData.get({
         id: tab.connectionId,
         database: dbParam,
@@ -747,9 +745,7 @@ export default function App() {
     );
 
     try {
-      const isMySQLLike = tab.driver === "mysql" || tab.driver === "clickhouse";
-      const schema = isMySQLLike ? tab.database : "public";
-      const dbParam = isMySQLLike ? undefined : tab.database;
+      const { schema, dbParam } = resolveTableScope(tab.driver, tab.database);
       const resp = await api.tableData.get({
         id: tab.connectionId,
         database: dbParam,
@@ -1305,7 +1301,9 @@ export default function App() {
                                     tab.driver === "mysql" ||
                                     tab.driver === "clickhouse"
                                       ? tab.database
-                                      : "public",
+                                      : tab.driver === "mssql"
+                                        ? "dbo"
+                                        : "public",
                                   table: tab.tableName,
                                   driver: tab.driver,
                                 }

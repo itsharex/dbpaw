@@ -397,7 +397,42 @@ fn append_limit_1000(sql: &str) -> String {
     }
 }
 
-fn maybe_apply_default_limit(sql: &str) -> String {
+fn append_mssql_fetch_1000(sql: &str) -> String {
+    let mut trimmed = sql.trim_end();
+    let had_semicolon = trimmed.ends_with(';');
+    if had_semicolon {
+        trimmed = trimmed.trim_end_matches(';').trim_end();
+    }
+    let has_order_by = collect_top_level_keywords(trimmed)
+        .windows(2)
+        .any(|pair| pair[0] == "order" && pair[1] == "by");
+
+    let with_fetch = if has_order_by {
+        format!(
+            "{trimmed} OFFSET 0 ROWS FETCH NEXT {DEFAULT_SELECT_LIMIT} ROWS ONLY"
+        )
+    } else {
+        format!(
+            "{trimmed} ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT {DEFAULT_SELECT_LIMIT} ROWS ONLY"
+        )
+    };
+
+    if had_semicolon {
+        format!("{with_fetch};")
+    } else {
+        with_fetch
+    }
+}
+
+fn has_top_level_mssql_top(sql: &str) -> bool {
+    let tokens = collect_top_level_keywords(sql);
+    if tokens.first().map(|s| s.as_str()) == Some("select") {
+        return tokens.iter().skip(1).take(3).any(|t| t == "top");
+    }
+    false
+}
+
+fn maybe_apply_default_limit(sql: &str, driver: Option<&str>) -> String {
     let normalized = normalize_for_guard(sql);
     if normalized.is_empty() {
         return sql.to_string();
@@ -415,7 +450,25 @@ fn maybe_apply_default_limit(sql: &str) -> String {
         return sql.to_string();
     }
 
+    if driver
+        .map(|d| d.eq_ignore_ascii_case("mssql"))
+        .unwrap_or(false)
+    {
+        if has_top_level_mssql_top(normalized) {
+            return sql.to_string();
+        }
+        return append_mssql_fetch_1000(normalized);
+    }
+
     append_limit_1000(normalized)
+}
+
+async fn resolve_driver(state: &State<'_, AppState>, id: i64) -> Option<String> {
+    let db = {
+        let lock = state.local_db.lock().await;
+        lock.clone()
+    }?;
+    db.get_connection_form_by_id(id).await.ok().map(|f| f.driver)
 }
 
 async fn append_sql_execution_log(
@@ -470,7 +523,8 @@ pub async fn execute_query(
         "query.progress",
         serde_json::json!({"queryId": query_id, "phase": "prepare"}),
     );
-    let guarded_query = maybe_apply_default_limit(&query);
+    let driver = resolve_driver(&state, id).await;
+    let guarded_query = maybe_apply_default_limit(&query, driver.as_deref());
 
     let result = super::execute_with_retry(&state, id, database.clone(), |driver| {
         let query_clone = guarded_query.clone();
@@ -572,7 +626,7 @@ pub async fn execute_by_conn(
         "query.progress",
         serde_json::json!({"queryId": query_id, "phase": "prepare"}),
     );
-    let guarded_sql = maybe_apply_default_limit(&sql);
+    let guarded_sql = maybe_apply_default_limit(&sql, Some(&form.driver));
 
     let database = form.database.clone();
     let driver = crate::db::drivers::connect(&form).await?;
@@ -639,7 +693,7 @@ mod tests {
     #[test]
     fn adds_limit_to_simple_select() {
         assert_eq!(
-            maybe_apply_default_limit("SELECT * FROM t"),
+            maybe_apply_default_limit("SELECT * FROM t", None),
             "SELECT * FROM t LIMIT 1000"
         );
     }
@@ -647,7 +701,7 @@ mod tests {
     #[test]
     fn keeps_existing_limit() {
         assert_eq!(
-            maybe_apply_default_limit("select * from t limit 10"),
+            maybe_apply_default_limit("select * from t limit 10", None),
             "select * from t limit 10"
         );
     }
@@ -655,7 +709,7 @@ mod tests {
     #[test]
     fn ignores_limit_column_name() {
         assert_eq!(
-            maybe_apply_default_limit("SELECT limit FROM t"),
+            maybe_apply_default_limit("SELECT limit FROM t", None),
             "SELECT limit FROM t LIMIT 1000"
         );
     }
@@ -663,7 +717,7 @@ mod tests {
     #[test]
     fn ignores_limit_alias() {
         assert_eq!(
-            maybe_apply_default_limit("SELECT a AS limit FROM t"),
+            maybe_apply_default_limit("SELECT a AS limit FROM t", None),
             "SELECT a AS limit FROM t LIMIT 1000"
         );
     }
@@ -671,7 +725,7 @@ mod tests {
     #[test]
     fn ignores_limit_identifier_in_where() {
         assert_eq!(
-            maybe_apply_default_limit("SELECT * FROM t WHERE limit > 10"),
+            maybe_apply_default_limit("SELECT * FROM t WHERE limit > 10", None),
             "SELECT * FROM t WHERE limit > 10 LIMIT 1000"
         );
     }
@@ -679,7 +733,7 @@ mod tests {
     #[test]
     fn keeps_fetch_first_rows_only() {
         assert_eq!(
-            maybe_apply_default_limit("SELECT * FROM t FETCH FIRST 20 ROWS ONLY"),
+            maybe_apply_default_limit("SELECT * FROM t FETCH FIRST 20 ROWS ONLY", None),
             "SELECT * FROM t FETCH FIRST 20 ROWS ONLY"
         );
     }
@@ -687,7 +741,7 @@ mod tests {
     #[test]
     fn supports_leading_comment() {
         assert_eq!(
-            maybe_apply_default_limit("-- c\nSELECT * FROM t"),
+            maybe_apply_default_limit("-- c\nSELECT * FROM t", None),
             "-- c\nSELECT * FROM t LIMIT 1000"
         );
     }
@@ -695,7 +749,7 @@ mod tests {
     #[test]
     fn ignores_subquery_limit() {
         assert_eq!(
-            maybe_apply_default_limit("SELECT * FROM (SELECT * FROM t LIMIT 5) s"),
+            maybe_apply_default_limit("SELECT * FROM (SELECT * FROM t LIMIT 5) s", None),
             "SELECT * FROM (SELECT * FROM t LIMIT 5) s LIMIT 1000"
         );
     }
@@ -703,7 +757,7 @@ mod tests {
     #[test]
     fn preserves_trailing_semicolon() {
         assert_eq!(
-            maybe_apply_default_limit("SELECT * FROM t;"),
+            maybe_apply_default_limit("SELECT * FROM t;", None),
             "SELECT * FROM t LIMIT 1000;"
         );
     }
@@ -711,7 +765,7 @@ mod tests {
     #[test]
     fn skips_multi_statement_sql() {
         assert_eq!(
-            maybe_apply_default_limit("SELECT 1; SELECT 2;"),
+            maybe_apply_default_limit("SELECT 1; SELECT 2;", None),
             "SELECT 1; SELECT 2;"
         );
     }
@@ -719,7 +773,7 @@ mod tests {
     #[test]
     fn applies_to_with_select_queries() {
         assert_eq!(
-            maybe_apply_default_limit("WITH cte AS (SELECT 1) SELECT * FROM cte"),
+            maybe_apply_default_limit("WITH cte AS (SELECT 1) SELECT * FROM cte", None),
             "WITH cte AS (SELECT 1) SELECT * FROM cte LIMIT 1000"
         );
     }
@@ -727,7 +781,7 @@ mod tests {
     #[test]
     fn skips_with_non_select_queries() {
         assert_eq!(
-            maybe_apply_default_limit("WITH cte AS (SELECT 1) INSERT INTO t SELECT * FROM cte"),
+            maybe_apply_default_limit("WITH cte AS (SELECT 1) INSERT INTO t SELECT * FROM cte", None),
             "WITH cte AS (SELECT 1) INSERT INTO t SELECT * FROM cte"
         );
     }
@@ -735,8 +789,32 @@ mod tests {
     #[test]
     fn ignores_limit_inside_string_literal() {
         assert_eq!(
-            maybe_apply_default_limit("SELECT * FROM t WHERE name = 'limit x'"),
+            maybe_apply_default_limit("SELECT * FROM t WHERE name = 'limit x'", None),
             "SELECT * FROM t WHERE name = 'limit x' LIMIT 1000"
+        );
+    }
+
+    #[test]
+    fn mssql_adds_fetch_with_default_order() {
+        assert_eq!(
+            maybe_apply_default_limit("SELECT * FROM t", Some("mssql")),
+            "SELECT * FROM t ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY"
+        );
+    }
+
+    #[test]
+    fn mssql_adds_fetch_with_existing_order() {
+        assert_eq!(
+            maybe_apply_default_limit("SELECT * FROM t ORDER BY id DESC", Some("mssql")),
+            "SELECT * FROM t ORDER BY id DESC OFFSET 0 ROWS FETCH NEXT 1000 ROWS ONLY"
+        );
+    }
+
+    #[test]
+    fn mssql_keeps_existing_top() {
+        assert_eq!(
+            maybe_apply_default_limit("SELECT TOP 20 * FROM t", Some("mssql")),
+            "SELECT TOP 20 * FROM t"
         );
     }
 }
