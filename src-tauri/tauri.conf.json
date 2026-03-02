@@ -46,6 +46,9 @@
       "nsis": {
         "installMode": "both"
       }
+    },
+    "macOS": {
+      "signingIdentity": "-"
     }
   }
 }
