@@ -17,6 +17,8 @@
   --muted-foreground: #717182;
   --accent: #e9ebef;
   --accent-foreground: #030213;
+  --editor-selection-bg: #add6ff;
+  --editor-selection-fg: #001a3d;
   --destructive: #d4183d;
   --destructive-foreground: #ffffff;
   --border: rgba(0, 0, 0, 0.1);
@@ -57,6 +59,8 @@
   --muted-foreground: #a1a1aa;
   --accent: #18181b;
   --accent-foreground: #fafafa;
+  --editor-selection-bg: #264f78;
+  --editor-selection-fg: #f7fbff;
   --destructive: oklch(0.396 0.141 25.723);
   --destructive-foreground: oklch(0.637 0.237 25.331);
   --border: #27272a;
