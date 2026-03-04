@@ -668,12 +668,16 @@ pub async fn execute_by_conn(
     result
 }
 
+fn clamp_sql_execution_logs_limit(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(100).clamp(1, 100)
+}
+
 #[tauri::command]
 pub async fn list_sql_execution_logs(
     state: State<'_, AppState>,
     limit: Option<i64>,
 ) -> Result<Vec<SqlExecutionLog>, String> {
-    let safe_limit = limit.unwrap_or(100).clamp(1, 100);
+    let safe_limit = clamp_sql_execution_logs_limit(limit);
     let local_db = {
         let lock = state.local_db.lock().await;
         lock.clone()
@@ -688,7 +692,7 @@ pub async fn list_sql_execution_logs(
 
 #[cfg(test)]
 mod tests {
-    use super::maybe_apply_default_limit;
+    use super::{clamp_sql_execution_logs_limit, maybe_apply_default_limit};
 
     #[test]
     fn adds_limit_to_simple_select() {
@@ -816,5 +820,22 @@ mod tests {
             maybe_apply_default_limit("SELECT TOP 20 * FROM t", Some("mssql")),
             "SELECT TOP 20 * FROM t"
         );
+    }
+
+    #[test]
+    fn sql_logs_limit_defaults_to_100() {
+        assert_eq!(clamp_sql_execution_logs_limit(None), 100);
+    }
+
+    #[test]
+    fn sql_logs_limit_clamps_lower_bound() {
+        assert_eq!(clamp_sql_execution_logs_limit(Some(0)), 1);
+        assert_eq!(clamp_sql_execution_logs_limit(Some(-5)), 1);
+    }
+
+    #[test]
+    fn sql_logs_limit_clamps_upper_bound() {
+        assert_eq!(clamp_sql_execution_logs_limit(Some(101)), 100);
+        assert_eq!(clamp_sql_execution_logs_limit(Some(9999)), 100);
     }
 }
