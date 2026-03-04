@@ -149,12 +149,34 @@ jobs:
       - name: Install Rust target
         run: rustup target add ${{ matrix.target }}
 
-      - name: Build app (artifact only)
+      - name: Build app (non-Windows)
+        if: matrix.platform != 'windows-latest'
         run: bun run tauri build --target ${{ matrix.target }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Build app (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          for ($i = 1; $i -le 3; $i++) {
+            bun run tauri build --target ${{ matrix.target }}
+            if ($LASTEXITCODE -eq 0) {
+              exit 0
+            }
+            if ($i -lt 3) {
+              Write-Host "Build failed (attempt $i/3). Retrying in 10 seconds..."
+              Start-Sleep -Seconds 10
+            }
+          }
+          exit $LASTEXITCODE
 
       - name: Resolve artifact paths
         id: paths
@@ -176,6 +198,27 @@ jobs:
           fi
 
           echo "bundle_dir=$bundle_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Normalize macOS updater bundle names
+        if: matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bundle_dir="${{ steps.paths.outputs.bundle_dir }}"
+          src="$(find "$bundle_dir/macos" -maxdepth 1 -type f -name '*.app.tar.gz' | head -n 1 || true)"
+          if [ -z "$src" ]; then
+            exit 0
+          fi
+
+          dst="$bundle_dir/macos/DbPaw-${{ matrix.target }}.app.tar.gz"
+          if [ "$src" != "$dst" ] && [ ! -f "$dst" ]; then
+            mv "$src" "$dst"
+          fi
+
+          if [ -f "${src}.sig" ] && [ ! -f "${dst}.sig" ]; then
+            mv "${src}.sig" "${dst}.sig"
+          fi
 
       - name: Generate updater metadata
         shell: bash
@@ -248,11 +291,35 @@ jobs:
           print(f"Wrote {out_path}")
           PY
 
-      - name: Upload bundle artifacts
+      - name: Upload bundle artifacts (macOS)
+        if: matrix.target == 'aarch64-apple-darwin' || matrix.target == 'x86_64-apple-darwin'
         uses: actions/upload-artifact@v4
         with:
           name: bundle-${{ matrix.target }}
-          path: ${{ steps.paths.outputs.bundle_dir }}/**/*
+          path: |
+            ${{ steps.paths.outputs.bundle_dir }}/dmg/**/*.dmg
+            ${{ steps.paths.outputs.bundle_dir }}/macos/**/*.app.tar.gz*
+          if-no-files-found: error
+
+      - name: Upload bundle artifacts (Linux)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.target }}
+          path: |
+            ${{ steps.paths.outputs.bundle_dir }}/appimage/**/*.AppImage*
+            ${{ steps.paths.outputs.bundle_dir }}/deb/**/*.deb
+            ${{ steps.paths.outputs.bundle_dir }}/rpm/**/*.rpm
+          if-no-files-found: error
+
+      - name: Upload bundle artifacts (Windows)
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.target }}
+          path: |
+            ${{ steps.paths.outputs.bundle_dir }}/msi/**/*.msi*
+            ${{ steps.paths.outputs.bundle_dir }}/nsis/**/*.exe*
           if-no-files-found: error
 
       - name: Upload updater metadata artifact
