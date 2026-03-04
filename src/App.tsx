@@ -109,7 +109,13 @@ export default function App() {
   const resolveTableScope = (driver: string, database?: string) => {
     const isDatabaseScoped = driver === "mysql" || driver === "clickhouse";
     return {
-      schema: isDatabaseScoped ? database || "" : driver === "mssql" ? "dbo" : "public",
+      schema: isDatabaseScoped
+        ? database || ""
+        : driver === "mssql"
+          ? "dbo"
+          : driver === "sqlite"
+            ? "main"
+            : "public",
       dbParam: isDatabaseScoped ? undefined : database,
     };
   };

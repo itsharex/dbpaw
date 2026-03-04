@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   formatInsertSQLValue,
   formatSQLValue,
+  getQualifiedTableName,
   isInsertColumnRequired,
 } from "./utils";
 
@@ -93,5 +94,19 @@ describe("isInsertColumnRequired", () => {
         defaultValue: "CURRENT_TIMESTAMP",
       }),
     ).toBe(false);
+  });
+});
+
+describe("getQualifiedTableName", () => {
+  test("does not qualify sqlite main/public schema", () => {
+    expect(getQualifiedTableName("sqlite", "main", "users")).toBe("\"users\"");
+    expect(getQualifiedTableName("sqlite", "public", "users")).toBe("\"users\"");
+    expect(getQualifiedTableName("sqlite", "", "users")).toBe("\"users\"");
+  });
+
+  test("keeps non-main sqlite schema qualification", () => {
+    expect(getQualifiedTableName("sqlite", "analytics", "events")).toBe(
+      "\"analytics\".\"events\"",
+    );
   });
 });

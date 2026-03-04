@@ -237,7 +237,20 @@ export function getQualifiedTableName(
   schema: string,
   table: string,
 ): string {
-  return driver === "mysql"
-    ? `${quoteIdent(driver, table)}`
-    : `${quoteIdent(driver, schema)}.${quoteIdent(driver, table)}`;
+  if (driver === "mysql") {
+    return quoteIdent(driver, table);
+  }
+
+  if (driver === "sqlite") {
+    const normalizedSchema = schema.trim().toLowerCase();
+    if (
+      normalizedSchema === "" ||
+      normalizedSchema === "main" ||
+      normalizedSchema === "public"
+    ) {
+      return quoteIdent(driver, table);
+    }
+  }
+
+  return `${quoteIdent(driver, schema)}.${quoteIdent(driver, table)}`;
 }
