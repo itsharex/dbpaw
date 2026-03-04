@@ -1,4 +1,11 @@
-import { Bot, Info, Palette, RefreshCw, Settings2 } from "lucide-react";
+import {
+  Bot,
+  Command,
+  Info,
+  Palette,
+  RefreshCw,
+  Settings2,
+} from "lucide-react";
 import {
   useTheme,
   MIN_FONT_SIZE_PX,
@@ -41,12 +48,22 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-type SettingsSection = "general" | "ai" | "about";
+type SettingsSection = "general" | "ai" | "shortcuts" | "about";
 type AIProviderPreset = {
   type: AIProviderType;
   label: string;
   baseUrl: string;
   model: string;
+};
+type ShortcutItem = {
+  action: string;
+  keys: string;
+  scope: string;
+  note?: string;
+};
+type ShortcutGroup = {
+  title: string;
+  items: ShortcutItem[];
 };
 
 const THEME_COLORS = [
@@ -127,6 +144,79 @@ const AI_PROVIDER_OPTIONS_BY_TYPE = AI_PROVIDER_OPTIONS.reduce(
 
 const GITHUB_URL = "https://github.com/codeErrorSleep/dbpaw";
 const APP_VERSION = packageJson.version;
+const SHORTCUT_GROUPS: ShortcutGroup[] = [
+  {
+    title: "Global",
+    items: [
+      { action: "Open settings", keys: "Cmd/Ctrl + ,", scope: "App / Menu" },
+      { action: "Toggle AI sidebar", keys: "Cmd/Ctrl + \\", scope: "App" },
+      { action: "Toggle main sidebar", keys: "Cmd/Ctrl + B", scope: "Sidebar" },
+      { action: "Create new query tab", keys: "Cmd/Ctrl + N", scope: "App" },
+      { action: "Close current tab", keys: "Cmd/Ctrl + W", scope: "App" },
+      {
+        action: "Next tab",
+        keys: "Cmd/Ctrl + Shift + ]",
+        scope: "App",
+      },
+      {
+        action: "Previous tab",
+        keys: "Cmd/Ctrl + Shift + [",
+        scope: "App",
+      },
+    ],
+  },
+  {
+    title: "SQL Editor",
+    items: [
+      { action: "Execute SQL", keys: "Cmd/Ctrl + Enter", scope: "Editor" },
+      { action: "Save query", keys: "Cmd/Ctrl + S", scope: "Editor" },
+      { action: "Format SQL", keys: "Shift + Alt + F", scope: "Editor" },
+      {
+        action: "Accept completion / insert tab",
+        keys: "Tab",
+        scope: "Editor",
+      },
+    ],
+  },
+  {
+    title: "Table View",
+    items: [
+      {
+        action: "Save pending changes",
+        keys: "Cmd/Ctrl + S",
+        scope: "Table",
+      },
+      { action: "Open table search", keys: "Cmd/Ctrl + F", scope: "Table" },
+      {
+        action: "Copy selected rows",
+        keys: "Cmd/Ctrl + C",
+        scope: "Table",
+      },
+      {
+        action: "Cancel edit / discard pending changes",
+        keys: "Esc",
+        scope: "Table",
+      },
+    ],
+  },
+  {
+    title: "Input Panels",
+    items: [
+      {
+        action: "Send AI message",
+        keys: "Enter",
+        scope: "AI input",
+        note: "Shift + Enter inserts a newline",
+      },
+      {
+        action: "Save query from description input",
+        keys: "Enter",
+        scope: "Save Query dialog",
+        note: "Shift + Enter inserts a newline",
+      },
+    ],
+  },
+];
 
 export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const {
@@ -369,6 +459,17 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               </button>
               <button
                 className={`w-full text-left rounded-md px-3 py-2 text-sm transition-colors flex items-center gap-2 ${
+                  activeSection === "shortcuts"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:bg-muted/60"
+                }`}
+                onClick={() => setActiveSection("shortcuts")}
+              >
+                <Command className="w-4 h-4" />
+                Shortcuts
+              </button>
+              <button
+                className={`w-full text-left rounded-md px-3 py-2 text-sm transition-colors flex items-center gap-2 ${
                   activeSection === "about"
                     ? "bg-background shadow-sm text-foreground"
                     : "text-muted-foreground hover:bg-muted/60"
@@ -404,11 +505,22 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         <SelectValue placeholder="Select theme" />
                       </SelectTrigger>
                       <SelectContent>
-                        {Object.values(THEME_PRESETS).map((preset) => (
-                          <SelectItem key={preset.id} value={preset.id}>
-                            {preset.label}
-                          </SelectItem>
-                        ))}
+                        {/* Light themes */}
+                        {Object.values(THEME_PRESETS)
+                          .filter((preset) => preset.appearance === "light")
+                          .map((preset) => (
+                            <SelectItem key={preset.id} value={preset.id}>
+                              {preset.label}
+                            </SelectItem>
+                          ))}
+                        {/* Dark themes */}
+                        {Object.values(THEME_PRESETS)
+                          .filter((preset) => preset.appearance === "dark")
+                          .map((preset) => (
+                            <SelectItem key={preset.id} value={preset.id}>
+                              {preset.label}
+                            </SelectItem>
+                          ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -605,6 +717,47 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       <div>No providers configured yet</div>
                     )}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {activeSection === "shortcuts" && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-medium flex items-center gap-2">
+                  <Command className="w-5 h-5" /> Shortcuts
+                </h3>
+                <div className="rounded-md border p-3 text-xs text-muted-foreground">
+                  Read-only in this version. Shortcut editing is not supported yet.
+                </div>
+                <div className="space-y-4">
+                  {SHORTCUT_GROUPS.map((group) => (
+                    <div key={group.title} className="rounded-md border">
+                      <div className="border-b bg-muted/40 px-3 py-2 text-sm font-medium text-foreground">
+                        {group.title}
+                      </div>
+                      <div className="divide-y">
+                        {group.items.map((item) => (
+                          <div
+                            key={`${group.title}-${item.action}`}
+                            className="grid grid-cols-1 gap-2 px-3 py-2 sm:grid-cols-[1.2fr_220px_140px]"
+                          >
+                            <div className="space-y-0.5">
+                              <div className="text-sm text-foreground">{item.action}</div>
+                              {item.note && (
+                                <div className="text-xs text-muted-foreground">{item.note}</div>
+                              )}
+                            </div>
+                            <div className="text-sm font-mono text-foreground">
+                              {item.keys}
+                            </div>
+                            <div className="text-xs text-muted-foreground sm:text-right">
+                              {item.scope}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
