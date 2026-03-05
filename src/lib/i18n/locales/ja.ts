@@ -156,6 +156,8 @@ export const ja: Translations = {
         database: "データベース",
         schema: "スキーマ",
         ssl: "SSL",
+        sslMode: "SSL モード",
+        sslCaCert: "CA 証明書 (PEM)",
         ssh: "SSH",
         sshHost: "SSH ホスト",
         sshPort: "SSH ポート",
@@ -167,6 +169,7 @@ export const ja: Translations = {
       placeholders: {
         selectDatabaseType: "データベースタイプを選択",
         keepPassword: "空欄で現在のパスワードを保持",
+        sslCaCert: "CA 証明書の PEM 内容を貼り付け",
         sshHost: "ssh.example.com",
         sshPort: "22",
         sshUsername: "root",
@@ -175,7 +178,11 @@ export const ja: Translations = {
         sqlitePath: "/path/to/db.sqlite",
       },
       fileDialogTitle: "SQLite データベースファイルを選択",
+      sslCaFileDialogTitle: "CA 証明書ファイルを選択",
+      sshKeyFileDialogTitle: "SSH 秘密鍵ファイルを選択",
       fileFilterSqlite: "SQLite データベース",
+      fileFilterCert: "証明書ファイル",
+      fileFilterPem: "秘密鍵ファイル",
       fileFilterAll: "すべてのファイル",
       browse: "参照",
       test: "テスト",
@@ -191,6 +198,13 @@ export const ja: Translations = {
       requiredCreateNoPassword: "ホスト、ポート、ユーザー名",
       requiredEdit: "ホスト、ポート、ユーザー名",
       requiredMessage: "必須項目を入力してください: {{fields}}",
+      sslMode: {
+        require: "暗号化のみ（CA 検証なし）",
+        verifyCa: "サーバー証明書を検証（CA）",
+      },
+      sslValidation: {
+        caRequired: "CA 検証モードでは CA 証明書が必須です。",
+      },
     },
     menu: {
       edit: "編集",
@@ -221,6 +235,7 @@ export const ja: Translations = {
       fileBrowserDesktopOnly:
         "ファイルブラウザーはデスクトップアプリでのみ利用できます",
       openFileDialogFailed: "ファイルダイアログを開けませんでした",
+      readFileFailed: "ファイルの読み取りに失敗しました",
     },
   },
   aiSidebar: {

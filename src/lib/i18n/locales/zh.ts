@@ -152,6 +152,8 @@ export const zh: Translations = {
         database: "数据库",
         schema: "Schema",
         ssl: "SSL",
+        sslMode: "SSL 模式",
+        sslCaCert: "CA 证书 (PEM)",
         ssh: "SSH",
         sshHost: "SSH 主机",
         sshPort: "SSH 端口",
@@ -163,6 +165,7 @@ export const zh: Translations = {
       placeholders: {
         selectDatabaseType: "选择数据库类型",
         keepPassword: "留空以保留当前密码",
+        sslCaCert: "粘贴 CA 证书 PEM 内容",
         sshHost: "ssh.example.com",
         sshPort: "22",
         sshUsername: "root",
@@ -171,7 +174,11 @@ export const zh: Translations = {
         sqlitePath: "/path/to/db.sqlite",
       },
       fileDialogTitle: "选择 SQLite 数据库文件",
+      sslCaFileDialogTitle: "选择 CA 证书文件",
+      sshKeyFileDialogTitle: "选择 SSH 私钥文件",
       fileFilterSqlite: "SQLite 数据库",
+      fileFilterCert: "证书文件",
+      fileFilterPem: "私钥文件",
       fileFilterAll: "所有文件",
       browse: "浏览",
       test: "测试",
@@ -187,6 +194,13 @@ export const zh: Translations = {
       requiredCreateNoPassword: "主机、端口、用户名",
       requiredEdit: "主机、端口、用户名",
       requiredMessage: "请填写必填字段：{{fields}}",
+      sslMode: {
+        require: "仅加密（不校验 CA）",
+        verifyCa: "校验服务器证书（CA）",
+      },
+      sslValidation: {
+        caRequired: "SSL 模式为校验 CA 时必须填写 CA 证书。",
+      },
     },
     menu: {
       edit: "编辑",
@@ -214,6 +228,7 @@ export const zh: Translations = {
       openSaveDialogFailed: "打开保存对话框失败",
       fileBrowserDesktopOnly: "文件浏览器仅在桌面应用可用",
       openFileDialogFailed: "打开文件对话框失败",
+      readFileFailed: "读取文件失败",
     },
   },
   aiSidebar: {

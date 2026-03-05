@@ -8,12 +8,22 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use rust_decimal::Decimal;
 use sqlx::{postgres::PgPoolOptions, Column, Row, TypeInfo};
 use std::collections::HashSet;
+use std::fs;
+use std::path::PathBuf;
 
 use crate::ssh::SshTunnel;
 
 pub struct PostgresDriver {
     pub pool: sqlx::PgPool,
     pub ssh_tunnel: Option<SshTunnel>,
+}
+
+fn write_temp_cert_file(prefix: &str, pem: &str) -> Result<PathBuf, String> {
+    let dir = std::env::temp_dir().join("dbpaw_certs");
+    fs::create_dir_all(&dir).map_err(|e| format!("[SSL_CA_WRITE_ERROR] {e}"))?;
+    let path = dir.join(format!("{prefix}_{}.pem", uuid::Uuid::new_v4()));
+    fs::write(&path, pem).map_err(|e| format!("[SSL_CA_WRITE_ERROR] {e}"))?;
+    Ok(path)
 }
 
 fn build_dsn(form: &ConnectionForm) -> Result<String, String> {
@@ -41,7 +51,26 @@ fn build_dsn(form: &ConnectionForm) -> Result<String, String> {
     );
 
     if form.ssl.unwrap_or(false) {
-        dsn.push_str("?sslmode=require");
+        let ssl_mode = form
+            .ssl_mode
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or("require");
+        if ssl_mode == "verify_ca" {
+            let ca_cert = form
+                .ssl_ca_cert
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .ok_or("[VALIDATION_ERROR] sslCaCert cannot be empty in verify_ca mode")?;
+            let ca_path = write_temp_cert_file("pg_ca", ca_cert)?;
+            dsn.push_str(&format!(
+                "?sslmode=verify-ca&sslrootcert={}",
+                ca_path.to_string_lossy()
+            ));
+        } else {
+            dsn.push_str("?sslmode=require");
+        }
     }
 
     Ok(dsn)
@@ -843,5 +872,40 @@ mod tests {
             dsn,
             "postgres://postgres:password@localhost:5432/mydb?sslmode=require"
         );
+    }
+
+    #[test]
+    fn test_conn_string_with_ssl_false_does_not_explicitly_disable_tls() {
+        let form = ConnectionForm {
+            driver: "postgres".to_string(),
+            host: Some("localhost".to_string()),
+            port: Some(5432),
+            username: Some("postgres".to_string()),
+            password: Some("password".to_string()),
+            database: Some("mydb".to_string()),
+            ssl: Some(false),
+            ..Default::default()
+        };
+        let dsn = build_dsn(&form).unwrap();
+        assert_eq!(dsn, "postgres://postgres:password@localhost:5432/mydb");
+        assert!(!dsn.contains("sslmode="));
+        assert!(!dsn.contains("sslmode=disable"));
+    }
+
+    #[test]
+    fn test_conn_string_with_ssl_verify_ca_requires_ca() {
+        let form = ConnectionForm {
+            driver: "postgres".to_string(),
+            host: Some("localhost".to_string()),
+            port: Some(5432),
+            username: Some("postgres".to_string()),
+            password: Some("password".to_string()),
+            database: Some("mydb".to_string()),
+            ssl: Some(true),
+            ssl_mode: Some("verify_ca".to_string()),
+            ssl_ca_cert: None,
+            ..Default::default()
+        };
+        assert!(build_dsn(&form).is_err());
     }
 }

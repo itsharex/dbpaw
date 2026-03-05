@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { save, open } from "@tauri-apps/plugin-dialog";
+import { readTextFile } from "@tauri-apps/plugin-fs";
 import {
   Database,
   Table,
@@ -292,6 +293,63 @@ export function ConnectionList({
       return t("connection.dialog.sslValidation.caRequired");
     }
     return null;
+  };
+
+  const pickSingleFile = async (params: {
+    title: string;
+    filters?: { name: string; extensions: string[] }[];
+  }) => {
+    if (!isTauri()) {
+      toast.info(t("connection.toast.fileBrowserDesktopOnly"));
+      return null;
+    }
+    try {
+      const selected = await open({
+        title: params.title,
+        multiple: false,
+        filters: params.filters,
+      });
+      if (selected && typeof selected === "string") {
+        return selected;
+      }
+      return null;
+    } catch (e) {
+      toast.error(t("connection.toast.openFileDialogFailed"), {
+        description: e instanceof Error ? e.message : String(e),
+      });
+      return null;
+    }
+  };
+
+  const handlePickSslCaCertFile = async () => {
+    const selectedPath = await pickSingleFile({
+      title: t("connection.dialog.sslCaFileDialogTitle"),
+      filters: [
+        { name: t("connection.dialog.fileFilterCert"), extensions: ["pem", "crt", "cer"] },
+        { name: t("connection.dialog.fileFilterAll"), extensions: ["*"] },
+      ],
+    });
+    if (!selectedPath) return;
+    try {
+      const content = await readTextFile(selectedPath);
+      setForm((f) => ({ ...f, sslCaCert: content }));
+    } catch (e) {
+      toast.error(t("connection.toast.readFileFailed"), {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    }
+  };
+
+  const handlePickSshKeyFile = async () => {
+    const selectedPath = await pickSingleFile({
+      title: t("connection.dialog.sshKeyFileDialogTitle"),
+      filters: [
+        { name: t("connection.dialog.fileFilterPem"), extensions: ["pem", "key", "ppk"] },
+        { name: t("connection.dialog.fileFilterAll"), extensions: ["*"] },
+      ],
+    });
+    if (!selectedPath) return;
+    setForm((f) => ({ ...f, sshKeyPath: selectedPath }));
   };
 
   useEffect(() => {
@@ -1269,6 +1327,17 @@ export function ConnectionList({
                                 {t("connection.dialog.fields.sslCaCert")}{" "}
                                 <span className="text-red-600">*</span>
                               </Label>
+                              <div className="flex justify-end">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => void handlePickSslCaCertFile()}
+                                >
+                                  <FolderOpen className="w-4 h-4 mr-2" />
+                                  {t("connection.dialog.browse")}
+                                </Button>
+                              </div>
                               <Textarea
                                 id="sslCaCert"
                                 rows={5}
@@ -1364,17 +1433,27 @@ export function ConnectionList({
                           </div>
                           <div className="grid gap-2">
                             <Label htmlFor="sshKeyPath">{t("connection.dialog.fields.sshKeyPath")}</Label>
-                            <Input
-                              id="sshKeyPath"
-                              placeholder={t("connection.dialog.placeholders.sshKeyPath")}
-                              value={form.sshKeyPath || ""}
-                              onChange={(e) =>
-                                setForm((f) => ({
-                                  ...f,
-                                  sshKeyPath: e.target.value,
-                                }))
-                              }
-                            />
+                            <div className="flex gap-2">
+                              <Input
+                                id="sshKeyPath"
+                                placeholder={t("connection.dialog.placeholders.sshKeyPath")}
+                                value={form.sshKeyPath || ""}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    sshKeyPath: e.target.value,
+                                  }))
+                                }
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => void handlePickSshKeyFile()}
+                              >
+                                <FolderOpen className="w-4 h-4 mr-2" />
+                                {t("connection.dialog.browse")}
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -1400,38 +1479,18 @@ export function ConnectionList({
                           type="button"
                           variant="outline"
                           onClick={async () => {
-                            if (!isTauri()) {
-                              toast.info(
-                                t("connection.toast.fileBrowserDesktopOnly"),
-                              );
-                              return;
-                            }
-                            try {
-                              const selected = await open({
-                                title: t("connection.dialog.fileDialogTitle"),
-                                multiple: false,
-                                filters: [
-                                  {
-                                    name: t("connection.dialog.fileFilterSqlite"),
-                                    extensions: [
-                                      "sqlite",
-                                      "db",
-                                      "sqlite3",
-                                      "db3",
-                                    ],
-                                  },
-                                  { name: t("connection.dialog.fileFilterAll"), extensions: ["*"] },
-                                ],
-                              });
-                              if (selected && typeof selected === "string") {
-                                setForm((f) => ({ ...f, filePath: selected }));
-                              }
-                            } catch (e) {
-                              toast.error(t("connection.toast.openFileDialogFailed"), {
-                                description:
-                                  e instanceof Error ? e.message : String(e),
-                              });
-                            }
+                            const selected = await pickSingleFile({
+                              title: t("connection.dialog.fileDialogTitle"),
+                              filters: [
+                                {
+                                  name: t("connection.dialog.fileFilterSqlite"),
+                                  extensions: ["sqlite", "db", "sqlite3", "db3"],
+                                },
+                                { name: t("connection.dialog.fileFilterAll"), extensions: ["*"] },
+                              ],
+                            });
+                            if (!selected) return;
+                            setForm((f) => ({ ...f, filePath: selected }));
                           }}
                         >
                           <FolderOpen className="w-4 h-4 mr-2" />

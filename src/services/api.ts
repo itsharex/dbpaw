@@ -78,6 +78,8 @@ export interface ConnectionForm {
   username?: string;
   password?: string;
   ssl?: boolean;
+  sslMode?: "require" | "verify_ca";
+  sslCaCert?: string;
   filePath?: string;
   sshEnabled?: boolean;
   sshHost?: string;

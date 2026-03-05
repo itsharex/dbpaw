@@ -153,6 +153,8 @@ export const en = {
         database: "Database",
         schema: "Schema",
         ssl: "SSL",
+        sslMode: "SSL Mode",
+        sslCaCert: "CA Certificate (PEM)",
         ssh: "SSH",
         sshHost: "SSH Host",
         sshPort: "SSH Port",
@@ -164,6 +166,7 @@ export const en = {
       placeholders: {
         selectDatabaseType: "Select database type",
         keepPassword: "Leave empty to keep current password",
+        sslCaCert: "Paste CA certificate PEM content",
         sshHost: "ssh.example.com",
         sshPort: "22",
         sshUsername: "root",
@@ -172,7 +175,11 @@ export const en = {
         sqlitePath: "/path/to/db.sqlite",
       },
       fileDialogTitle: "Select SQLite Database File",
+      sslCaFileDialogTitle: "Select CA Certificate File",
+      sshKeyFileDialogTitle: "Select SSH Private Key File",
       fileFilterSqlite: "SQLite Database",
+      fileFilterCert: "Certificate Files",
+      fileFilterPem: "Private Key Files",
       fileFilterAll: "All Files",
       browse: "Browse",
       test: "Test",
@@ -188,6 +195,13 @@ export const en = {
       requiredCreateNoPassword: "Host, Port, Username",
       requiredEdit: "Host, Port, Username",
       requiredMessage: "Please fill in required fields: {{fields}}",
+      sslMode: {
+        require: "Encrypt only (skip CA verification)",
+        verifyCa: "Verify server certificate (CA)",
+      },
+      sslValidation: {
+        caRequired: "CA certificate is required in verify CA mode.",
+      },
     },
     menu: {
       edit: "Edit",
@@ -216,6 +230,7 @@ export const en = {
       openSaveDialogFailed: "Failed to open save dialog",
       fileBrowserDesktopOnly: "File browser is only available in desktop app",
       openFileDialogFailed: "Failed to open file dialog",
+      readFileFailed: "Failed to read file",
     },
   },
   aiSidebar: {
@@ -284,10 +299,10 @@ export const en = {
 
 type DeepStringify<T> = {
   [K in keyof T]: T[K] extends string
-    ? string
-    : T[K] extends object
-      ? DeepStringify<T[K]>
-      : T[K];
+  ? string
+  : T[K] extends object
+  ? DeepStringify<T[K]>
+  : T[K];
 };
 
 export type Translations = DeepStringify<typeof en>;
