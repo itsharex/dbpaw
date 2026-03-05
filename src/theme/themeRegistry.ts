@@ -1,7 +1,13 @@
 export type ThemeId =
   | "default"
   | "one-dark"
-  | "github"
+  | "github-light"
+  | "github-dark"
+  | "monokai-pro"
+  | "night-owl"
+  | "shades-of-purple"
+  | "palenight"
+  | "cyberpunk"
   | "nord"
   | "dracula";
 
@@ -27,11 +33,47 @@ export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
     appearance: "dark",
     editorTheme: "one-dark",
   },
-  github: {
-    id: "github",
-    label: "GitHub",
+  "github-light": {
+    id: "github-light",
+    label: "GitHub Light",
     appearance: "light",
     editorTheme: "default",
+  },
+  "github-dark": {
+    id: "github-dark",
+    label: "GitHub Dark",
+    appearance: "dark",
+    editorTheme: "one-dark",
+  },
+  "monokai-pro": {
+    id: "monokai-pro",
+    label: "Monokai Pro",
+    appearance: "dark",
+    editorTheme: "one-dark",
+  },
+  "night-owl": {
+    id: "night-owl",
+    label: "Night Owl",
+    appearance: "dark",
+    editorTheme: "one-dark",
+  },
+  "shades-of-purple": {
+    id: "shades-of-purple",
+    label: "Shades of Purple",
+    appearance: "dark",
+    editorTheme: "one-dark",
+  },
+  palenight: {
+    id: "palenight",
+    label: "Palenight",
+    appearance: "dark",
+    editorTheme: "one-dark",
+  },
+  cyberpunk: {
+    id: "cyberpunk",
+    label: "Cyberpunk",
+    appearance: "dark",
+    editorTheme: "one-dark",
   },
   nord: {
     id: "nord",
@@ -56,6 +98,10 @@ export function isThemeId(value: string): value is ThemeId {
 export function normalizeThemeId(rawValue: unknown): ThemeId {
   if (typeof rawValue !== "string") {
     return "default";
+  }
+
+  if (rawValue === "github") {
+    return "github-light";
   }
 
   if (isThemeId(rawValue)) {
