@@ -187,13 +187,16 @@ export const ja: Translations = {
       testSuccess: "接続テスト成功",
       testFailed: "接続テスト失敗",
       requiredSqlite: "ファイルパス",
-      requiredCreate: "ホスト、ポート、ユーザー名、パスワード",
+      requiredCreateWithPassword: "ホスト、ポート、ユーザー名、パスワード",
+      requiredCreateNoPassword: "ホスト、ポート、ユーザー名",
       requiredEdit: "ホスト、ポート、ユーザー名",
       requiredMessage: "必須項目を入力してください: {{fields}}",
     },
     menu: {
       edit: "編集",
       reconnect: "再接続",
+      copy: "複製",
+      refresh: "更新",
       delete: "削除",
       refreshTables: "テーブルを更新",
       newQuery: "新規クエリ",
@@ -209,6 +212,8 @@ export const ja: Translations = {
     },
     toast: {
       loadDatabasesFailed: "データベースの読み込みに失敗しました",
+      duplicateSuccess: "接続を複製しました",
+      duplicateFailed: "接続の複製に失敗しました",
       exportDesktopOnly:
         "エクスポートダイアログは Tauri デスクトップモードでのみ利用できます。",
       saveExportFile: "エクスポートファイルを保存",

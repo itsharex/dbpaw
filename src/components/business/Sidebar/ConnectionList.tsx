@@ -4,12 +4,12 @@ import {
   Database,
   Table,
   Key,
+  Copy,
+  Edit3,
   Plus,
   RefreshCw,
   Play,
   Loader2,
-  Edit3,
-  Plug,
   Trash2,
   FileCode,
   Search,
@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import {
   Select,
@@ -91,6 +92,8 @@ interface Connection {
   database?: string;
   username: string;
   ssl?: boolean;
+  sslMode?: "require" | "verify_ca";
+  sslCaCert?: string;
   filePath?: string;
   sshEnabled?: boolean;
   sshHost?: string;
@@ -114,6 +117,8 @@ const defaultForm: ConnectionForm = {
   username: "",
   password: "",
   ssl: false,
+  sslMode: "require",
+  sslCaCert: "",
   sshEnabled: false,
   sshPort: undefined,
   sshUsername: "",
@@ -263,12 +268,31 @@ export function ConnectionList({
   }, [searchTerm, filteredConnections]);
 
   const isSqlite = form.driver === "sqlite";
+  const supportsSslCa =
+    form.driver === "postgres" || form.driver === "mysql" || form.driver === "tidb";
+  const isPasswordRequiredOnCreate = useMemo(() => {
+    // MySQL-compatible engines (including TiDB) can be configured without password.
+    return form.driver !== "mysql" && form.driver !== "tidb";
+  }, [form.driver]);
   const requiredOk = useMemo(() => {
     if (isSqlite) return !!form.filePath;
     const hasBasic = !!form.host && !!form.port && !!form.username;
     if (dialogMode === "edit") return hasBasic;
-    return hasBasic && !!form.password;
-  }, [form, isSqlite, dialogMode]);
+    if (isPasswordRequiredOnCreate) {
+      return hasBasic && !!form.password;
+    }
+    return hasBasic;
+  }, [form, isSqlite, dialogMode, isPasswordRequiredOnCreate]);
+
+  const validateSslSettings = () => {
+    if (!form.ssl || !supportsSslCa) {
+      return null;
+    }
+    if (form.sslMode === "verify_ca" && !(form.sslCaCert || "").trim()) {
+      return t("connection.dialog.sslValidation.caRequired");
+    }
+    return null;
+  };
 
   useEffect(() => {
     fetchConnections();
@@ -287,6 +311,8 @@ export function ConnectionList({
           database: c.database || "",
           username: c.username || "",
           ssl: c.ssl || false,
+          sslMode: c.sslMode || "require",
+          sslCaCert: c.sslCaCert || "",
           filePath: c.filePath || "",
           sshEnabled: c.sshEnabled || false,
           sshHost: c.sshHost || "",
@@ -691,6 +717,11 @@ export function ConnectionList({
   const handleTestConnection = async () => {
     try {
       setValidationMsg(null);
+      const sslError = validateSslSettings();
+      if (sslError) {
+        setValidationMsg(sslError);
+        return;
+      }
       setIsTesting(true);
       setTestMsg(null);
       const res = await api.connections.testEphemeral(form);
@@ -710,13 +741,20 @@ export function ConnectionList({
     if (!requiredOk) {
       const requiredFields = isSqlite
         ? t("connection.dialog.requiredSqlite")
-        : t("connection.dialog.requiredCreate");
+        : isPasswordRequiredOnCreate
+          ? t("connection.dialog.requiredCreateWithPassword")
+          : t("connection.dialog.requiredCreateNoPassword");
       setValidationMsg(
         t("connection.dialog.requiredMessage", { fields: requiredFields }),
       );
       return;
     }
     setValidationMsg(null);
+    const sslError = validateSslSettings();
+    if (sslError) {
+      setValidationMsg(sslError);
+      return;
+    }
     setIsConnecting(true);
     try {
       const res = await api.connections.create(form);
@@ -730,6 +768,8 @@ export function ConnectionList({
           database: res.database || "",
           username: res.username || "",
           ssl: res.ssl || false,
+          sslMode: res.sslMode || "require",
+          sslCaCert: res.sslCaCert || "",
           filePath: res.filePath || "",
           sshEnabled: res.sshEnabled || false,
           sshHost: res.sshHost || "",
@@ -767,6 +807,11 @@ export function ConnectionList({
     }
 
     setValidationMsg(null);
+    const sslError = validateSslSettings();
+    if (sslError) {
+      setValidationMsg(sslError);
+      return;
+    }
     setIsSavingEdit(true);
     try {
       await api.connections.update(Number(editingConnectionId), form);
@@ -818,6 +863,8 @@ export function ConnectionList({
       username: conn.username || "",
       password: "",
       ssl: conn.ssl || false,
+      sslMode: conn.sslMode || "require",
+      sslCaCert: conn.sslCaCert || "",
       filePath: conn.filePath || "",
       sshEnabled: conn.sshEnabled || false,
       sshHost: conn.sshHost || "",
@@ -831,6 +878,81 @@ export function ConnectionList({
 
   const handleReconnect = async (connectionId: string) => {
     await connectConnection(connectionId, { resetTree: true });
+  };
+
+  const buildDuplicateConnectionName = (sourceName: string) => {
+    const baseName = `${sourceName}-${t("connection.menu.copy")}`;
+    let candidate = baseName;
+    let counter = 2;
+    while (connections.some((conn) => conn.name === candidate)) {
+      candidate = `${baseName}-${counter}`;
+      counter += 1;
+    }
+    return candidate;
+  };
+
+  const handleDuplicateConnection = async (connectionId: string) => {
+    const source = connections.find((conn) => conn.id === connectionId);
+    if (!source) return;
+
+    const duplicateName = buildDuplicateConnectionName(
+      source.name || t("common.unknown"),
+    );
+    const duplicateForm: ConnectionForm = {
+      driver: source.type,
+      name: duplicateName,
+      host: source.host || "",
+      port: Number(source.port) || undefined,
+      database: source.database || "",
+      schema: source.type === "postgres" ? "public" : "",
+      username: source.username || "",
+      password: "",
+      ssl: source.ssl || false,
+      sslMode: source.sslMode || "require",
+      sslCaCert: source.sslCaCert || "",
+      filePath: source.filePath || "",
+      sshEnabled: source.sshEnabled || false,
+      sshHost: source.sshHost || "",
+      sshPort: source.sshPort || undefined,
+      sshUsername: source.sshUsername || "",
+      sshPassword: "",
+      sshKeyPath: source.sshKeyPath || "",
+    };
+
+    try {
+      const res = await api.connections.create(duplicateForm);
+      setConnections((prev) => [
+        {
+          id: String(res.id),
+          name: res.name || t("common.unknown"),
+          type: (res.dbType as Driver) || "postgres",
+          host: res.host || "",
+          port: String(res.port || ""),
+          database: res.database || "",
+          username: res.username || "",
+          ssl: res.ssl || false,
+          sslMode: res.sslMode || "require",
+          sslCaCert: res.sslCaCert || "",
+          filePath: res.filePath || "",
+          sshEnabled: res.sshEnabled || false,
+          sshHost: res.sshHost || "",
+          sshPort: res.sshPort || 22,
+          sshUsername: res.sshUsername || "root",
+          sshPassword: "",
+          sshKeyPath: res.sshKeyPath || "",
+          isConnected: false,
+          connectState: "idle",
+          connectError: undefined,
+          databases: [],
+        },
+        ...prev,
+      ]);
+      toast.success(t("connection.toast.duplicateSuccess"));
+    } catch (e) {
+      toast.error(t("connection.toast.duplicateFailed"), {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    }
   };
 
   const handleDeleteConnection = async (connectionId: string) => {
@@ -1059,7 +1181,7 @@ export function ConnectionList({
                         <div className="grid gap-2">
                           <Label htmlFor="password">
                             {t("connection.dialog.fields.password")}{" "}
-                            {dialogMode === "create" && (
+                            {dialogMode === "create" && isPasswordRequiredOnCreate && (
                               <span className="text-red-600">*</span>
                             )}
                           </Label>
@@ -1116,6 +1238,53 @@ export function ConnectionList({
                         />
                         <Label htmlFor="ssl">{t("connection.dialog.fields.ssl")}</Label>
                       </div>
+                      {form.ssl && supportsSslCa && (
+                        <div className="border p-3 rounded-md space-y-3 bg-muted/20">
+                          <div className="grid gap-2">
+                            <Label htmlFor="sslMode">
+                              {t("connection.dialog.fields.sslMode")}
+                            </Label>
+                            <Select
+                              value={form.sslMode || "require"}
+                              onValueChange={(v: "require" | "verify_ca") =>
+                                setForm((f) => ({ ...f, sslMode: v }))
+                              }
+                            >
+                              <SelectTrigger id="sslMode">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="require">
+                                  {t("connection.dialog.sslMode.require")}
+                                </SelectItem>
+                                <SelectItem value="verify_ca">
+                                  {t("connection.dialog.sslMode.verifyCa")}
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {form.sslMode === "verify_ca" && (
+                            <div className="grid gap-2">
+                              <Label htmlFor="sslCaCert">
+                                {t("connection.dialog.fields.sslCaCert")}{" "}
+                                <span className="text-red-600">*</span>
+                              </Label>
+                              <Textarea
+                                id="sslCaCert"
+                                rows={5}
+                                placeholder={t("connection.dialog.placeholders.sslCaCert")}
+                                value={form.sslCaCert || ""}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    sslCaCert: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       <div className="flex items-center space-x-2">
                         <Checkbox
@@ -1574,7 +1743,7 @@ export function ConnectionList({
             <>
               <button
                 className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
-                onClick={async () => {
+                onClick={() => {
                   if (contextMenu.connectionId) {
                     openEditDialog(contextMenu.connectionId);
                   }
@@ -1588,13 +1757,25 @@ export function ConnectionList({
                 className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
                 onClick={async () => {
                   if (contextMenu.connectionId) {
+                    await handleDuplicateConnection(contextMenu.connectionId);
+                  }
+                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                }}
+              >
+                <Copy className="w-4 h-4" />
+                {t("connection.menu.copy")}
+              </button>
+              <button
+                className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
+                onClick={async () => {
+                  if (contextMenu.connectionId) {
                     await handleReconnect(contextMenu.connectionId);
                   }
                   setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}
               >
-                <Plug className="w-4 h-4" />
-                {t("connection.menu.reconnect")}
+                <RefreshCw className="w-4 h-4" />
+                {t("connection.menu.refresh")}
               </button>
               <div className="h-px bg-border my-1" />
               <button
