@@ -227,10 +227,10 @@ impl DatabaseDriver for MysqlDriver {
         let mut columns = Vec::new();
         for row in rows {
             columns.push(ColumnInfo {
-                name: row.try_get(0).unwrap_or_default(),
-                r#type: row.try_get(1).unwrap_or_default(),
-                nullable: row.try_get::<String, _>(2).unwrap_or_default() == "YES",
-                default_value: row.try_get(3).ok(),
+                name: decode_mysql_text_cell(&row, 0).unwrap_or_default(),
+                r#type: decode_mysql_text_cell(&row, 1).unwrap_or_default(),
+                nullable: decode_mysql_text_cell(&row, 2).unwrap_or_default() == "YES",
+                default_value: decode_mysql_optional_text_cell(&row, 3).ok().flatten(),
                 primary_key: false, // TODO
                 comment: None,
             });
@@ -783,20 +783,18 @@ impl DatabaseDriver for MysqlDriver {
             // If connected to a specific DB, `SHOW TABLES` works for that DB. But we query `information_schema`.
 
             // We can query SELECT DATABASE() first.
-            let db_row = sqlx::query("SELECT DATABASE()")
-                .fetch_one(&self.pool)
-                .await;
+            let db_row = sqlx::query("SELECT DATABASE()").fetch_one(&self.pool).await;
 
             if let Ok(row) = db_row {
                 let current_db = decode_mysql_optional_text_cell(&row, 0).ok().flatten();
                 if let Some(db) = current_db {
-                sqlx::query(&format!(
+                    sqlx::query(&format!(
                     "{} WHERE table_schema = ? ORDER BY table_schema, table_name, ordinal_position",
                     sql
                 ))
-                .bind(db)
-                .fetch_all(&self.pool)
-                .await
+                    .bind(db)
+                    .fetch_all(&self.pool)
+                    .await
                 } else {
                     sqlx::query(&format!("{} WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') ORDER BY table_schema, table_name, ordinal_position", sql))
                         .fetch_all(&self.pool)
@@ -818,17 +816,13 @@ impl DatabaseDriver for MysqlDriver {
             std::collections::HashMap::new();
 
         for row in rows {
-            let schema_name: String = row
-                .try_get(0)
+            let schema_name = decode_mysql_text_cell(&row, 0)
                 .map_err(|e| format!("[PARSE_ERROR] Failed to get table_schema: {}", e))?;
-            let table_name: String = row
-                .try_get(1)
+            let table_name = decode_mysql_text_cell(&row, 1)
                 .map_err(|e| format!("[PARSE_ERROR] Failed to get table_name: {}", e))?;
-            let col_name: String = row
-                .try_get(2)
+            let col_name = decode_mysql_text_cell(&row, 2)
                 .map_err(|e| format!("[PARSE_ERROR] Failed to get column_name: {}", e))?;
-            let data_type: String = row
-                .try_get(3)
+            let data_type = decode_mysql_text_cell(&row, 3)
                 .map_err(|e| format!("[PARSE_ERROR] Failed to get data_type: {}", e))?;
 
             let key = (schema_name, table_name);

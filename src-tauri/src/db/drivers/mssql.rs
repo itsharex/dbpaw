@@ -311,6 +311,9 @@ impl MssqlDriver {
         if let Ok(Some(v)) = row.try_get::<&str, _>(idx) {
             return v.to_string();
         }
+        if let Ok(Some(v)) = row.try_get::<&[u8], _>(idx) {
+            return String::from_utf8_lossy(v).to_string();
+        }
         String::new()
     }
 }

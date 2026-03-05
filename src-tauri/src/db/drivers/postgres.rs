@@ -100,6 +100,39 @@ impl PostgresDriver {
     }
 }
 
+fn decode_postgres_text_cell(row: &sqlx::postgres::PgRow, idx: usize) -> Result<String, String> {
+    if let Ok(v) = row.try_get::<String, _>(idx) {
+        return Ok(v);
+    }
+    if let Ok(v) = row.try_get::<Vec<u8>, _>(idx) {
+        return Ok(String::from_utf8_lossy(&v).to_string());
+    }
+    Err(format!(
+        "[QUERY_ERROR] Failed to decode Postgres text column at index {idx}"
+    ))
+}
+
+fn decode_postgres_optional_text_cell(
+    row: &sqlx::postgres::PgRow,
+    idx: usize,
+) -> Result<Option<String>, String> {
+    if let Ok(v) = row.try_get::<Option<String>, _>(idx) {
+        return Ok(v);
+    }
+    if let Ok(v) = row.try_get::<Option<Vec<u8>>, _>(idx) {
+        return Ok(v.map(|b| String::from_utf8_lossy(&b).to_string()));
+    }
+    if let Ok(v) = row.try_get::<String, _>(idx) {
+        return Ok(Some(v));
+    }
+    if let Ok(v) = row.try_get::<Vec<u8>, _>(idx) {
+        return Ok(Some(String::from_utf8_lossy(&v).to_string()));
+    }
+    Err(format!(
+        "[QUERY_ERROR] Failed to decode Postgres optional text column at index {idx}"
+    ))
+}
+
 #[async_trait]
 impl DatabaseDriver for PostgresDriver {
     async fn close(&self) {
@@ -140,12 +173,9 @@ impl DatabaseDriver for PostgresDriver {
         let mut res = Vec::new();
         for row in rows {
             res.push(TableInfo {
-                schema: row
-                    .try_get::<String, _>("table_schema")
-                    .unwrap_or(schema.clone()),
-                name: row.try_get::<String, _>("table_name").unwrap_or_default(),
-                r#type: row
-                    .try_get::<String, _>("table_type")
+                schema: decode_postgres_text_cell(&row, 0).unwrap_or_else(|_| schema.clone()),
+                name: decode_postgres_text_cell(&row, 1).unwrap_or_default(),
+                r#type: decode_postgres_text_cell(&row, 2)
                     .unwrap_or_else(|_| "table".to_string()),
             });
         }
@@ -172,10 +202,10 @@ impl DatabaseDriver for PostgresDriver {
         let mut columns = Vec::new();
         for row in rows {
             columns.push(ColumnInfo {
-                name: row.try_get(0).unwrap_or_default(),
-                r#type: row.try_get(1).unwrap_or_default(),
-                nullable: row.try_get::<String, _>(2).unwrap_or_default() == "YES",
-                default_value: row.try_get(3).ok(),
+                name: decode_postgres_text_cell(&row, 0).unwrap_or_default(),
+                r#type: decode_postgres_text_cell(&row, 1).unwrap_or_default(),
+                nullable: decode_postgres_text_cell(&row, 2).unwrap_or_default() == "YES",
+                default_value: decode_postgres_optional_text_cell(&row, 3).ok().flatten(),
                 primary_key: false, // TODO: Need to query constraint
                 comment: None,
             });
@@ -790,17 +820,13 @@ impl DatabaseDriver for PostgresDriver {
             std::collections::HashMap::new();
 
         for row in rows {
-            let schema_name: String = row
-                .try_get(0)
+            let schema_name = decode_postgres_text_cell(&row, 0)
                 .map_err(|e| format!("[PARSE_ERROR] Postgres table_schema: {}", e))?;
-            let table_name: String = row
-                .try_get(1)
+            let table_name = decode_postgres_text_cell(&row, 1)
                 .map_err(|e| format!("[PARSE_ERROR] Postgres table_name: {}", e))?;
-            let col_name: String = row
-                .try_get(2)
+            let col_name = decode_postgres_text_cell(&row, 2)
                 .map_err(|e| format!("[PARSE_ERROR] Postgres column_name: {}", e))?;
-            let data_type: String = row
-                .try_get(3)
+            let data_type = decode_postgres_text_cell(&row, 3)
                 .map_err(|e| format!("[PARSE_ERROR] Postgres data_type: {}", e))?;
 
             let key = (schema_name, table_name);
