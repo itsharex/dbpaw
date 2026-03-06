@@ -12,12 +12,13 @@ export type ThemeId =
   | "dracula";
 
 export type ThemeAppearance = "light" | "dark";
+export type EditorThemeKey = ThemeId;
 
 export interface ThemePreset {
   id: ThemeId;
   label: string;
   appearance: ThemeAppearance;
-  editorTheme: "default" | "one-dark";
+  editorTheme: EditorThemeKey;
 }
 
 export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
@@ -37,55 +38,55 @@ export const THEME_PRESETS: Record<ThemeId, ThemePreset> = {
     id: "github-light",
     label: "GitHub Light",
     appearance: "light",
-    editorTheme: "default",
+    editorTheme: "github-light",
   },
   "github-dark": {
     id: "github-dark",
     label: "GitHub Dark",
     appearance: "dark",
-    editorTheme: "one-dark",
+    editorTheme: "github-dark",
   },
   "monokai-pro": {
     id: "monokai-pro",
     label: "Monokai Pro",
     appearance: "dark",
-    editorTheme: "one-dark",
+    editorTheme: "monokai-pro",
   },
   "night-owl": {
     id: "night-owl",
     label: "Night Owl",
     appearance: "dark",
-    editorTheme: "one-dark",
+    editorTheme: "night-owl",
   },
   "shades-of-purple": {
     id: "shades-of-purple",
     label: "Shades of Purple",
     appearance: "dark",
-    editorTheme: "one-dark",
+    editorTheme: "shades-of-purple",
   },
   palenight: {
     id: "palenight",
     label: "Palenight",
     appearance: "dark",
-    editorTheme: "one-dark",
+    editorTheme: "palenight",
   },
   cyberpunk: {
     id: "cyberpunk",
     label: "Cyberpunk",
     appearance: "dark",
-    editorTheme: "one-dark",
+    editorTheme: "cyberpunk",
   },
   nord: {
     id: "nord",
     label: "Nord",
     appearance: "dark",
-    editorTheme: "one-dark",
+    editorTheme: "nord",
   },
   dracula: {
     id: "dracula",
     label: "Dracula",
     appearance: "dark",
-    editorTheme: "one-dark",
+    editorTheme: "dracula",
   },
 };
 

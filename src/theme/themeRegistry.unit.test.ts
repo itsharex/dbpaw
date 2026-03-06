@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   getThemeAppearance,
+  getThemePreset,
   isThemeId,
   normalizeThemeId,
   THEME_PRESETS,
@@ -27,5 +28,12 @@ describe("themeRegistry", () => {
     expect(getThemeAppearance("shades-of-purple")).toBe("dark");
     expect(getThemeAppearance("palenight")).toBe("dark");
     expect(getThemeAppearance("cyberpunk")).toBe("dark");
+  });
+
+  test("binds editorTheme to preset theme id", () => {
+    const ids = Object.keys(THEME_PRESETS) as ThemeId[];
+    for (const id of ids) {
+      expect(getThemePreset(id).editorTheme).toBe(id);
+    }
   });
 });
