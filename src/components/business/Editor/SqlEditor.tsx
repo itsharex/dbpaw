@@ -363,6 +363,7 @@ export function SqlEditor({
         postgresql: "postgresql",
         mysql: "mysql",
         tidb: "mysql",
+        mariadb: "mysql",
         sqlite: "sqlite",
         clickhouse: "sql",
         mssql: "transactsql",
@@ -499,6 +500,7 @@ export function SqlEditor({
         return PostgreSQL;
       case "mysql":
       case "tidb":
+      case "mariadb":
         return MySQL;
       case "sqlite":
         return SQLite;

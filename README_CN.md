@@ -10,11 +10,11 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg?style=flat-square)](https://tauri.app)
 
-**DbPaw** 帮助你连接 PostgreSQL、MySQL、TiDB（MySQL 兼容）、SQLite、SQL Server 与 ClickHouse（预览版），高效编写和执行 SQL，并在清爽的桌面 UI 中查看与探索数据。
+**DbPaw** 帮助你连接 PostgreSQL、MySQL、MariaDB（MySQL 兼容）、TiDB（MySQL 兼容）、SQLite、SQL Server 与 ClickHouse（预览版），高效编写和执行 SQL，并在清爽的桌面 UI 中查看与探索数据。
 
 ## ✅ 你可以用它做什么
 
-- 连接 PostgreSQL、MySQL、TiDB（MySQL 兼容）、SQLite、SQL Server 与 ClickHouse（预览版，当前只读）
+- 连接 PostgreSQL、MySQL、MariaDB（MySQL 兼容）、TiDB（MySQL 兼容）、SQLite、SQL Server 与 ClickHouse（预览版，当前只读）
 - 编写与执行 SQL：语法高亮、自动补全、一键格式化
 - 在数据网格中浏览结果，支持过滤、排序、分页与导出
 - 使用 Saved Queries 保存并复用常用 SQL 脚本
@@ -41,7 +41,7 @@
 - **极致轻量**：安装包只有 ≈10MB，安装后占用 ≈80MB，内存常驻极低（甩开 Electron 系工具几条街）。
 - **真正现代化**：告别 DBeaver 那种“飞机驾驶舱”式复杂界面，精简掉 99% 开发者一辈子用不上的功能，专注常用场景，操作更直观、更丝滑。
 - **跨平台**：支持 macOS、Windows、Linux 多平台（再也不用公司一套、回家一套）。
-- **数据库兼容**：当前支持 MySQL、PostgreSQL、ClickHouse、TiDB、SQL Server、SQLite（仍在加速适配中）。
+- **数据库兼容**：当前支持 MySQL、MariaDB（MySQL 兼容）、PostgreSQL、ClickHouse、TiDB、SQL Server、SQLite（仍在加速适配中）。
 - **颜值在线**：支持超多主题配色（暗黑、浅色、各种高饱和/低饱和风格）。
 - **内置 AI 辅助（实验性功能）**：目前支持结合 AI 做 SQL 归纳、表结构解释、慢查询分析等（安全性还在打磨中，后续会加本地/可选云端模式）。
 - **完全免费**：不用登录、不用付费、没有会员功能、没有广告。

@@ -66,6 +66,7 @@ export type Driver =
   | "sqlite"
   | "mysql"
   | "tidb"
+  | "mariadb"
   | "clickhouse"
   | "mssql";
 export interface ConnectionForm {

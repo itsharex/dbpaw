@@ -19,7 +19,7 @@ export const FEATURES = [
   {
     title: 'Database compatibility',
     summary:
-      'Supports MySQL, PostgreSQL, ClickHouse, TiDB, SQL Server, and SQLite (actively expanding).',
+      'Supports MySQL, MariaDB (MySQL-compatible), PostgreSQL, ClickHouse, TiDB, SQL Server, and SQLite (actively expanding).',
     tag: 'DBs'
   },
   {

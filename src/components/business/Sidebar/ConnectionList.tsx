@@ -270,10 +270,17 @@ export function ConnectionList({
 
   const isSqlite = form.driver === "sqlite";
   const supportsSslCa =
-    form.driver === "postgres" || form.driver === "mysql" || form.driver === "tidb";
+    form.driver === "postgres" ||
+    form.driver === "mysql" ||
+    form.driver === "tidb" ||
+    form.driver === "mariadb";
   const isPasswordRequiredOnCreate = useMemo(() => {
-    // MySQL-compatible engines (including TiDB) can be configured without password.
-    return form.driver !== "mysql" && form.driver !== "tidb";
+    // MySQL-compatible engines (including TiDB and MariaDB) can be configured without password.
+    return (
+      form.driver !== "mysql" &&
+      form.driver !== "tidb" &&
+      form.driver !== "mariadb"
+    );
   }, [form.driver]);
   const requiredOk = useMemo(() => {
     if (isSqlite) return !!form.filePath;
@@ -1165,6 +1172,8 @@ export function ConnectionList({
                               ? 5432
                               : v === "mysql"
                                 ? 3306
+                                : v === "mariadb"
+                                  ? 3306
                                 : v === "tidb"
                                   ? 4000
                                 : v === "clickhouse"
@@ -1181,6 +1190,7 @@ export function ConnectionList({
                       <SelectContent>
                         <SelectItem value="postgres">PostgreSQL</SelectItem>
                         <SelectItem value="mysql">MySQL</SelectItem>
+                        <SelectItem value="mariadb">MariaDB</SelectItem>
                         <SelectItem value="tidb">TiDB</SelectItem>
                         <SelectItem value="sqlite">SQLite</SelectItem>
                         <SelectItem value="clickhouse">ClickHouse</SelectItem>
@@ -1226,6 +1236,8 @@ export function ConnectionList({
                                 ? "5432"
                                 : form.driver === "mysql"
                                   ? "3306"
+                                  : form.driver === "mariadb"
+                                    ? "3306"
                                   : form.driver === "tidb"
                                     ? "4000"
                                   : form.driver === "mssql"

@@ -18,6 +18,7 @@ describe("formatSQLValue", () => {
     expect(formatSQLValue("true", true, "execution", "postgres")).toBe("TRUE");
     expect(formatSQLValue("false", true, "execution", "mysql")).toBe("FALSE");
     expect(formatSQLValue("true", true, "execution", "tidb")).toBe("TRUE");
+    expect(formatSQLValue("false", true, "execution", "mariadb")).toBe("FALSE");
   });
 
   test("throws for invalid boolean in execution mode", () => {
@@ -101,6 +102,12 @@ describe("isInsertColumnRequired", () => {
 describe("getQualifiedTableName", () => {
   test("uses unqualified table with backticks for tidb", () => {
     expect(getQualifiedTableName("tidb", "analytics", "events")).toBe("`events`");
+  });
+
+  test("uses unqualified table with backticks for mariadb", () => {
+    expect(getQualifiedTableName("mariadb", "analytics", "events")).toBe(
+      "`events`",
+    );
   });
 
   test("does not qualify sqlite main/public schema", () => {

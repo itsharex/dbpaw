@@ -10,11 +10,11 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg?style=flat-square)](https://tauri.app)
 
-**DbPaw** は PostgreSQL / MySQL / TiDB（MySQL 互換）/ SQLite / SQL Server / ClickHouse（プレビュー）に接続し、SQL の作成・実行とデータ確認を、クリーンなデスクトップ UI で快適に行えます。
+**DbPaw** は PostgreSQL / MySQL / MariaDB（MySQL 互換）/ TiDB（MySQL 互換）/ SQLite / SQL Server / ClickHouse（プレビュー）に接続し、SQL の作成・実行とデータ確認を、クリーンなデスクトップ UI で快適に行えます。
 
 ## ✅ できること
 
-- PostgreSQL、MySQL、TiDB（MySQL 互換）、SQLite、SQL Server、ClickHouse（プレビュー、現状は読み取り専用）に接続
+- PostgreSQL、MySQL、MariaDB（MySQL 互換）、TiDB（MySQL 互換）、SQLite、SQL Server、ClickHouse（プレビュー、現状は読み取り専用）に接続
 - SQL の作成・実行（シンタックスハイライト、補完、ワンクリック整形）
 - データグリッドで結果を閲覧（フィルタ、ソート、ページネーション、エクスポート）
 - `Saved Queries` でよく使う SQL を保存・再利用
@@ -40,7 +40,7 @@
 - **超軽量**: インストーラは約 10MB、インストール後は約 80MB。常駐メモリも極小（Electron 系ツールを大きく下回ります）。
 - **真にモダン**: DBeaver の「コックピット」的な複雑 UI から卒業。開発者が一生使わない 99% をそぎ落とし、よく使うシナリオに集中。より直感的でスムーズな操作感。
 - **クロスプラットフォーム**: macOS / Windows / Linux をサポート（職場と自宅で別アプリを使い分ける必要なし）。
-- **DB 互換**: 現在は MySQL、PostgreSQL、ClickHouse、TiDB、SQL Server、SQLite に対応（対応拡大中）。
+- **DB 互換**: 現在は MySQL、MariaDB（MySQL 互換）、PostgreSQL、ClickHouse、TiDB、SQL Server、SQLite に対応（対応拡大中）。
 - **ルックス良し**: 多数のテーマ（ダーク/ライト、高彩度/低彩度など）を同梱。
 - **組み込み AI 支援（実験的）**: SQL 要約、スキーマ説明、遅いクエリ分析などに対応（セキュリティは継続改善中。今後はローカル/選択式クラウドモードを追加予定）。
 - **完全無料**: ログイン不要、課金なし、会員機能なし、広告なし。

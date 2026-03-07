@@ -152,7 +152,10 @@ export default function App() {
   const { t } = useTranslation();
   const resolveTableScope = (driver: string, database?: string) => {
     const isDatabaseScoped =
-      driver === "mysql" || driver === "tidb" || driver === "clickhouse";
+      driver === "mysql" ||
+      driver === "tidb" ||
+      driver === "mariadb" ||
+      driver === "clickhouse";
     return {
       schema: isDatabaseScoped
         ? database || ""
@@ -1565,6 +1568,7 @@ export default function App() {
                                   schema:
                                     tab.driver === "mysql" ||
                                     tab.driver === "tidb" ||
+                                    tab.driver === "mariadb" ||
                                     tab.driver === "clickhouse"
                                       ? tab.database
                                       : tab.driver === "mssql"
