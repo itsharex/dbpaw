@@ -9,6 +9,7 @@ use rust_decimal::Decimal;
 use sqlx::{mysql::MySqlPoolOptions, Column, Row, TypeInfo};
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 
 use crate::ssh::SshTunnel;
@@ -16,6 +17,7 @@ use crate::ssh::SshTunnel;
 pub struct MysqlDriver {
     pub pool: sqlx::MySqlPool,
     pub ssh_tunnel: Option<SshTunnel>,
+    pub ca_cert_path: Option<PathBuf>,
 }
 
 fn write_temp_cert_file(prefix: &str, pem: &str) -> Result<PathBuf, String> {
@@ -23,10 +25,37 @@ fn write_temp_cert_file(prefix: &str, pem: &str) -> Result<PathBuf, String> {
     fs::create_dir_all(&dir).map_err(|e| format!("[SSL_CA_WRITE_ERROR] {e}"))?;
     let path = dir.join(format!("{prefix}_{}.pem", uuid::Uuid::new_v4()));
     fs::write(&path, pem).map_err(|e| format!("[SSL_CA_WRITE_ERROR] {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perm = fs::Permissions::from_mode(0o600);
+        fs::set_permissions(&path, perm).map_err(|e| format!("[SSL_CA_WRITE_ERROR] {e}"))?;
+    }
     Ok(path)
 }
 
-fn build_dsn(form: &ConnectionForm) -> Result<String, String> {
+fn percent_encode_query_value(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for b in value.bytes() {
+        let is_unreserved = b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~');
+        if is_unreserved {
+            encoded.push(b as char);
+        } else {
+            encoded.push('%');
+            encoded.push_str(&format!("{:02X}", b));
+        }
+    }
+    encoded
+}
+
+fn build_verify_ca_query_param(ca_path: &Path) -> String {
+    format!(
+        "?ssl-mode=VERIFY_CA&ssl-ca={}",
+        percent_encode_query_value(&ca_path.to_string_lossy())
+    )
+}
+
+fn build_dsn_and_ca_path(form: &ConnectionForm) -> Result<(String, Option<PathBuf>), String> {
     let host = form
         .host
         .clone()
@@ -50,6 +79,7 @@ fn build_dsn(form: &ConnectionForm) -> Result<String, String> {
         }
     }
 
+    let mut ca_cert_path = None;
     if form.ssl.unwrap_or(false) {
         let ssl_mode = form
             .ssl_mode
@@ -64,16 +94,45 @@ fn build_dsn(form: &ConnectionForm) -> Result<String, String> {
                 .filter(|v| !v.is_empty())
                 .ok_or("[VALIDATION_ERROR] sslCaCert cannot be empty in verify_ca mode")?;
             let ca_path = write_temp_cert_file("mysql_ca", ca_cert)?;
-            dsn.push_str(&format!(
-                "?ssl-mode=VERIFY_CA&ssl-ca={}",
-                ca_path.to_string_lossy()
-            ));
+            dsn.push_str(&build_verify_ca_query_param(&ca_path));
+            ca_cert_path = Some(ca_path);
         } else {
             dsn.push_str("?ssl-mode=REQUIRED");
         }
     }
 
-    Ok(dsn)
+    Ok((dsn, ca_cert_path))
+}
+
+#[cfg(test)]
+fn build_dsn(form: &ConnectionForm) -> Result<String, String> {
+    Ok(build_dsn_and_ca_path(form)?.0)
+}
+
+fn build_dsn_with_ca_path(form: &ConnectionForm) -> Result<(String, Option<PathBuf>), String> {
+    build_dsn_and_ca_path(form)
+}
+
+fn cleanup_ca_file(path: &Path) {
+    let _ = fs::remove_file(path);
+}
+
+fn cleanup_ca_file_opt(path: Option<&PathBuf>) {
+    if let Some(p) = path {
+        cleanup_ca_file(p);
+    }
+}
+
+impl Drop for MysqlDriver {
+    fn drop(&mut self) {
+        cleanup_ca_file_opt(self.ca_cert_path.as_ref());
+    }
+}
+
+impl MysqlDriver {
+    fn cleanup_ca_file(&self) {
+        cleanup_ca_file_opt(self.ca_cert_path.as_ref());
+    }
 }
 
 impl MysqlDriver {
@@ -88,7 +147,7 @@ impl MysqlDriver {
             ssh_tunnel = Some(tunnel);
         }
 
-        let dsn = build_dsn(&dsn_form)?;
+        let (dsn, ca_cert_path) = build_dsn_with_ca_path(&dsn_form)?;
         let pool = MySqlPoolOptions::new()
             .max_connections(5)
             .acquire_timeout(std::time::Duration::from_secs(3))
@@ -96,7 +155,11 @@ impl MysqlDriver {
             .await
             .map_err(|e| format!("[CONN_FAILED] {e}"))?;
 
-        Ok(Self { pool, ssh_tunnel })
+        Ok(Self {
+            pool,
+            ssh_tunnel,
+            ca_cert_path,
+        })
     }
 }
 
@@ -137,6 +200,7 @@ fn decode_mysql_optional_text_cell(
 impl DatabaseDriver for MysqlDriver {
     async fn close(&self) {
         self.pool.close().await;
+        self.cleanup_ca_file();
     }
 
     async fn test_connection(&self) -> Result<(), String> {
@@ -955,5 +1019,34 @@ mod tests {
         };
 
         assert!(build_dsn(&form).is_err());
+    }
+
+    #[test]
+    fn test_verify_ca_query_param_encodes_path() {
+        let path = PathBuf::from("/tmp/a b&c#d?.pem");
+        let query = build_verify_ca_query_param(&path);
+        assert_eq!(
+            query,
+            "?ssl-mode=VERIFY_CA&ssl-ca=%2Ftmp%2Fa%20b%26c%23d%3F.pem"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_write_temp_cert_file_sets_0600_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = write_temp_cert_file("mysql_ca_perm_test", "pem-data").unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        let _ = fs::remove_file(&path);
+        assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn test_cleanup_ca_file_opt_removes_file() {
+        let path = write_temp_cert_file("mysql_ca_cleanup_test", "pem-data").unwrap();
+        assert!(path.exists());
+        cleanup_ca_file_opt(Some(&path));
+        assert!(!path.exists());
     }
 }
