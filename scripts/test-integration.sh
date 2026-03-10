@@ -19,6 +19,7 @@ run_integration_test() {
 }
 
 run_integration_test "RUN_MYSQL_IT" "mysql_integration" "${RUN_MYSQL_IT:-0}"
+run_integration_test "RUN_MARIADB_IT" "mariadb_integration" "${RUN_MARIADB_IT:-0}"
 run_integration_test "RUN_POSTGRES_IT" "postgres_integration" "${RUN_POSTGRES_IT:-0}"
 run_integration_test "RUN_SQLITE_IT" "sqlite_integration" "${RUN_SQLITE_IT:-0}"
 run_integration_test "RUN_MSSQL_IT" "mssql_integration" "${RUN_MSSQL_IT:-0}"

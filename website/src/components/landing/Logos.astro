@@ -1,13 +1,25 @@
+---
+import { getLangFromUrl, useTranslations } from '@/i18n/utils';
+
+const lang = getLangFromUrl(new URL(Astro.request.url));
+const t = useTranslations(lang);
+---
+
 <section class="mt-16" aria-label="Technology and ecosystem">
   <div class="text-center">
-    <p class="text-sm uppercase tracking-wider text-slate-500">Built with modern stack</p>
+    <p class="text-sm uppercase tracking-wider text-slate-500">{t('logos.builtWith')}</p>
   </div>
   <div class="mt-6 flex flex-wrap items-center justify-center gap-6 text-slate-500">
     <span class="text-sm font-semibold">Astro</span>
     <span class="text-sm font-semibold">Tauri</span>
     <span class="text-sm font-semibold">Rust</span>
     <span class="text-sm font-semibold">TypeScript</span>
-    <span class="text-sm font-semibold">PostgreSQL</span>
     <span class="text-sm font-semibold">MySQL</span>
+    <span class="text-sm font-semibold">MariaDB</span>
+    <span class="text-sm font-semibold">PostgreSQL</span>
+    <span class="text-sm font-semibold">ClickHouse</span>
+    <span class="text-sm font-semibold">TiDB</span>
+    <span class="text-sm font-semibold">SQL Server</span>
+    <span class="text-sm font-semibold">SQLite</span>
   </div>
 </section>

@@ -38,6 +38,7 @@ export const ja: Translations = {
     },
     error: {
       selectConnectionFirst: "先に接続を選択してください",
+      loadSchemaOverview: "スキーマ概要の読み込みに失敗しました",
       loadTableData: "テーブルデータの読み込みに失敗しました",
       exportFailed: "エクスポートに失敗しました",
       refreshTable: "テーブルの再読み込みに失敗しました",
@@ -137,6 +138,7 @@ export const ja: Translations = {
     title: "接続",
     searchTables: "テーブルを検索...",
     sqliteMainLabel: "main（SQLite）",
+    duckdbMainLabel: "main（DuckDB）",
     status: {
       connected: "接続済み",
       failedWithReason: "接続失敗: {{error}}",
@@ -166,6 +168,7 @@ export const ja: Translations = {
         sshPassword: "SSH パスワード",
         sshKeyPath: "SSH キーパス",
         sqliteFilePath: "SQLite ファイルパス",
+        duckdbFilePath: "DuckDB ファイルパス",
       },
       placeholders: {
         selectDatabaseType: "データベースタイプを選択",
@@ -177,11 +180,14 @@ export const ja: Translations = {
         sshPassword: "キー利用時は任意",
         sshKeyPath: "/path/to/private_key",
         sqlitePath: "/path/to/db.sqlite",
+        duckdbPath: "/path/to/db.duckdb",
       },
       fileDialogTitle: "SQLite データベースファイルを選択",
+      fileDialogTitleDuckdb: "DuckDB データベースファイルを選択",
       sslCaFileDialogTitle: "CA 証明書ファイルを選択",
       sshKeyFileDialogTitle: "SSH 秘密鍵ファイルを選択",
       fileFilterSqlite: "SQLite データベース",
+      fileFilterDuckdb: "DuckDB データベース",
       fileFilterCert: "証明書ファイル",
       fileFilterPem: "秘密鍵ファイル",
       fileFilterAll: "すべてのファイル",
@@ -195,6 +201,7 @@ export const ja: Translations = {
       testSuccess: "接続テスト成功",
       testFailed: "接続テスト失敗",
       requiredSqlite: "ファイルパス",
+      requiredFilePath: "ファイルパス",
       requiredCreateWithPassword: "ホスト、ポート、ユーザー名、パスワード",
       requiredCreateNoPassword: "ホスト、ポート、ユーザー名",
       requiredEdit: "ホスト、ポート、ユーザー名",
@@ -215,9 +222,38 @@ export const ja: Translations = {
       delete: "削除",
       refreshTables: "テーブルを更新",
       newQuery: "新規クエリ",
+      newDatabase: "新規 Database",
       exportCsv: "CSV としてエクスポート",
       exportJson: "JSON としてエクスポート",
       exportSql: "SQL としてエクスポート",
+    },
+    createDbDialog: {
+      title: "Database を作成",
+      fields: {
+        name: "データベース名",
+        ifNotExists: "存在しない場合のみ作成 (IF NOT EXISTS)",
+        charset: "文字セット",
+        collation: "照合順序",
+        encoding: "エンコーディング",
+        lcCollate: "LC_COLLATE",
+        lcCtype: "LC_CTYPE",
+      },
+      placeholders: {
+        name: "データベース名を入力",
+        charset: "例: utf8mb4",
+        collation: "例: utf8mb4_general_ci",
+        encoding: "例: UTF8",
+        lcCollate: "例: en_US.UTF-8",
+        lcCtype: "例: en_US.UTF-8",
+      },
+      showAdvanced: "詳細オプションを表示",
+      hideAdvanced: "詳細オプションを非表示",
+      defaultOption: "既定（未指定）",
+      confirm: "作成",
+      creating: "作成中…",
+      validation: {
+        requiredName: "データベース名は必須です",
+      },
     },
     deleteDialog: {
       title: "接続を削除",
@@ -227,8 +263,12 @@ export const ja: Translations = {
     },
     toast: {
       loadDatabasesFailed: "データベースの読み込みに失敗しました",
+      newQueryNoDatabase:
+        "クエリを作成できません: この接続で利用可能なデータベースがありません。",
       duplicateSuccess: "接続を複製しました",
       duplicateFailed: "接続の複製に失敗しました",
+      createDatabaseSuccess: "Database を作成しました",
+      createDatabaseFailed: "Database の作成に失敗しました",
       exportDesktopOnly:
         "エクスポートダイアログは Tauri デスクトップモードでのみ利用できます。",
       saveExportFile: "エクスポートファイルを保存",
@@ -274,6 +314,10 @@ export const ja: Translations = {
     tablesHeading: "テーブル",
   },
   sqlEditor: {
+    database: {
+      ariaLabel: "データベースを切り替える",
+      placeholder: "データベースを選択",
+    },
     result: {
       failed: "結果: 実行に失敗しました。",
       success: "結果: 実行に成功しました。",

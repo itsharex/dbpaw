@@ -828,6 +828,13 @@ export async function mockDeleteConnection(id: number): Promise<void> {
   mockConnections.splice(index, 1);
 }
 
+export async function mockCreateDatabaseById(
+  _id: number,
+  _payload: { name: string },
+): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 80));
+}
+
 /**
  * Mock test connection
  */
@@ -1039,6 +1046,9 @@ export async function invokeMock<T>(cmd: string, args?: any): Promise<T> {
 
     case "delete_connection":
       return mockDeleteConnection(args.id) as Promise<T>;
+
+    case "create_database_by_id":
+      return mockCreateDatabaseById(args.id, args.payload) as Promise<T>;
 
     case "test_connection_ephemeral":
       return mockTestConnectionEphemeral(args.form) as Promise<T>;

@@ -124,6 +124,7 @@ pub fn run() {
             commands::query::list_sql_execution_logs,
             commands::connection::list_databases,
             commands::connection::list_databases_by_id,
+            commands::connection::create_database_by_id,
             commands::storage::save_query,
             commands::storage::get_saved_queries,
             commands::storage::update_saved_query,

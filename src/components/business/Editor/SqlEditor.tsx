@@ -58,6 +58,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { sqlEditorThemeDark, sqlEditorThemeLight } from "./codemirrorTheme";
 import { getThemePreset, type ThemeId } from "@/theme/themeRegistry";
@@ -218,8 +225,10 @@ interface SqlEditorProps {
   onExecute?: (sql: string) => void;
   onCancel?: () => void;
   databaseName?: string;
+  availableDatabases?: string[];
   value?: string;
   onChange?: (value: string) => void;
+  onDatabaseChange?: (database: string) => void;
   connectionId?: number;
   driver?: string;
   schemaOverview?: SchemaOverview;
@@ -234,8 +243,10 @@ export function SqlEditor({
   onExecute,
   onCancel,
   databaseName,
+  availableDatabases,
   value,
   onChange,
+  onDatabaseChange,
   connectionId: _connectionId,
   driver,
   schemaOverview,
@@ -250,6 +261,11 @@ export function SqlEditor({
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [isFormatting, setIsFormatting] = useState(false);
+  const canSwitchDatabase =
+    !!databaseName &&
+    !!onDatabaseChange &&
+    !!availableDatabases &&
+    availableDatabases.length > 1;
   const resultStatus = useMemo(() => {
     if (!queryResults) return null;
     if (queryResults.error) {
@@ -347,7 +363,9 @@ export function SqlEditor({
         postgresql: "postgresql",
         mysql: "mysql",
         tidb: "mysql",
+        mariadb: "mysql",
         sqlite: "sqlite",
+        duckdb: "sqlite",
         clickhouse: "sql",
         mssql: "transactsql",
       };
@@ -483,8 +501,10 @@ export function SqlEditor({
         return PostgreSQL;
       case "mysql":
       case "tidb":
+      case "mariadb":
         return MySQL;
       case "sqlite":
+      case "duckdb":
         return SQLite;
       case "clickhouse":
         return StandardSQL;
@@ -666,17 +686,51 @@ export function SqlEditor({
       <div className="flex items-center justify-between px-4 py-2 border-b border-border">
         <div className="flex items-center gap-2">
           {databaseName && (
-            <div className="flex items-center gap-2 px-3 py-1 bg-muted/50 rounded text-xs text-muted-foreground border border-border">
-              <Database
-                className={`w-3 h-3 ${schemaOverview ? "text-green-500" : "text-muted-foreground"}`}
-              />
-              <span>{databaseName}</span>
-              {savedQueryId && (
-                <span className="text-[10px] opacity-50 ml-1">
-                  #{savedQueryId}
-                </span>
-              )}
-            </div>
+            canSwitchDatabase ? (
+              <div className="flex items-center gap-2">
+                <Database
+                  className={`w-3 h-3 ${schemaOverview ? "text-green-500" : "text-muted-foreground"}`}
+                />
+                <Select
+                  value={databaseName}
+                  onValueChange={onDatabaseChange}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    className="h-8 min-w-[180px] bg-muted/50 text-xs"
+                    aria-label={t("sqlEditor.database.ariaLabel")}
+                  >
+                    <SelectValue
+                      placeholder={t("sqlEditor.database.placeholder")}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableDatabases?.map((database) => (
+                      <SelectItem key={database} value={database}>
+                        {database}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {savedQueryId && (
+                  <span className="text-[10px] opacity-50">
+                    #{savedQueryId}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-1 bg-muted/50 rounded text-xs text-muted-foreground border border-border">
+                <Database
+                  className={`w-3 h-3 ${schemaOverview ? "text-green-500" : "text-muted-foreground"}`}
+                />
+                <span>{databaseName}</span>
+                {savedQueryId && (
+                  <span className="text-[10px] opacity-50 ml-1">
+                    #{savedQueryId}
+                  </span>
+                )}
+              </div>
+            )
           )}
 
           <div className="w-px h-4 bg-border mx-2" />

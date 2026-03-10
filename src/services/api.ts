@@ -64,8 +64,10 @@ export interface SqlExecutionLog {
 export type Driver =
   | "postgres"
   | "sqlite"
+  | "duckdb"
   | "mysql"
   | "tidb"
+  | "mariadb"
   | "clickhouse"
   | "mssql";
 export interface ConnectionForm {
@@ -87,6 +89,16 @@ export interface ConnectionForm {
   sshUsername?: string;
   sshPassword?: string;
   sshKeyPath?: string;
+}
+
+export interface CreateDatabasePayload {
+  name: string;
+  ifNotExists?: boolean;
+  charset?: string;
+  collation?: string;
+  encoding?: string;
+  lcCollate?: string;
+  lcCtype?: string;
 }
 export interface TestConnectionResult {
   success: boolean;
@@ -422,6 +434,8 @@ export const api = {
     update: (id: number, form: ConnectionForm) =>
       invoke<any>("update_connection", { id, form }),
     delete: (id: number) => invoke<void>("delete_connection", { id }),
+    createDatabase: (id: number, payload: CreateDatabasePayload) =>
+      invoke<void>("create_database_by_id", { id, payload }),
     testEphemeral: (form: ConnectionForm) =>
       invoke<TestConnectionResult>("test_connection_ephemeral", { form }),
     listSqliteIssues: () =>

@@ -54,7 +54,11 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { api, isTauri } from "@/services/api";
-import type { ConnectionForm, Driver } from "@/services/api";
+import type {
+  ConnectionForm,
+  CreateDatabasePayload,
+  Driver,
+} from "@/services/api";
 import { toast } from "sonner";
 import { TreeNode } from "./connection-list/TreeNode";
 import {
@@ -108,6 +112,16 @@ interface Connection {
   connectError?: string;
 }
 
+interface CreateDatabaseForm {
+  name: string;
+  ifNotExists: boolean;
+  charset: string;
+  collation: string;
+  encoding: string;
+  lcCollate: string;
+  lcCtype: string;
+}
+
 const defaultForm: ConnectionForm = {
   driver: "postgres",
   name: "",
@@ -124,6 +138,47 @@ const defaultForm: ConnectionForm = {
   sshPort: undefined,
   sshUsername: "",
 };
+
+const createDatabaseSupportedDrivers: Driver[] = [
+  "postgres",
+  "mysql",
+  "mariadb",
+  "tidb",
+  "mssql",
+];
+
+const defaultCreateDatabaseForm: CreateDatabaseForm = {
+  name: "",
+  ifNotExists: true,
+  charset: "",
+  collation: "",
+  encoding: "",
+  lcCollate: "",
+  lcCtype: "",
+};
+
+const createDbNoneOption = "__none__";
+const mysqlCharsetOptions = ["utf8mb4", "utf8", "latin1"];
+const mysqlCollationOptions = [
+  "utf8mb4_general_ci",
+  "utf8mb4_unicode_ci",
+  "utf8_general_ci",
+  "latin1_swedish_ci",
+];
+const postgresEncodingOptions = ["UTF8", "LATIN1", "SQL_ASCII"];
+const postgresLocaleOptions = [
+  "en_US.UTF-8",
+  "C",
+  "C.UTF-8",
+  "zh_CN.UTF-8",
+  "ja_JP.UTF-8",
+];
+const mssqlCollationOptions = [
+  "SQL_Latin1_General_CP1_CI_AS",
+  "Latin1_General_100_CI_AS_SC",
+  "Chinese_PRC_CI_AS",
+  "Japanese_CI_AS",
+];
 
 interface ConnectionListProps {
   onTableSelect?: (
@@ -198,9 +253,21 @@ export function ConnectionList({
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isCreatingDatabase, setIsCreatingDatabase] = useState(false);
   const [deleteTargetConnectionId, setDeleteTargetConnectionId] = useState<
     string | null
   >(null);
+  const [createDbConnectionId, setCreateDbConnectionId] = useState<string | null>(
+    null,
+  );
+  const [isCreateDbDialogOpen, setIsCreateDbDialogOpen] = useState(false);
+  const [showCreateDbAdvanced, setShowCreateDbAdvanced] = useState(false);
+  const [createDbValidationMsg, setCreateDbValidationMsg] = useState<string | null>(
+    null,
+  );
+  const [createDbForm, setCreateDbForm] = useState<CreateDatabaseForm>(
+    defaultCreateDatabaseForm,
+  );
   const [testMsg, setTestMsg] = useState<{
     ok: boolean;
     text: string;
@@ -209,6 +276,21 @@ export function ConnectionList({
   const [validationMsg, setValidationMsg] = useState<string | null>(null);
   const [form, setForm] = useState<ConnectionForm>(defaultForm);
   const [searchTerm, setSearchTerm] = useState("");
+
+  const supportsCreateDatabaseForDriver = (driver: Driver) =>
+    createDatabaseSupportedDrivers.includes(driver);
+
+  const createDbTargetConnection = useMemo(
+    () => connections.find((conn) => conn.id === createDbConnectionId) || null,
+    [connections, createDbConnectionId],
+  );
+  const createDbTargetDriver = createDbTargetConnection?.type;
+  const isMySqlFamilyCreateDb =
+    createDbTargetDriver === "mysql" ||
+    createDbTargetDriver === "mariadb" ||
+    createDbTargetDriver === "tidb";
+  const isPostgresCreateDb = createDbTargetDriver === "postgres";
+  const isMssqlCreateDb = createDbTargetDriver === "mssql";
 
   const getConnectionStatusLabel = (connection: Connection) => {
     if (connection.connectState === "success") {
@@ -268,22 +350,29 @@ export function ConnectionList({
     }
   }, [searchTerm, filteredConnections]);
 
-  const isSqlite = form.driver === "sqlite";
+  const isFileBased = form.driver === "sqlite" || form.driver === "duckdb";
   const supportsSslCa =
-    form.driver === "postgres" || form.driver === "mysql" || form.driver === "tidb";
+    form.driver === "postgres" ||
+    form.driver === "mysql" ||
+    form.driver === "tidb" ||
+    form.driver === "mariadb";
   const isPasswordRequiredOnCreate = useMemo(() => {
-    // MySQL-compatible engines (including TiDB) can be configured without password.
-    return form.driver !== "mysql" && form.driver !== "tidb";
+    // MySQL-compatible engines (including TiDB and MariaDB) can be configured without password.
+    return (
+      form.driver !== "mysql" &&
+      form.driver !== "tidb" &&
+      form.driver !== "mariadb"
+    );
   }, [form.driver]);
   const requiredOk = useMemo(() => {
-    if (isSqlite) return !!form.filePath;
+    if (isFileBased) return !!form.filePath;
     const hasBasic = !!form.host && !!form.port && !!form.username;
     if (dialogMode === "edit") return hasBasic;
     if (isPasswordRequiredOnCreate) {
       return hasBasic && !!form.password;
     }
     return hasBasic;
-  }, [form, isSqlite, dialogMode, isPasswordRequiredOnCreate]);
+  }, [form, isFileBased, dialogMode, isPasswordRequiredOnCreate]);
 
   const validateSslSettings = () => {
     if (!form.ssl || !supportsSslCa) {
@@ -772,6 +861,114 @@ export function ConnectionList({
     }
   };
 
+  const handleCreateQueryFromContext = (
+    connectionId: string | null | undefined,
+    databaseName?: string | null,
+  ) => {
+    if (!onCreateQuery || !connectionId) return;
+    const connection = connections.find((c) => c.id === connectionId);
+    if (!connection) return;
+
+    const explicitDatabaseName = (databaseName || "").trim();
+    const fallbackDatabaseName =
+      (connection.database || "").trim() ||
+      connection.databases.find((db) => db.name.trim().length > 0)?.name ||
+      (connection.type === "sqlite" || connection.type === "duckdb"
+        ? "main"
+        : "");
+    const resolvedDatabaseName = explicitDatabaseName || fallbackDatabaseName;
+
+    if (!resolvedDatabaseName) {
+      toast.error(t("connection.toast.newQueryNoDatabase"));
+      return;
+    }
+
+    onCreateQuery(Number(connectionId), resolvedDatabaseName, connection.type);
+  };
+
+  const openCreateDatabaseDialog = (connectionId: string) => {
+    const connection = connections.find((conn) => conn.id === connectionId);
+    if (!connection || !supportsCreateDatabaseForDriver(connection.type)) {
+      return;
+    }
+    setCreateDbConnectionId(connectionId);
+    setCreateDbValidationMsg(null);
+    setShowCreateDbAdvanced(false);
+    setCreateDbForm(defaultCreateDatabaseForm);
+    setIsCreateDbDialogOpen(true);
+  };
+
+  const clearConnectionTreeCache = (connectionId: string) => {
+    setConnections((prev) =>
+      prev.map((conn) =>
+        conn.id === connectionId ? { ...conn, databases: [] } : conn,
+      ),
+    );
+    setExpandedDatabases((prev) =>
+      new Set([...prev].filter((key) => !key.startsWith(`${connectionId}-`))),
+    );
+    setExpandedTables((prev) =>
+      new Set([...prev].filter((key) => !key.startsWith(`${connectionId}-`))),
+    );
+  };
+
+  const handleCreateDatabase = async () => {
+    const connection = createDbTargetConnection;
+    if (!connection || !supportsCreateDatabaseForDriver(connection.type)) return;
+
+    const name = createDbForm.name.trim();
+    if (!name) {
+      setCreateDbValidationMsg(t("connection.createDbDialog.validation.requiredName"));
+      return;
+    }
+
+    const payload: CreateDatabasePayload = {
+      name,
+      ifNotExists: createDbForm.ifNotExists,
+    };
+    if (isMySqlFamilyCreateDb) {
+      if (createDbForm.charset.trim()) payload.charset = createDbForm.charset.trim();
+      if (createDbForm.collation.trim()) {
+        payload.collation = createDbForm.collation.trim();
+      }
+    } else if (isPostgresCreateDb) {
+      if (createDbForm.encoding.trim()) payload.encoding = createDbForm.encoding.trim();
+      if (createDbForm.lcCollate.trim()) {
+        payload.lcCollate = createDbForm.lcCollate.trim();
+      }
+      if (createDbForm.lcCtype.trim()) payload.lcCtype = createDbForm.lcCtype.trim();
+    } else if (isMssqlCreateDb) {
+      if (createDbForm.collation.trim()) {
+        payload.collation = createDbForm.collation.trim();
+      }
+    }
+
+    setCreateDbValidationMsg(null);
+    setIsCreatingDatabase(true);
+    try {
+      await api.connections.createDatabase(Number(connection.id), payload);
+      toast.success(t("connection.toast.createDatabaseSuccess"), {
+        description: name,
+      });
+      setIsCreateDbDialogOpen(false);
+      clearConnectionTreeCache(connection.id);
+      const loaded = await fetchAndSetDatabases(connection.id);
+      if (loaded) {
+        setExpandedConnections((prev) => {
+          const next = new Set(prev);
+          next.add(connection.id);
+          return next;
+        });
+      }
+    } catch (e) {
+      toast.error(t("connection.toast.createDatabaseFailed"), {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setIsCreatingDatabase(false);
+    }
+  };
+
   const handleTestConnection = async () => {
     try {
       setValidationMsg(null);
@@ -797,8 +994,8 @@ export function ConnectionList({
 
   const handleConnect = async () => {
     if (!requiredOk) {
-      const requiredFields = isSqlite
-        ? t("connection.dialog.requiredSqlite")
+      const requiredFields = isFileBased
+        ? t("connection.dialog.requiredFilePath")
         : isPasswordRequiredOnCreate
           ? t("connection.dialog.requiredCreateWithPassword")
           : t("connection.dialog.requiredCreateNoPassword");
@@ -855,8 +1052,8 @@ export function ConnectionList({
   const handleSaveEdit = async () => {
     if (!editingConnectionId) return;
     if (!requiredOk) {
-      const requiredFields = isSqlite
-        ? t("connection.dialog.requiredSqlite")
+      const requiredFields = isFileBased
+        ? t("connection.dialog.requiredFilePath")
         : t("connection.dialog.requiredEdit");
       setValidationMsg(
         t("connection.dialog.requiredMessage", { fields: requiredFields }),
@@ -1086,6 +1283,10 @@ export function ConnectionList({
     }
   };
 
+  const contextMenuConnection = contextMenu.connectionId
+    ? connections.find((conn) => conn.id === contextMenu.connectionId)
+    : null;
+
   return (
     <div className="h-full flex flex-col bg-background border-r border-border">
       <div className="px-2 py-1 border-b border-border flex items-center justify-between h-8">
@@ -1142,6 +1343,8 @@ export function ConnectionList({
                               ? 5432
                               : v === "mysql"
                                 ? 3306
+                                : v === "mariadb"
+                                  ? 3306
                                 : v === "tidb"
                                   ? 4000
                                 : v === "clickhouse"
@@ -1158,10 +1361,12 @@ export function ConnectionList({
                       <SelectContent>
                         <SelectItem value="postgres">PostgreSQL</SelectItem>
                         <SelectItem value="mysql">MySQL</SelectItem>
+                        <SelectItem value="mariadb">MariaDB</SelectItem>
                         <SelectItem value="tidb">TiDB</SelectItem>
                         <SelectItem value="sqlite">SQLite</SelectItem>
+                        <SelectItem value="duckdb">DuckDB</SelectItem>
                         <SelectItem value="clickhouse">ClickHouse</SelectItem>
-                        <SelectItem value="mssql">MSSQL</SelectItem>
+                        <SelectItem value="mssql">SQL Server</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1175,7 +1380,7 @@ export function ConnectionList({
                       }
                     />
                   </div>
-                  {!isSqlite && (
+                  {!isFileBased && (
                     <>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="grid gap-2">
@@ -1203,6 +1408,8 @@ export function ConnectionList({
                                 ? "5432"
                                 : form.driver === "mysql"
                                   ? "3306"
+                                  : form.driver === "mariadb"
+                                    ? "3306"
                                   : form.driver === "tidb"
                                     ? "4000"
                                   : form.driver === "mssql"
@@ -1459,16 +1666,22 @@ export function ConnectionList({
                       )}
                     </>
                   )}
-                  {isSqlite && (
+                  {isFileBased && (
                     <div className="grid gap-2">
                       <Label htmlFor="filePath">
-                        {t("connection.dialog.fields.sqliteFilePath")}{" "}
+                        {form.driver === "duckdb"
+                          ? t("connection.dialog.fields.duckdbFilePath")
+                          : t("connection.dialog.fields.sqliteFilePath")}{" "}
                         <span className="text-red-600">*</span>
                       </Label>
                       <div className="flex gap-2">
                         <Input
                           id="filePath"
-                          placeholder={t("connection.dialog.placeholders.sqlitePath")}
+                          placeholder={
+                            form.driver === "duckdb"
+                              ? t("connection.dialog.placeholders.duckdbPath")
+                              : t("connection.dialog.placeholders.sqlitePath")
+                          }
                           value={form.filePath || ""}
                           onChange={(e) =>
                             setForm((f) => ({ ...f, filePath: e.target.value }))
@@ -1480,11 +1693,20 @@ export function ConnectionList({
                           variant="outline"
                           onClick={async () => {
                             const selected = await pickSingleFile({
-                              title: t("connection.dialog.fileDialogTitle"),
+                              title:
+                                form.driver === "duckdb"
+                                  ? t("connection.dialog.fileDialogTitleDuckdb")
+                                  : t("connection.dialog.fileDialogTitle"),
                               filters: [
                                 {
-                                  name: t("connection.dialog.fileFilterSqlite"),
-                                  extensions: ["sqlite", "db", "sqlite3", "db3"],
+                                  name:
+                                    form.driver === "duckdb"
+                                      ? t("connection.dialog.fileFilterDuckdb")
+                                      : t("connection.dialog.fileFilterSqlite"),
+                                  extensions:
+                                    form.driver === "duckdb"
+                                      ? ["duckdb", "db"]
+                                      : ["sqlite", "db", "sqlite3", "db3"],
                                 },
                                 { name: t("connection.dialog.fileFilterAll"), extensions: ["*"] },
                               ],
@@ -1644,9 +1866,14 @@ export function ConnectionList({
                         level={1}
                         icon={<Database className="w-4 h-4" />}
                         label={
-                          connection.type === "sqlite" &&
+                          (connection.type === "sqlite" ||
+                            connection.type === "duckdb") &&
                           database.name === "main"
-                            ? t("connection.sqliteMainLabel")
+                            ? t(
+                                connection.type === "duckdb"
+                                  ? "connection.duckdbMainLabel"
+                                  : "connection.sqliteMainLabel",
+                              )
                             : database.name
                         }
                         isExpanded={expandedDatabases.has(dbKey)}
@@ -1743,6 +1970,17 @@ export function ConnectionList({
                               <ContextMenuContent>
                                 <ContextMenuItem
                                   onClick={() =>
+                                    handleCreateQueryFromContext(
+                                      connection.id,
+                                      database.name,
+                                    )
+                                  }
+                                >
+                                  <FileCode className="w-4 h-4 mr-2" />
+                                  {t("connection.menu.newQuery")}
+                                </ContextMenuItem>
+                                <ContextMenuItem
+                                  onClick={() =>
                                     void handleTableExport(
                                       connection,
                                       database,
@@ -1836,6 +2074,29 @@ export function ConnectionList({
                 <RefreshCw className="w-4 h-4" />
                 {t("connection.menu.refresh")}
               </button>
+              <button
+                className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
+                onClick={() => {
+                  handleCreateQueryFromContext(contextMenu.connectionId);
+                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                }}
+              >
+                <FileCode className="w-4 h-4" />
+                {t("connection.menu.newQuery")}
+              </button>
+              {contextMenuConnection &&
+              supportsCreateDatabaseForDriver(contextMenuConnection.type) ? (
+                <button
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
+                  onClick={() => {
+                    openCreateDatabaseDialog(contextMenuConnection.id);
+                    setContextMenu((prev) => ({ ...prev, visible: false }));
+                  }}
+                >
+                  <Plus className="w-4 h-4" />
+                  {t("connection.menu.newDatabase")}
+                </button>
+              ) : null}
               <div className="h-px bg-border my-1" />
               <button
                 className="w-full px-3 py-2 text-left text-sm hover:bg-accent text-destructive flex items-center gap-2"
@@ -1870,22 +2131,10 @@ export function ConnectionList({
               <button
                 className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
                 onClick={() => {
-                  if (
-                    onCreateQuery &&
-                    contextMenu.connectionId &&
-                    contextMenu.databaseName
-                  ) {
-                    const conn = connections.find(
-                      (c) => c.id === contextMenu.connectionId,
-                    );
-                    const driver = conn ? conn.type : "postgres";
-
-                    onCreateQuery(
-                      Number(contextMenu.connectionId),
-                      contextMenu.databaseName,
-                      driver,
-                    );
-                  }
+                  handleCreateQueryFromContext(
+                    contextMenu.connectionId,
+                    contextMenu.databaseName,
+                  );
                   setContextMenu((prev) => ({ ...prev, visible: false }));
                 }}
               >
@@ -1896,6 +2145,291 @@ export function ConnectionList({
           ) : null}
         </div>
       )}
+      <Dialog
+        open={isCreateDbDialogOpen}
+        onOpenChange={(open) => {
+          setIsCreateDbDialogOpen(open);
+          if (!open) {
+            setCreateDbValidationMsg(null);
+            setCreateDbConnectionId(null);
+            setShowCreateDbAdvanced(false);
+            setCreateDbForm(defaultCreateDatabaseForm);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("connection.createDbDialog.title")}</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="create-db-name">
+                {t("connection.createDbDialog.fields.name")}{" "}
+                <span className="text-red-600">*</span>
+              </Label>
+              <Input
+                id="create-db-name"
+                value={createDbForm.name}
+                onChange={(e) =>
+                  setCreateDbForm((prev) => ({ ...prev, name: e.target.value }))
+                }
+                placeholder={t("connection.createDbDialog.placeholders.name")}
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="create-db-if-not-exists"
+                checked={createDbForm.ifNotExists}
+                onCheckedChange={(checked) =>
+                  setCreateDbForm((prev) => ({
+                    ...prev,
+                    ifNotExists: checked === true,
+                  }))
+                }
+              />
+              <Label htmlFor="create-db-if-not-exists">
+                {t("connection.createDbDialog.fields.ifNotExists")}
+              </Label>
+            </div>
+            <div>
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-8 px-0"
+                onClick={() => setShowCreateDbAdvanced((prev) => !prev)}
+              >
+                {showCreateDbAdvanced
+                  ? t("connection.createDbDialog.hideAdvanced")
+                  : t("connection.createDbDialog.showAdvanced")}
+              </Button>
+            </div>
+            {showCreateDbAdvanced && (
+              <div className="border p-3 rounded-md space-y-3 bg-muted/20">
+                {isMySqlFamilyCreateDb && (
+                  <>
+                    <div className="grid gap-2">
+                      <Label htmlFor="create-db-charset">
+                        {t("connection.createDbDialog.fields.charset")}
+                      </Label>
+                      <Select
+                        value={createDbForm.charset || createDbNoneOption}
+                        onValueChange={(v) =>
+                          setCreateDbForm((prev) => ({
+                            ...prev,
+                            charset: v === createDbNoneOption ? "" : v,
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="create-db-charset">
+                          <SelectValue
+                            placeholder={t("connection.createDbDialog.placeholders.charset")}
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={createDbNoneOption}>
+                            {t("connection.createDbDialog.defaultOption")}
+                          </SelectItem>
+                          {mysqlCharsetOptions.map((opt) => (
+                            <SelectItem key={opt} value={opt}>
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="create-db-collation">
+                        {t("connection.createDbDialog.fields.collation")}
+                      </Label>
+                      <Select
+                        value={createDbForm.collation || createDbNoneOption}
+                        onValueChange={(v) =>
+                          setCreateDbForm((prev) => ({
+                            ...prev,
+                            collation: v === createDbNoneOption ? "" : v,
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="create-db-collation">
+                          <SelectValue
+                            placeholder={t("connection.createDbDialog.placeholders.collation")}
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={createDbNoneOption}>
+                            {t("connection.createDbDialog.defaultOption")}
+                          </SelectItem>
+                          {mysqlCollationOptions.map((opt) => (
+                            <SelectItem key={opt} value={opt}>
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                )}
+                {isPostgresCreateDb && (
+                  <>
+                    <div className="grid gap-2">
+                      <Label htmlFor="create-db-encoding">
+                        {t("connection.createDbDialog.fields.encoding")}
+                      </Label>
+                      <Select
+                        value={createDbForm.encoding || createDbNoneOption}
+                        onValueChange={(v) =>
+                          setCreateDbForm((prev) => ({
+                            ...prev,
+                            encoding: v === createDbNoneOption ? "" : v,
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="create-db-encoding">
+                          <SelectValue
+                            placeholder={t("connection.createDbDialog.placeholders.encoding")}
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={createDbNoneOption}>
+                            {t("connection.createDbDialog.defaultOption")}
+                          </SelectItem>
+                          {postgresEncodingOptions.map((opt) => (
+                            <SelectItem key={opt} value={opt}>
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="create-db-lc-collate">
+                        {t("connection.createDbDialog.fields.lcCollate")}
+                      </Label>
+                      <Select
+                        value={createDbForm.lcCollate || createDbNoneOption}
+                        onValueChange={(v) =>
+                          setCreateDbForm((prev) => ({
+                            ...prev,
+                            lcCollate: v === createDbNoneOption ? "" : v,
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="create-db-lc-collate">
+                          <SelectValue
+                            placeholder={t("connection.createDbDialog.placeholders.lcCollate")}
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={createDbNoneOption}>
+                            {t("connection.createDbDialog.defaultOption")}
+                          </SelectItem>
+                          {postgresLocaleOptions.map((opt) => (
+                            <SelectItem key={opt} value={opt}>
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="create-db-lc-ctype">
+                        {t("connection.createDbDialog.fields.lcCtype")}
+                      </Label>
+                      <Select
+                        value={createDbForm.lcCtype || createDbNoneOption}
+                        onValueChange={(v) =>
+                          setCreateDbForm((prev) => ({
+                            ...prev,
+                            lcCtype: v === createDbNoneOption ? "" : v,
+                          }))
+                        }
+                      >
+                        <SelectTrigger id="create-db-lc-ctype">
+                          <SelectValue
+                            placeholder={t("connection.createDbDialog.placeholders.lcCtype")}
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={createDbNoneOption}>
+                            {t("connection.createDbDialog.defaultOption")}
+                          </SelectItem>
+                          {postgresLocaleOptions.map((opt) => (
+                            <SelectItem key={opt} value={opt}>
+                              {opt}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                )}
+                {isMssqlCreateDb && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="create-db-collation">
+                      {t("connection.createDbDialog.fields.collation")}
+                    </Label>
+                    <Select
+                      value={createDbForm.collation || createDbNoneOption}
+                      onValueChange={(v) =>
+                        setCreateDbForm((prev) => ({
+                          ...prev,
+                          collation: v === createDbNoneOption ? "" : v,
+                        }))
+                      }
+                    >
+                      <SelectTrigger id="create-db-collation">
+                        <SelectValue
+                          placeholder={t("connection.createDbDialog.placeholders.collation")}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={createDbNoneOption}>
+                          {t("connection.createDbDialog.defaultOption")}
+                        </SelectItem>
+                        {mssqlCollationOptions.map((opt) => (
+                          <SelectItem key={opt} value={opt}>
+                            {opt}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+            )}
+            {createDbValidationMsg && (
+              <Alert variant="destructive">
+                <AlertTitle>{t("connection.dialog.validationFailed")}</AlertTitle>
+                <AlertDescription>{createDbValidationMsg}</AlertDescription>
+              </Alert>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isCreatingDatabase}
+                onClick={() => setIsCreateDbDialogOpen(false)}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="button"
+                disabled={isCreatingDatabase}
+                onClick={() => void handleCreateDatabase()}
+              >
+                {isCreatingDatabase ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t("connection.createDbDialog.creating")}
+                  </>
+                ) : (
+                  t("connection.createDbDialog.confirm")
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       <AlertDialog
         open={!!deleteTargetConnectionId}
         onOpenChange={(open) => {

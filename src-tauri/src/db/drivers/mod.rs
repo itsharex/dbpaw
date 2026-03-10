@@ -1,4 +1,5 @@
 use self::clickhouse::ClickHouseDriver;
+use self::duckdb::DuckdbDriver;
 use self::mssql::MssqlDriver;
 use self::mysql::MysqlDriver;
 use self::postgres::PostgresDriver;
@@ -10,6 +11,7 @@ use crate::models::{
 use async_trait::async_trait;
 
 pub mod clickhouse;
+pub mod duckdb;
 pub mod mssql;
 pub mod mysql;
 pub mod postgres;
@@ -82,12 +84,16 @@ pub async fn connect(form: &ConnectionForm) -> Result<Box<dyn DatabaseDriver>, S
             let driver = PostgresDriver::connect(form).await?;
             Ok(Box::new(driver) as Box<dyn DatabaseDriver>)
         }
-        "mysql" | "tidb" => {
+        "mysql" | "tidb" | "mariadb" => {
             let driver = MysqlDriver::connect(form).await?;
             Ok(Box::new(driver) as Box<dyn DatabaseDriver>)
         }
         "sqlite" => {
             let driver = SqliteDriver::connect(form).await?;
+            Ok(Box::new(driver) as Box<dyn DatabaseDriver>)
+        }
+        "duckdb" => {
+            let driver = DuckdbDriver::connect(form).await?;
             Ok(Box::new(driver) as Box<dyn DatabaseDriver>)
         }
         "clickhouse" => {

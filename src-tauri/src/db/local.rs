@@ -367,7 +367,7 @@ impl LocalDb {
                 ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path,
                 created_at, updated_at 
                FROM connections 
-               ORDER BY updated_at DESC"#,
+               ORDER BY created_at DESC, id DESC"#,
         )
         .fetch_all(&self.pool)
         .await
@@ -1110,5 +1110,97 @@ mod tests {
             loaded.ssl_ca_cert.as_deref(),
             Some("-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----")
         );
+    }
+
+    #[tokio::test]
+    async fn list_connections_keeps_creation_order_after_update() {
+        let db = make_test_db().await;
+
+        let first = db
+            .create_connection(ConnectionForm {
+                driver: "postgres".to_string(),
+                name: Some("first".to_string()),
+                host: Some("127.0.0.1".to_string()),
+                port: Some(5432),
+                database: Some("db1".to_string()),
+                username: Some("user1".to_string()),
+                password: Some("pwd1".to_string()),
+                ssl: Some(false),
+                ssl_mode: None,
+                ssl_ca_cert: None,
+                file_path: None,
+                ssh_enabled: Some(false),
+                ssh_host: None,
+                ssh_port: None,
+                ssh_username: None,
+                ssh_password: None,
+                ssh_key_path: None,
+                schema: None,
+            })
+            .await
+            .unwrap();
+
+        let second = db
+            .create_connection(ConnectionForm {
+                driver: "postgres".to_string(),
+                name: Some("second".to_string()),
+                host: Some("127.0.0.2".to_string()),
+                port: Some(5432),
+                database: Some("db2".to_string()),
+                username: Some("user2".to_string()),
+                password: Some("pwd2".to_string()),
+                ssl: Some(false),
+                ssl_mode: None,
+                ssl_ca_cert: None,
+                file_path: None,
+                ssh_enabled: Some(false),
+                ssh_host: None,
+                ssh_port: None,
+                ssh_username: None,
+                ssh_password: None,
+                ssh_key_path: None,
+                schema: None,
+            })
+            .await
+            .unwrap();
+
+        let before_update = db.list_connections().await.unwrap();
+        assert_eq!(
+            before_update.iter().map(|conn| conn.id).collect::<Vec<_>>(),
+            vec![second.id, first.id]
+        );
+
+        db.update_connection(
+            first.id,
+            ConnectionForm {
+                driver: "postgres".to_string(),
+                name: Some("first-renamed".to_string()),
+                host: Some("127.0.0.10".to_string()),
+                port: Some(5432),
+                database: Some("db1".to_string()),
+                username: Some("user1".to_string()),
+                password: Some("pwd1".to_string()),
+                ssl: Some(false),
+                ssl_mode: None,
+                ssl_ca_cert: None,
+                file_path: None,
+                ssh_enabled: Some(false),
+                ssh_host: None,
+                ssh_port: None,
+                ssh_username: None,
+                ssh_password: None,
+                ssh_key_path: None,
+                schema: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let after_update = db.list_connections().await.unwrap();
+        assert_eq!(
+            after_update.iter().map(|conn| conn.id).collect::<Vec<_>>(),
+            vec![second.id, first.id]
+        );
+        assert_eq!(after_update[1].name, "first-renamed");
     }
 }
