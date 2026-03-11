@@ -198,6 +198,7 @@ export default function App() {
   const [isCloseSaveDialogOpen, setIsCloseSaveDialogOpen] = useState(false);
   const closeSaveCompletedRef = useRef(false);
   const unsavedConfirmActionRef = useRef<"save" | "discard" | null>(null);
+  const schemaOverviewRequestKeysRef = useRef<Map<string, string>>(new Map());
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -521,6 +522,11 @@ export default function App() {
       const tab = tabs.find((item) => item.id === tabId);
       if (!tab || tab.type !== "editor" || !tab.connectionId) return;
 
+      const requestKey = `${tab.connectionId}:${database}:${Date.now()}:${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      schemaOverviewRequestKeysRef.current.set(tabId, requestKey);
+
       setTabs((prev) =>
         prev.map((item) =>
           item.id === tabId
@@ -543,12 +549,14 @@ export default function App() {
           tab.connectionId,
           database,
         );
+        if (schemaOverviewRequestKeysRef.current.get(tabId) !== requestKey) return;
         setTabs((prev) =>
           prev.map((item) =>
             item.id === tabId ? { ...item, schemaOverview } : item,
           ),
         );
       } catch (e) {
+        if (schemaOverviewRequestKeysRef.current.get(tabId) !== requestKey) return;
         const errorMessage = e instanceof Error ? e.message : String(e);
         console.error("Failed to switch editor database", errorMessage);
         toast.error(t("app.error.loadSchemaOverview"), {
