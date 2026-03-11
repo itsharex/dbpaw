@@ -640,6 +640,25 @@ export function ConnectionList({
     }
   };
 
+  // Effect 1: Register scroll intent when active target changes
+  useEffect(() => {
+    if (!activeTableTarget) {
+      return;
+    }
+
+    const connectionId = String(activeTableTarget.connectionId);
+    const databaseName = activeTableTarget.database;
+    const tableName = activeTableTarget.table;
+    const dbKey = `${connectionId}-${databaseName}`;
+    const nextTableKey = `${dbKey}-${tableName}`;
+
+    setAutoScrollRequest({
+      key: nextTableKey,
+      id: ++autoScrollReqIdRef.current,
+    });
+  }, [activeTableTarget]);
+
+  // Effect 2: Sync UI state (expansion, selection) and load data if needed
   useEffect(() => {
     if (!activeTableTarget) {
       setSelectedTableKey(null);
@@ -664,13 +683,11 @@ export function ConnectionList({
       return next;
     });
     setSelectedTableKey(nextTableKey);
-    setAutoScrollRequest({
-      key: nextTableKey,
-      id: ++autoScrollReqIdRef.current,
-    });
 
     const ensureDatabaseTablesLoaded = async () => {
-      const targetConnection = connections.find((conn) => conn.id === connectionId);
+      const targetConnection = connections.find(
+        (conn) => conn.id === connectionId,
+      );
       const targetDatabase = targetConnection?.databases.find(
         (db) => db.name === databaseName,
       );
@@ -679,10 +696,6 @@ export function ConnectionList({
       await fetchAndSetTables(connectionId, databaseName);
       if (cancelled) return;
       setSelectedTableKey(nextTableKey);
-      setAutoScrollRequest({
-        key: nextTableKey,
-        id: ++autoScrollReqIdRef.current,
-      });
     };
 
     void ensureDatabaseTablesLoaded();
