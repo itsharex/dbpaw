@@ -94,6 +94,7 @@ interface TabItem {
     error?: string;
   } | null;
   activeQueryId?: string;
+  lastQueryId?: string;
   schemaOverview?: SchemaOverview;
   savedQueryId?: number;
   savedQueryDescription?: string;
@@ -593,7 +594,9 @@ export default function App() {
       .toString(36)
       .slice(2, 8)}`;
     setTabs((prev) =>
-      prev.map((t) => (t.id === tabId ? { ...t, activeQueryId: queryId } : t)),
+      prev.map((t) =>
+        t.id === tabId ? { ...t, activeQueryId: queryId, lastQueryId: queryId } : t,
+      ),
     );
     try {
       const result = await api.query.execute(
