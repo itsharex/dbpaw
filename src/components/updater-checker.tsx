@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getSetting } from "../services/store";
 import {
   AvailableUpdateRef,
   checkForUpdates,
-  installAvailableUpdate,
   relaunchAfterUpdate,
+  startBackgroundInstall,
+  subscribeUpdateTask,
+  UpdateTaskState,
 } from "../services/updater";
 import {
   AlertDialog,
@@ -17,11 +19,21 @@ import {
   AlertDialogTitle,
 } from "./ui/alert-dialog";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
+
+const ACTIVE_UPDATE_TASK_STATES: UpdateTaskState[] = [
+  "checking",
+  "downloading",
+  "installing",
+];
 
 export function UpdaterChecker() {
+  const { t } = useTranslation();
   const [updateAvailable, setUpdateAvailable] = useState<boolean>(false);
   const [updateInfo, setUpdateInfo] = useState<AvailableUpdateRef | null>(null);
-  const [downloading, setDownloading] = useState(false);
+  const [startingInstall, setStartingInstall] = useState(false);
+  const [restartPromptOpen, setRestartPromptOpen] = useState(false);
+  const lastTaskStateRef = useRef<UpdateTaskState>("idle");
 
   useEffect(() => {
     async function init() {
@@ -41,57 +53,98 @@ export function UpdaterChecker() {
     init();
   }, []);
 
-  const handleUpdate = async () => {
-    if (downloading) return;
-    try {
-      setDownloading(true);
-      toast.info("Downloading update...");
-      const result = await installAvailableUpdate(updateInfo);
-      if (result.state === "ready_to_restart") {
-        toast.success("Update installed, restarting...");
-        await relaunchAfterUpdate();
-        return;
+  useEffect(() => {
+    const unsubscribe = subscribeUpdateTask((snapshot) => {
+      const previousState = lastTaskStateRef.current;
+      lastTaskStateRef.current = snapshot.state;
+
+      if (snapshot.state === "ready_to_restart" && previousState !== "ready_to_restart") {
+        setRestartPromptOpen(true);
       }
-      toast.info(result.message ?? "You are on the latest version.");
-      setDownloading(false);
+
+      if (snapshot.state === "error" && previousState !== "error") {
+        toast.error(t("settings.updates.failedUpdate"), {
+          description: snapshot.message,
+        });
+      }
+    });
+    return unsubscribe;
+  }, [t]);
+
+  const handleUpdate = () => {
+    if (startingInstall) return;
+    try {
+      setStartingInstall(true);
+      const startResult = startBackgroundInstall(updateInfo);
+      if (!startResult.started || ACTIVE_UPDATE_TASK_STATES.includes(startResult.snapshot.state)) {
+        toast.info(t("settings.updates.inBackgroundProgress"));
+      } else {
+        toast.success(t("settings.updates.backgroundStarted"));
+      }
       setUpdateAvailable(false);
     } catch (error) {
       console.error("Failed to install update:", error);
-      toast.error("Failed to install update");
-      setDownloading(false);
-      setUpdateAvailable(false);
+      toast.error(t("settings.updates.failedUpdate"));
+    } finally {
+      setStartingInstall(false);
     }
   };
 
   return (
-    <AlertDialog open={updateAvailable} onOpenChange={setUpdateAvailable}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>New Version Available</AlertDialogTitle>
-          <AlertDialogDescription>
-            A new version ({updateInfo?.version}) is available.
-            {updateInfo?.body && (
-              <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs">
-                {updateInfo.body}
-              </div>
-            )}
-            <br />
-            Do you want to update now? The app will restart after installation.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={downloading}>Later</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={(e) => {
-              e.preventDefault();
-              void handleUpdate();
-            }}
-            disabled={downloading}
-          >
-            {downloading ? "Updating..." : "Update Now"}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <>
+      <AlertDialog open={updateAvailable} onOpenChange={setUpdateAvailable}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("settings.updates.updateDialogTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settings.updates.available", { version: updateInfo?.version })}
+              {updateInfo?.body && (
+                <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-md bg-muted p-2 text-xs">
+                  {updateInfo.body}
+                </div>
+              )}
+              <br />
+              {t("settings.updates.updateDialogDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={startingInstall}>
+              {t("settings.updates.updateLater")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleUpdate();
+              }}
+              disabled={startingInstall}
+            >
+              {startingInstall
+                ? t("settings.updates.updating")
+                : t("settings.updates.updateNow")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={restartPromptOpen} onOpenChange={setRestartPromptOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("settings.updates.restartPromptTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settings.updates.restartPromptDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("settings.updates.restartLater")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                void relaunchAfterUpdate();
+              }}
+            >
+              {t("settings.updates.restartNow")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

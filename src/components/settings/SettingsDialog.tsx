@@ -16,8 +16,11 @@ import { useState, useEffect } from "react";
 import { getSetting, saveSetting } from "@/services/store";
 import {
   checkForUpdates,
-  installAvailableUpdate,
+  getUpdateTaskSnapshot,
   relaunchAfterUpdate,
+  startBackgroundInstall,
+  subscribeUpdateTask,
+  UpdateTaskState,
 } from "@/services/updater";
 import { AIProviderConfig, AIProviderForm, AIProviderType, api } from "@/services/api";
 import { toast } from "sonner";
@@ -234,7 +237,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     useState<SettingsSection>("general");
   const [autoUpdate, setAutoUpdate] = useState(true);
   const [checking, setChecking] = useState(false);
-  const [updating, setUpdating] = useState(false);
+  const [updateTaskState, setUpdateTaskState] = useState<UpdateTaskState>(
+    getUpdateTaskSnapshot().state,
+  );
   const [providers, setProviders] = useState<AIProviderConfig[]>([]);
   const [selectedProviderType, setSelectedProviderType] =
     useState<AIProviderType>(AI_PROVIDER_OPTIONS[0].type);
@@ -253,6 +258,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     const rounded = Math.round(size);
     return Math.min(MAX_FONT_SIZE_PX, Math.max(MIN_FONT_SIZE_PX, rounded));
   };
+
+  useEffect(() => {
+    const unsubscribe = subscribeUpdateTask((snapshot) => {
+      setUpdateTaskState(snapshot.state);
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     if (open) {
@@ -307,7 +319,20 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   };
 
   const handleCheckUpdate = async () => {
-    if (checking || updating) return;
+    if (checking) return;
+    if (updateTaskState === "ready_to_restart") {
+      await relaunchAfterUpdate();
+      return;
+    }
+    if (
+      updateTaskState === "checking" ||
+      updateTaskState === "downloading" ||
+      updateTaskState === "installing"
+    ) {
+      toast.info(t("settings.updates.inBackgroundProgress"));
+      return;
+    }
+
     setChecking(true);
     try {
       const result = await checkForUpdates();
@@ -315,23 +340,13 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         toast.info(t("settings.updates.available", { version: result.update.version }), {
           action: {
             label: t("settings.updates.updateAction"),
-            onClick: async () => {
-              if (updating) return;
-              try {
-                setUpdating(true);
-                toast.info(t("settings.updates.downloading"));
-                const installResult = await installAvailableUpdate(result.update);
-                if (installResult.state === "ready_to_restart") {
-                  toast.success(t("settings.updates.installed"));
-                  await relaunchAfterUpdate();
-                } else {
-                  toast.info(installResult.message ?? t("settings.updates.noUpdate"));
-                }
-              } catch (e) {
-                toast.error(t("settings.updates.failedUpdate"));
-              } finally {
-                setUpdating(false);
+            onClick: () => {
+              const startResult = startBackgroundInstall(result.update);
+              if (!startResult.started) {
+                toast.info(t("settings.updates.inBackgroundProgress"));
+                return;
               }
+              toast.success(t("settings.updates.backgroundStarted"));
             },
           },
         });
@@ -607,11 +622,20 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     variant="outline"
                     className="w-full"
                     onClick={handleCheckUpdate}
-                    disabled={checking || updating}
+                    disabled={
+                      checking ||
+                      updateTaskState === "checking" ||
+                      updateTaskState === "downloading" ||
+                      updateTaskState === "installing"
+                    }
                   >
-                    {checking
+                    {updateTaskState === "ready_to_restart"
+                      ? t("settings.updates.restartNow")
+                      : checking
                       ? t("settings.updates.checking")
-                      : updating
+                      : updateTaskState === "checking" ||
+                          updateTaskState === "downloading" ||
+                          updateTaskState === "installing"
                         ? t("settings.updates.updating")
                         : t("settings.updates.checkNow")}
                   </Button>
