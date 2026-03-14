@@ -22,7 +22,7 @@ export function applyQueryCompletionToTab<T extends QueryTabState>(
     return tab;
   }
 
-  // 忽略过期的查询结果（如果用户已发起新查询）
+  // Ignore stale query results (if a newer query has already started)
   if (tab.lastQueryId !== queryId) {
     return tab;
   }

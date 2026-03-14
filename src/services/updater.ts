@@ -1,24 +1,24 @@
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 
-// ============ Mock 测试配置 ============
+// ============ Mock Test Configuration ============
 let mockEnabled = false;
 let mockScenario: 'available' | 'no_update' | 'error' | 'slow_download' = 'available';
 
-/** 启用测试模式 */
+/** Enable test mode */
 export function enableMock(scenario: typeof mockScenario = 'available') {
   mockEnabled = true;
   mockScenario = scenario;
-  console.log('[Updater Mock] 已启用:', scenario);
+  console.log('[Updater Mock] Enabled:', scenario);
 }
 
-/** 禁用测试模式 */
+/** Disable test mode */
 export function disableMock() {
   mockEnabled = false;
-  console.log('[Updater Mock] 已禁用');
+  console.log('[Updater Mock] Disabled');
 }
 
-/** 获取当前 mock 状态 */
+/** Get current mock state */
 export function isMockEnabled() {
   return { enabled: mockEnabled, scenario: mockScenario };
 }
@@ -136,7 +136,7 @@ export async function checkForUpdates(
 ): Promise<UpdateResult> {
   if (checkInFlight) return checkInFlight;
 
-  // ===== Mock 模式 =====
+  // ===== Mock Mode =====
   if (mockEnabled) {
     return mockCheckForUpdates(options);
   }
@@ -290,14 +290,14 @@ export async function relaunchAfterUpdate(): Promise<void> {
   await relaunch();
 }
 
-// ============ Mock 实现 ============
+// ============ Mock Implementation ============
 
 async function mockCheckForUpdates(
   options?: CheckForUpdatesOptions,
 ): Promise<UpdateResult> {
   options?.onStateChange?.("checking");
 
-  // 模拟网络延迟
+  // Simulate network delay
   await delay(800);
 
   switch (mockScenario) {
@@ -308,7 +308,7 @@ async function mockCheckForUpdates(
         available: true,
         update: {
           version: "9.9.9-test",
-          body: "## 🎉 测试更新\n\n### 新功能\n- 支持 Mock 测试\n- 自动更新流程验证\n- 状态展示优化\n\n### 修复\n- 测试 Bug 修复\n\n> 这是一个 **Mock** 更新，仅用于本地测试。",
+          body: "## 🎉 Test Update\n\n### New Features\n- Mock testing support\n- Auto-update flow verification\n- Improved state display\n\n### Fixes\n- Test bug fixes\n\n> This is a **Mock** update for local testing only.",
           raw: createMockUpdate(),
         },
       };
@@ -338,7 +338,7 @@ async function mockCheckForUpdates(
         available: true,
         update: {
           version: "9.9.9-slow",
-          body: "## 🐌 慢速下载测试\n\n用于测试长时间下载的状态展示。",
+          body: "## 🐌 Slow Download Test\n\nUsed to verify long-running download state display.",
           raw: createMockUpdate({ slowMode: true }),
         },
       };
@@ -356,20 +356,20 @@ function createMockUpdate(options?: { slowMode?: boolean }): Update {
     available: true,
     version: slowMode ? "9.9.9-slow" : "9.9.9-test",
     date: new Date().toISOString(),
-    body: slowMode ? "慢速下载测试" : "Mock 更新",
+    body: slowMode ? "Slow download test" : "Mock update",
     downloadAndInstall: async (eventHandler) => {
       updateTaskState("downloading");
       
       const totalSteps = slowMode ? 10 : 5;
       const stepDelay = slowMode ? 2000 : 800;
       
-      // 模拟下载进度
+      // Simulate download progress
       for (let i = 1; i <= totalSteps; i++) {
         await delay(stepDelay);
         const progress = Math.round((i / totalSteps) * 100);
         console.log(`[Mock] Downloading... ${progress}%`);
         
-        // 触发进度事件
+        // Emit progress events
         if (eventHandler) {
           eventHandler({
             event: 'Progress',
@@ -380,11 +380,11 @@ function createMockUpdate(options?: { slowMode?: boolean }): Update {
         }
       }
       
-      // 模拟安装阶段
+      // Simulate installation stage
       updateTaskState("installing");
       await delay(slowMode ? 3000 : 1500);
       
-      // 完成
+      // Completed
       updateTaskState("ready_to_restart", {
         message: slowMode 
           ? "Slow download completed. Restart to apply changes." 

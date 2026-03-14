@@ -56,7 +56,7 @@ export function UpdaterChecker() {
     init();
   }, []);
 
-  // 开发模式：暴露测试函数到全局
+  // Dev mode: expose test helpers globally
   useEffect(() => {
     if (import.meta.env.DEV) {
       const win = window as unknown as {
@@ -77,11 +77,11 @@ export function UpdaterChecker() {
         disableMock,
         isMockEnabled,
         
-        // 快捷测试函数
+        // Quick test helpers
         checkNow: async () => {
-          console.log('[Updater Test] 手动触发检查...');
+          console.log('[Updater Test] Triggering check manually...');
           const result = await checkForUpdates();
-          console.log('[Updater Test] 检查结果:', result);
+          console.log('[Updater Test] Check result:', result);
           if (result.state === "available" && result.update) {
             setUpdateInfo(result.update);
             setUpdateAvailable(true);
@@ -90,42 +90,42 @@ export function UpdaterChecker() {
         
         mockAvailable: () => {
           enableMock('available');
-          console.log('%c[Updater Test] 已启用: 发现新版本', 'color: #4CAF50');
-          console.log('请调用 __updaterTest.checkNow() 触发检查');
+          console.log('%c[Updater Test] Enabled: update available', 'color: #4CAF50');
+          console.log('Run __updaterTest.checkNow() to trigger a check');
         },
         
         mockNoUpdate: () => {
           enableMock('no_update');
-          console.log('%c[Updater Test] 已启用: 无更新', 'color: #2196F3');
-          console.log('请调用 __updaterTest.checkNow() 触发检查');
+          console.log('%c[Updater Test] Enabled: no update', 'color: #2196F3');
+          console.log('Run __updaterTest.checkNow() to trigger a check');
         },
         
         mockError: () => {
           enableMock('error');
-          console.log('%c[Updater Test] 已启用: 检查失败', 'color: #f44336');
-          console.log('请调用 __updaterTest.checkNow() 触发检查');
+          console.log('%c[Updater Test] Enabled: check failed', 'color: #f44336');
+          console.log('Run __updaterTest.checkNow() to trigger a check');
         },
         
         mockSlowDownload: () => {
           enableMock('slow_download');
-          console.log('%c[Updater Test] 已启用: 慢速下载', 'color: #FF9800');
-          console.log('请调用 __updaterTest.checkNow() 触发检查');
+          console.log('%c[Updater Test] Enabled: slow download', 'color: #FF9800');
+          console.log('Run __updaterTest.checkNow() to trigger a check');
         },
       };
 
       console.log(
-        '%c[Updater Test] 调试函数已挂载到 window.__updaterTest',
+        '%c[Updater Test] Debug helpers are mounted on window.__updaterTest',
         'color: #4CAF50; font-weight: bold; font-size: 14px;'
       );
-      console.log('可用命令:');
-      console.log('  __updaterTest.enableMock(scenario)  - 启用mock: available/no_update/error/slow_download');
-      console.log('  __updaterTest.disableMock()         - 禁用mock');
-      console.log('  __updaterTest.isMockEnabled()       - 查看mock状态');
-      console.log('  __updaterTest.checkNow()            - 手动触发检查');
-      console.log('  __updaterTest.mockAvailable()       - 快捷: 模拟发现更新');
-      console.log('  __updaterTest.mockNoUpdate()        - 快捷: 模拟无更新');
-      console.log('  __updaterTest.mockError()           - 快捷: 模拟错误');
-      console.log('  __updaterTest.mockSlowDownload()    - 快捷: 模拟慢速下载');
+      console.log('Available commands:');
+      console.log('  __updaterTest.enableMock(scenario)  - enable mock: available/no_update/error/slow_download');
+      console.log('  __updaterTest.disableMock()         - disable mock');
+      console.log('  __updaterTest.isMockEnabled()       - get mock status');
+      console.log('  __updaterTest.checkNow()            - trigger check manually');
+      console.log('  __updaterTest.mockAvailable()       - quick: simulate update available');
+      console.log('  __updaterTest.mockNoUpdate()        - quick: simulate no update');
+      console.log('  __updaterTest.mockError()           - quick: simulate error');
+      console.log('  __updaterTest.mockSlowDownload()    - quick: simulate slow download');
     }
   }, []);
 

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { applyQueryCompletionToTab, QueryResultsState } from "./queryExecutionState";
 
-// 模拟 Tab 类型
+// Mock Tab type
 interface TestTab {
   id: string;
   activeQueryId?: string;
@@ -16,7 +16,7 @@ describe("applyQueryCompletionToTab", () => {
     executionTime: "100ms",
   };
 
-  it("应该更新结果当查询是最新的", () => {
+  it("should update results when the query is the latest", () => {
     const tab: TestTab = {
       id: "tab-1",
       activeQueryId: "query-A",
@@ -30,29 +30,29 @@ describe("applyQueryCompletionToTab", () => {
     expect(result.lastQueryId).toBeUndefined();
   });
 
-  it("应该忽略过期查询的结果（竞态条件场景）", () => {
-    // 场景：先发了 query-A，然后发了 query-B
-    // query-B 把 lastQueryId 改成了 B
-    // 现在 query-A 的响应回来了，应该被忽略
+  it("should ignore stale query results (race condition scenario)", () => {
+    // Scenario: query-A was sent first, then query-B
+    // query-B updated lastQueryId to B
+    // now query-A returns and should be ignored
     const tab: TestTab = {
       id: "tab-1",
       activeQueryId: "query-B",
-      lastQueryId: "query-B", // 最新的已经是 B 了
+      lastQueryId: "query-B", // B is already the latest
       queryResults: undefined,
     };
 
-    // query-A 的响应回来了
+    // query-A response returns
     const result = applyQueryCompletionToTab(tab, "tab-1", "query-A", mockResults);
 
-    // 应该保持原样，不更新
+    // should remain unchanged
     expect(result.queryResults).toBeUndefined();
     expect(result.activeQueryId).toBe("query-B");
     expect(result.lastQueryId).toBe("query-B");
-    // 确保返回的是同一个对象引用（没有变化）
+    // ensure the same object reference is returned (no changes)
     expect(result).toBe(tab);
   });
 
-  it("应该忽略非本 tab 的查询结果", () => {
+  it("should ignore query results from another tab", () => {
     const tab: TestTab = {
       id: "tab-1",
       activeQueryId: "query-A",
@@ -61,13 +61,13 @@ describe("applyQueryCompletionToTab", () => {
 
     const result = applyQueryCompletionToTab(tab, "tab-2", "query-A", mockResults);
 
-    // 应该保持原样
+    // should remain unchanged
     expect(result.queryResults).toBeUndefined();
     expect(result.activeQueryId).toBe("query-A");
     expect(result).toBe(tab);
   });
 
-  it("应该正确处理错误结果", () => {
+  it("should correctly handle error results", () => {
     const errorResults: QueryResultsState = {
       data: [],
       columns: [],
@@ -87,48 +87,48 @@ describe("applyQueryCompletionToTab", () => {
     expect(result.queryResults?.error).toBe("Connection timeout");
   });
 
-  it("复杂场景：多次快速查询只有最后一次生效", () => {
+  it("complex case: only the last of rapid queries should apply", () => {
     let tab: TestTab = {
       id: "tab-1",
       activeQueryId: "query-1",
       lastQueryId: "query-1",
     };
 
-    // 模拟用户快速执行了 3 次查询
-    // 第 1 次
+    // Simulate a user executing 3 queries rapidly
+    // First query
     tab = { ...tab, activeQueryId: "query-1", lastQueryId: "query-1" };
-    // 第 2 次（覆盖了第 1 次）
+    // Second query (overrides the first)
     tab = { ...tab, activeQueryId: "query-2", lastQueryId: "query-2" };
-    // 第 3 次（覆盖了第 2 次）
+    // Third query (overrides the second)
     tab = { ...tab, activeQueryId: "query-3", lastQueryId: "query-3" };
 
-    // 现在 query-2 先完成（过期了）
+    // query-2 completes first (already stale)
     const resultFromQuery2 = applyQueryCompletionToTab(tab, "tab-1", "query-2", {
       ...mockResults,
       data: [{ id: 2 }],
     });
 
-    // 应该被忽略
+    // should be ignored
     expect(resultFromQuery2.queryResults).toBeUndefined();
     expect(resultFromQuery2.lastQueryId).toBe("query-3");
 
-    // 然后 query-3 完成（最新的）
+    // then query-3 completes (latest)
     const resultFromQuery3 = applyQueryCompletionToTab(tab, "tab-1", "query-3", {
       ...mockResults,
       data: [{ id: 3 }],
     });
 
-    // 应该被接受
+    // should be accepted
     expect(resultFromQuery3.queryResults?.data).toEqual([{ id: 3 }]);
     expect(resultFromQuery3.lastQueryId).toBeUndefined();
 
-    // 最后 query-1 完成（更过期）
+    // finally query-1 completes (even more stale)
     const resultFromQuery1 = applyQueryCompletionToTab(resultFromQuery3, "tab-1", "query-1", {
       ...mockResults,
       data: [{ id: 1 }],
     });
 
-    // 应该被忽略，保持 query-3 的结果
+    // should be ignored, keep query-3 results
     expect(resultFromQuery1.queryResults?.data).toEqual([{ id: 3 }]);
   });
 });

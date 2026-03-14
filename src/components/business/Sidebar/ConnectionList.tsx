@@ -907,7 +907,7 @@ export function ConnectionList({
       // Key format is "connectionId-dbName"
       const [connId, ...dbNameParts] = key.split("-");
       const dbName = dbNameParts.join("-");
-      // 找到对应的 connection 和 database
+      // Find the corresponding connection and database
       const conn = connections.find((c) => c.id === connId);
       if (conn) {
         const db = conn.databases.find((d) => d.name === dbName);
