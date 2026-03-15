@@ -93,46 +93,8 @@ _注: 現時点では Apple の notarization（公証）が未完了のため、
 
 ## 🛠️ 開発
 
-コントリビュートやソースからビルドする場合は、以下の手順を実行してください。
-
-### 前提条件
-
-- [Rust](https://www.rust-lang.org/tools/install)（最新 stable）
-- [Bun](https://bun.sh/) または Node.js（v18+）
-
-### セットアップ
-
-1. **リポジトリをクローン**
-
-   ```bash
-   git clone https://github.com/codeErrorSleep/dbpaw.git
-   cd dbpaw
-   ```
-
-2. **フロントエンド依存をインストール**
-
-   ```bash
-   bun install
-   ```
-
-3. **開発モードで実行**
-
-   **フロントエンドのみ（Mock モード）** - UI 作業向け:
-
-   ```bash
-   bun dev:mock
-   ```
-
-   **フルアプリ（Tauri + Rust）** - 機能全体の確認向け:
-
-   ```bash
-   bun tauri dev
-   ```
-
-4. **本番ビルド**
-   ```bash
-   bun tauri build
-   ```
+- 開発ガイド：[docs/ja/Development/DEVELOPMENT.md](docs/ja/Development/DEVELOPMENT.md)
+- コントリビューション：[docs/ja/Community/CONTRIBUTING.md](docs/ja/Community/CONTRIBUTING.md)
 
 ## 🏗️ 技術スタック
 

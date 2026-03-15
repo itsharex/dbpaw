@@ -94,46 +94,8 @@ _注意：这是因为应用尚未经过 Apple 公证。_
 
 ## 🛠️ 开发
 
-如果您想贡献代码或从源码构建，请按照以下步骤操作：
-
-### 前提条件
-
-- [Rust](https://www.rust-lang.org/tools/install) (最新稳定版)
-- [Bun](https://bun.sh/) 或 Node.js (v18+)
-
-### 设置
-
-1. **克隆仓库**
-
-   ```bash
-   git clone https://github.com/codeErrorSleep/dbpaw.git
-   cd dbpaw
-   ```
-
-2. **安装前端依赖**
-
-   ```bash
-   bun install
-   ```
-
-3. **运行开发模式**
-
-   **仅前端（模拟模式）** - 推荐用于 UI 开发：
-
-   ```bash
-   bun dev:mock
-   ```
-
-   **完整应用（Tauri + Rust）** - 用于完整功能测试：
-
-   ```bash
-   bun tauri dev
-   ```
-
-4. **构建生产版本**
-   ```bash
-   bun tauri build
-   ```
+- 开发指南：[docs/zh/Development/DEVELOPMENT.md](docs/zh/Development/DEVELOPMENT.md)
+- 贡献指南：[docs/zh/Community/CONTRIBUTING.md](docs/zh/Community/CONTRIBUTING.md)
 
 ## 🏗️ 技术栈
 
