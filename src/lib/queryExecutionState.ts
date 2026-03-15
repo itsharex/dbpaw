@@ -8,6 +8,7 @@ export type QueryResultsState = {
 type QueryTabState = {
   id: string;
   activeQueryId?: string;
+  lastQueryId?: string;
   queryResults?: QueryResultsState | null;
 };
 
@@ -21,10 +22,15 @@ export function applyQueryCompletionToTab<T extends QueryTabState>(
     return tab;
   }
 
+  // Ignore stale query results (if a newer query has already started)
+  if (tab.lastQueryId !== queryId) {
+    return tab;
+  }
+
   return {
     ...tab,
     queryResults,
-    activeQueryId:
-      tab.activeQueryId === queryId ? undefined : tab.activeQueryId,
+    activeQueryId: undefined,
+    lastQueryId: undefined,
   };
 }

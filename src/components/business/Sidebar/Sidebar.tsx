@@ -18,6 +18,7 @@ interface SidebarProps {
     table: string,
     connectionId: number,
     driver: string,
+    schema?: string,
   ) => void;
   onConnect?: (form: ConnectionForm) => void;
   onCreateQuery?: (

@@ -88,9 +88,22 @@ export const ja: Translations = {
       latest: "最新バージョンです。",
       available: "新しいバージョン {{version}} が利用可能です！",
       updateAction: "更新",
+      updateNow: "今すぐ更新",
+      updateLater: "後で",
+      updateDialogTitle: "新しいバージョンがあります",
+      updateDialogDescription:
+        "これからバックグラウンドでダウンロードとインストールを開始します。アプリはそのまま利用できます。",
       downloading: "更新をダウンロード中...",
-      installed: "更新をインストールしました。再起動します...",
+      installed: "更新をインストールしました。",
       noUpdate: "利用可能な更新はありません。",
+      backgroundStarted:
+        "バックグラウンド更新を開始しました。アプリを続けて利用できます。",
+      inBackgroundProgress: "更新はバックグラウンドで進行中です。",
+      restartPromptTitle: "更新をインストールしました",
+      restartPromptDescription:
+        "更新の適用には再起動が必要です。今すぐ再起動しますか？",
+      restartNow: "今すぐ再起動",
+      restartLater: "後で通知",
       failedCheck: "更新確認に失敗しました",
       failedUpdate: "更新に失敗しました",
     },

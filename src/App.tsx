@@ -94,6 +94,7 @@ interface TabItem {
     error?: string;
   } | null;
   activeQueryId?: string;
+  lastQueryId?: string;
   schemaOverview?: SchemaOverview;
   savedQueryId?: number;
   savedQueryDescription?: string;
@@ -150,20 +151,26 @@ function LazyPanelFallback({
 
 export default function App() {
   const { t } = useTranslation();
-  const resolveTableScope = (driver: string, database?: string) => {
+  const resolveTableScope = (
+    driver: string,
+    database?: string,
+    schemaOverride?: string,
+  ) => {
     const isDatabaseScoped =
       driver === "mysql" ||
       driver === "tidb" ||
       driver === "mariadb" ||
       driver === "clickhouse";
+    const normalizedSchemaOverride = (schemaOverride || "").trim();
     return {
       schema: isDatabaseScoped
         ? database || ""
-        : driver === "mssql"
-          ? "dbo"
-          : driver === "sqlite" || driver === "duckdb"
-            ? "main"
-            : "public",
+        : normalizedSchemaOverride ||
+          (driver === "mssql"
+            ? "dbo"
+            : driver === "sqlite" || driver === "duckdb"
+              ? "main"
+              : "public"),
       dbParam: isDatabaseScoped ? undefined : database,
     };
   };
@@ -198,6 +205,7 @@ export default function App() {
   const [isCloseSaveDialogOpen, setIsCloseSaveDialogOpen] = useState(false);
   const closeSaveCompletedRef = useRef(false);
   const unsavedConfirmActionRef = useRef<"save" | "discard" | null>(null);
+  const schemaOverviewRequestKeysRef = useRef<Map<string, string>>(new Map());
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -521,6 +529,11 @@ export default function App() {
       const tab = tabs.find((item) => item.id === tabId);
       if (!tab || tab.type !== "editor" || !tab.connectionId) return;
 
+      const requestKey = `${tab.connectionId}:${database}:${Date.now()}:${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      schemaOverviewRequestKeysRef.current.set(tabId, requestKey);
+
       setTabs((prev) =>
         prev.map((item) =>
           item.id === tabId
@@ -543,12 +556,14 @@ export default function App() {
           tab.connectionId,
           database,
         );
+        if (schemaOverviewRequestKeysRef.current.get(tabId) !== requestKey) return;
         setTabs((prev) =>
           prev.map((item) =>
             item.id === tabId ? { ...item, schemaOverview } : item,
           ),
         );
       } catch (e) {
+        if (schemaOverviewRequestKeysRef.current.get(tabId) !== requestKey) return;
         const errorMessage = e instanceof Error ? e.message : String(e);
         console.error("Failed to switch editor database", errorMessage);
         toast.error(t("app.error.loadSchemaOverview"), {
@@ -585,7 +600,9 @@ export default function App() {
       .toString(36)
       .slice(2, 8)}`;
     setTabs((prev) =>
-      prev.map((t) => (t.id === tabId ? { ...t, activeQueryId: queryId } : t)),
+      prev.map((t) =>
+        t.id === tabId ? { ...t, activeQueryId: queryId, lastQueryId: queryId } : t,
+      ),
     );
     try {
       const result = await api.query.execute(
@@ -631,15 +648,20 @@ export default function App() {
     table: string,
     connectionId: number,
     driver: string,
+    schemaName?: string,
   ) => {
-    const tabId = `${connection}-${database}-${table}`;
+    const tabId = `${connection}-${database}-${schemaName || ""}-${table}`;
     const existingTab = tabs.find((t) => t.id === tabId);
     if (existingTab) {
       setActiveTab(tabId);
       return;
     }
     try {
-      const { schema, dbParam } = resolveTableScope(driver, database);
+      const { schema, dbParam } = resolveTableScope(
+        driver,
+        database,
+        schemaName,
+      );
 
       const resp = await api.tableData.get({
         id: connectionId,

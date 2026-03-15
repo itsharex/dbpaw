@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use rust_decimal::Decimal;
 use sqlx::{postgres::PgPoolOptions, Column, Executor, Row, TypeInfo};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -176,6 +176,107 @@ impl PostgresDriver {
             })
             .collect())
     }
+
+    async fn load_high_precision_columns(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<HashSet<String>, String> {
+        let rows = sqlx::query(
+            "SELECT column_name, data_type, udt_name \
+            FROM information_schema.columns \
+            WHERE table_schema = $1 AND table_name = $2",
+        )
+        .bind(schema)
+        .bind(table)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("[QUERY_ERROR] Failed to load column types: {e}"))?;
+
+        let mut cols = HashSet::new();
+        for row in rows {
+            let col_name = decode_postgres_text_cell(&row, 0)?;
+            let data_type = decode_postgres_text_cell(&row, 1)?;
+            let udt_name = decode_postgres_text_cell(&row, 2)?;
+            if is_high_precision_pg_type(&data_type, &udt_name) {
+                cols.insert(col_name);
+            }
+        }
+        Ok(cols)
+    }
+
+    async fn fetch_table_rows_as_json(
+        &self,
+        schema: &str,
+        table: &str,
+        where_clause: &str,
+        order_clause: &str,
+        limit: i64,
+        offset: i64,
+        high_precision_cols: &HashSet<String>,
+    ) -> Result<Vec<serde_json::Value>, String> {
+        let query = format!(
+            "SELECT to_jsonb(t) AS __row_json FROM {}.{} t{}{} LIMIT $1 OFFSET $2",
+            schema, table, where_clause, order_clause
+        );
+        let rows = sqlx::query(&query)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", query, e))?;
+
+        let mut data = Vec::with_capacity(rows.len());
+        for row in rows {
+            let mut row_json = row
+                .try_get::<sqlx::types::Json<serde_json::Value>, _>("__row_json")
+                .map(|v| v.0)
+                .map_err(|e| format!("[QUERY_ERROR] Failed to decode __row_json: {e}"))?;
+            normalize_postgres_row_json(&mut row_json, high_precision_cols)?;
+            data.push(row_json);
+        }
+        Ok(data)
+    }
+}
+
+fn is_high_precision_pg_type(data_type: &str, udt_name: &str) -> bool {
+    let data_type = data_type.to_ascii_lowercase();
+    let udt_name = udt_name.to_ascii_lowercase();
+    matches!(
+        data_type.as_str(),
+        "bigint" | "numeric" | "decimal" | "money"
+    ) || matches!(
+        udt_name.as_str(),
+        "int8" | "numeric" | "decimal" | "money"
+    )
+}
+
+fn normalize_postgres_row_json(
+    row_json: &mut serde_json::Value,
+    high_precision_cols: &HashSet<String>,
+) -> Result<(), String> {
+    let obj = row_json
+        .as_object_mut()
+        .ok_or("[QUERY_ERROR] Expected JSON object row from to_jsonb".to_string())?;
+
+    let mut lookup: HashMap<String, String> = HashMap::new();
+    for key in obj.keys() {
+        lookup.insert(key.to_ascii_lowercase(), key.clone());
+    }
+
+    for col in high_precision_cols {
+        let Some(actual_key) = lookup.get(&col.to_ascii_lowercase()) else {
+            continue;
+        };
+        let Some(value) = obj.get_mut(actual_key) else {
+            continue;
+        };
+        if value.is_number() {
+            *value = serde_json::Value::String(value.to_string());
+        }
+    }
+
+    Ok(())
 }
 
 fn decode_postgres_text_cell(row: &sqlx::postgres::PgRow, idx: usize) -> Result<String, String> {
@@ -211,6 +312,186 @@ fn decode_postgres_optional_text_cell(
     ))
 }
 
+fn skip_single_quote(bytes: &[u8], mut i: usize) -> usize {
+    i += 1;
+    while i < bytes.len() {
+        if bytes[i] == b'\'' {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                i += 2;
+                continue;
+            }
+            return i + 1;
+        }
+        i += 1;
+    }
+    i
+}
+
+fn skip_double_quote(bytes: &[u8], mut i: usize) -> usize {
+    i += 1;
+    while i < bytes.len() {
+        if bytes[i] == b'"' {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+                i += 2;
+                continue;
+            }
+            return i + 1;
+        }
+        i += 1;
+    }
+    i
+}
+
+fn skip_backtick_quote(bytes: &[u8], mut i: usize) -> usize {
+    i += 1;
+    while i < bytes.len() {
+        if bytes[i] == b'`' {
+            if i + 1 < bytes.len() && bytes[i + 1] == b'`' {
+                i += 2;
+                continue;
+            }
+            return i + 1;
+        }
+        i += 1;
+    }
+    i
+}
+
+fn skip_line_comment(bytes: &[u8], mut i: usize) -> usize {
+    i += 2;
+    while i < bytes.len() && bytes[i] != b'\n' {
+        i += 1;
+    }
+    i
+}
+
+fn skip_block_comment(bytes: &[u8], mut i: usize) -> usize {
+    i += 2;
+    while i + 1 < bytes.len() {
+        if bytes[i] == b'*' && bytes[i + 1] == b'/' {
+            return i + 2;
+        }
+        i += 1;
+    }
+    i
+}
+
+fn skip_ignorable_sql_prefix(bytes: &[u8], mut i: usize) -> usize {
+    while i < bytes.len() {
+        if bytes[i].is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        if i + 1 < bytes.len() && bytes[i] == b'-' && bytes[i + 1] == b'-' {
+            i = skip_line_comment(bytes, i);
+            continue;
+        }
+        if i + 1 < bytes.len() && bytes[i] == b'/' && bytes[i + 1] == b'*' {
+            i = skip_block_comment(bytes, i);
+            continue;
+        }
+        break;
+    }
+    i
+}
+
+fn split_sql_statements(sql: &str) -> Vec<String> {
+    let bytes = sql.as_bytes();
+    let mut statements = Vec::new();
+    let mut i = 0;
+    let mut depth = 0_i32;
+    let mut start = skip_ignorable_sql_prefix(bytes, 0);
+
+    while i < bytes.len() {
+        let b = bytes[i];
+        if i + 1 < bytes.len() && b == b'-' && bytes[i + 1] == b'-' {
+            i = skip_line_comment(bytes, i);
+            continue;
+        }
+        if i + 1 < bytes.len() && b == b'/' && bytes[i + 1] == b'*' {
+            i = skip_block_comment(bytes, i);
+            continue;
+        }
+        if b == b'\'' {
+            i = skip_single_quote(bytes, i);
+            continue;
+        }
+        if b == b'"' {
+            i = skip_double_quote(bytes, i);
+            continue;
+        }
+        if b == b'`' {
+            i = skip_backtick_quote(bytes, i);
+            continue;
+        }
+        if b == b'(' {
+            depth += 1;
+            i += 1;
+            continue;
+        }
+        if b == b')' {
+            depth = (depth - 1).max(0);
+            i += 1;
+            continue;
+        }
+        if b == b';' && depth == 0 {
+            let stmt = sql[start..i].trim();
+            if !stmt.is_empty() {
+                statements.push(stmt.to_string());
+            }
+            start = skip_ignorable_sql_prefix(bytes, i + 1);
+        }
+        i += 1;
+    }
+
+    let tail = sql[start..].trim();
+    if !tail.is_empty() {
+        statements.push(tail.to_string());
+    }
+
+    statements
+}
+
+fn first_sql_keyword(sql: &str) -> Option<String> {
+    let bytes = sql.as_bytes();
+    let start = skip_ignorable_sql_prefix(bytes, 0);
+    if start >= bytes.len() {
+        return None;
+    }
+    let mut end = start;
+    while end < bytes.len()
+        && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_')
+    {
+        end += 1;
+    }
+    if end == start {
+        return None;
+    }
+    Some(sql[start..end].to_ascii_uppercase())
+}
+
+fn is_json_projectable_statement(sql: &str) -> bool {
+    matches!(
+        first_sql_keyword(sql).as_deref(),
+        Some("SELECT" | "WITH" | "VALUES" | "TABLE")
+    )
+}
+
+fn is_high_precision_query_type(type_name: &str) -> bool {
+    matches!(
+        type_name.trim().to_ascii_uppercase().as_str(),
+        "INT8" | "BIGINT" | "NUMERIC" | "DECIMAL" | "MONEY"
+    )
+}
+
+fn collect_high_precision_query_columns(columns: &[QueryColumn]) -> HashSet<String> {
+    columns
+        .iter()
+        .filter(|col| is_high_precision_query_type(&col.r#type))
+        .map(|col| col.name.clone())
+        .collect()
+}
+
 #[async_trait]
 impl DatabaseDriver for PostgresDriver {
     async fn close(&self) {
@@ -237,22 +518,35 @@ impl DatabaseDriver for PostgresDriver {
     }
 
     async fn list_tables(&self, schema: Option<String>) -> Result<Vec<TableInfo>, String> {
-        let schema = schema.unwrap_or_else(|| "public".to_string());
-        let rows = sqlx::query(
-            "SELECT table_schema, table_name, table_type \
-             FROM information_schema.tables \
-             WHERE table_schema = $1 AND table_type IN ('BASE TABLE','VIEW') \
-             ORDER BY table_name",
-        )
-        .bind(&schema)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+        let rows = if let Some(schema) = schema {
+            sqlx::query(
+                "SELECT table_schema, table_name, table_type \
+                 FROM information_schema.tables \
+                 WHERE table_schema = $1 AND table_type IN ('BASE TABLE','VIEW') \
+                 ORDER BY table_name",
+            )
+            .bind(&schema)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| format!("[QUERY_ERROR] {e}"))?
+        } else {
+            sqlx::query(
+                "SELECT table_schema, table_name, table_type \
+                 FROM information_schema.tables \
+                 WHERE table_schema NOT IN ('information_schema', 'pg_catalog') \
+                   AND table_schema NOT LIKE 'pg_toast%' \
+                   AND table_type IN ('BASE TABLE','VIEW') \
+                 ORDER BY table_schema, table_name",
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| format!("[QUERY_ERROR] {e}"))?
+        };
 
         let mut res = Vec::new();
         for row in rows {
             res.push(TableInfo {
-                schema: decode_postgres_text_cell(&row, 0).unwrap_or_else(|_| schema.clone()),
+                schema: decode_postgres_text_cell(&row, 0).unwrap_or_else(|_| "public".to_string()),
                 name: decode_postgres_text_cell(&row, 1).unwrap_or_default(),
                 r#type: decode_postgres_text_cell(&row, 2).unwrap_or_else(|_| "table".to_string()),
             });
@@ -566,129 +860,18 @@ impl DatabaseDriver for PostgresDriver {
             String::new()
         };
 
-        let query = format!(
-            "SELECT * FROM {}.{}{}{} LIMIT $1 OFFSET $2",
-            schema, table, where_clause, order_clause
-        );
-        let rows = sqlx::query(&query)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", query, e))?;
-
-        let mut data = Vec::new();
-        for row in &rows {
-            let mut obj = serde_json::Map::new();
-            for col in row.columns() {
-                let name = col.name();
-                let type_name = col.type_info().name();
-                let value = match type_name {
-                    "BOOL" => row
-                        .try_get::<bool, _>(name)
-                        .ok()
-                        .map(serde_json::Value::Bool)
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "INT2" | "INT4" | "INT8" => row
-                        .try_get::<i64, _>(name)
-                        .ok()
-                        .map(|v| serde_json::Value::String(v.to_string()))
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "FLOAT4" | "FLOAT8" => row
-                        .try_get::<f64, _>(name)
-                        .ok()
-                        .map(serde_json::Value::from)
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "NUMERIC" | "MONEY" => row
-                        .try_get::<Decimal, _>(name)
-                        .ok()
-                        .map(|v| serde_json::Value::String(v.to_string()))
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "TEXT" | "VARCHAR" | "CHAR" | "BPCHAR" | "NAME" | "UUID" => row
-                        .try_get::<String, _>(name)
-                        .ok()
-                        .map(serde_json::Value::String)
-                        .unwrap_or(serde_json::Value::Null),
-                    "DATE" => row
-                        .try_get::<NaiveDate, _>(name)
-                        .ok()
-                        .map(|v| serde_json::Value::String(v.to_string()))
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "TIME" | "TIMETZ" | "INTERVAL" => row
-                        .try_get::<NaiveTime, _>(name)
-                        .ok()
-                        .map(|v| serde_json::Value::String(v.to_string()))
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "TIMESTAMP" => row
-                        .try_get::<NaiveDateTime, _>(name)
-                        .ok()
-                        .map(|v| serde_json::Value::String(v.to_string()))
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "TIMESTAMPTZ" => row
-                        .try_get::<DateTime<Utc>, _>(name)
-                        .ok()
-                        .map(|v| serde_json::Value::String(v.to_string()))
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "JSON" | "JSONB" => row
-                        .try_get::<sqlx::types::Json<serde_json::Value>, _>(name)
-                        .ok()
-                        .map(|v| v.0)
-                        .unwrap_or(serde_json::Value::Null),
-                    _ => {
-                        if let Ok(v) = row.try_get::<String, _>(name) {
-                            serde_json::Value::String(v)
-                        } else if let Ok(v) = row.try_get::<Vec<u8>, _>(name) {
-                            serde_json::Value::String(String::from_utf8_lossy(&v).to_string())
-                        } else {
-                            serde_json::Value::Null
-                        }
-                    }
-                };
-
-                obj.insert(name.to_string(), value);
-            }
-            data.push(serde_json::Value::Object(obj));
-        }
+        let high_precision_cols = self.load_high_precision_columns(&schema, &table).await?;
+        let data = self
+            .fetch_table_rows_as_json(
+                &schema,
+                &table,
+                &where_clause,
+                &order_clause,
+                limit,
+                offset,
+                &high_precision_cols,
+            )
+            .await?;
 
         let duration = start.elapsed();
         Ok(TableDataResponse {
@@ -726,140 +909,183 @@ impl DatabaseDriver for PostgresDriver {
 
     async fn execute_query(&self, sql: String) -> Result<QueryResult, String> {
         let start = std::time::Instant::now();
-        let rows = sqlx::query(&sql)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
-
-        let mut data = Vec::new();
-        let columns = if let Some(first_row) = rows.first() {
-            first_row
-                .columns()
-                .iter()
-                .map(|col| QueryColumn {
-                    name: col.name().to_string(),
-                    r#type: col.type_info().to_string(),
-                })
-                .collect()
-        } else {
-            self.describe_query_columns(&sql).await?
-        };
-
-        for row in &rows {
-            let mut obj = serde_json::Map::new();
-            for col in row.columns() {
-                let name = col.name();
-                let type_name = col.type_info().name();
-                let value = match type_name {
-                    "BOOL" => row
-                        .try_get::<bool, _>(name)
-                        .ok()
-                        .map(serde_json::Value::Bool)
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "INT2" | "INT4" | "INT8" => row
-                        .try_get::<i64, _>(name)
-                        .ok()
-                        .map(|v| serde_json::Value::String(v.to_string()))
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "FLOAT4" | "FLOAT8" => row
-                        .try_get::<f64, _>(name)
-                        .ok()
-                        .map(serde_json::Value::from)
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "NUMERIC" | "MONEY" => row
-                        .try_get::<Decimal, _>(name)
-                        .ok()
-                        .map(|v| serde_json::Value::String(v.to_string()))
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "TEXT" | "VARCHAR" | "CHAR" | "BPCHAR" | "NAME" | "UUID" => row
-                        .try_get::<String, _>(name)
-                        .ok()
-                        .map(serde_json::Value::String)
-                        .unwrap_or(serde_json::Value::Null),
-                    "DATE" => row
-                        .try_get::<NaiveDate, _>(name)
-                        .ok()
-                        .map(|v| serde_json::Value::String(v.to_string()))
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "TIME" | "TIMETZ" | "INTERVAL" => row
-                        .try_get::<NaiveTime, _>(name)
-                        .ok()
-                        .map(|v| serde_json::Value::String(v.to_string()))
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "TIMESTAMP" => row
-                        .try_get::<NaiveDateTime, _>(name)
-                        .ok()
-                        .map(|v| serde_json::Value::String(v.to_string()))
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "TIMESTAMPTZ" => row
-                        .try_get::<DateTime<Utc>, _>(name)
-                        .ok()
-                        .map(|v| serde_json::Value::String(v.to_string()))
-                        .or_else(|| {
-                            row.try_get::<String, _>(name)
-                                .ok()
-                                .map(serde_json::Value::String)
-                        })
-                        .unwrap_or(serde_json::Value::Null),
-                    "JSON" | "JSONB" => row
-                        .try_get::<sqlx::types::Json<serde_json::Value>, _>(name)
-                        .ok()
-                        .map(|v| v.0)
-                        .unwrap_or(serde_json::Value::Null),
-                    _ => {
-                        if let Ok(v) = row.try_get::<String, _>(name) {
-                            serde_json::Value::String(v)
-                        } else if let Ok(v) = row.try_get::<Vec<u8>, _>(name) {
-                            serde_json::Value::String(String::from_utf8_lossy(&v).to_string())
-                        } else {
-                            serde_json::Value::Null
-                        }
-                    }
-                };
-                obj.insert(name.to_string(), value);
-            }
-            data.push(serde_json::Value::Object(obj));
+        let statements = split_sql_statements(&sql);
+        if statements.is_empty() {
+            return Err("[QUERY_ERROR] Empty SQL statement".to_string());
         }
+        let describe_sql = statements
+            .last()
+            .cloned()
+            .unwrap_or_else(|| sql.trim().to_string());
+
+        if statements.len() > 1 {
+            for statement in statements.iter().take(statements.len() - 1) {
+                sqlx::query(statement)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+            }
+        }
+
+        let (columns, data, row_count) = if is_json_projectable_statement(&describe_sql) {
+            let columns = self.describe_query_columns(&describe_sql).await?;
+            let high_precision_cols = collect_high_precision_query_columns(&columns);
+            let json_query = format!(
+                "SELECT to_jsonb(__dbpaw_row) AS __row_json FROM ({}) AS __dbpaw_row",
+                describe_sql
+            );
+            let rows = sqlx::query(&json_query)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", json_query, e))?;
+            let mut data = Vec::with_capacity(rows.len());
+            for row in rows {
+                let mut row_json = row
+                    .try_get::<sqlx::types::Json<serde_json::Value>, _>("__row_json")
+                    .map(|v| v.0)
+                    .map_err(|e| format!("[QUERY_ERROR] Failed to decode __row_json: {e}"))?;
+                normalize_postgres_row_json(&mut row_json, &high_precision_cols)?;
+                data.push(row_json);
+            }
+            let row_count = data.len() as i64;
+            (columns, data, row_count)
+        } else {
+            let rows = sqlx::query(&describe_sql)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+            let columns = if let Some(first_row) = rows.first() {
+                first_row
+                    .columns()
+                    .iter()
+                    .map(|col| QueryColumn {
+                        name: col.name().to_string(),
+                        r#type: col.type_info().to_string(),
+                    })
+                    .collect()
+            } else {
+                self.describe_query_columns(&describe_sql).await?
+            };
+
+            let mut data = Vec::new();
+            for row in &rows {
+                let mut obj = serde_json::Map::new();
+                for col in row.columns() {
+                    let name = col.name();
+                    let type_name = col.type_info().name();
+                    let value = match type_name {
+                        "BOOL" => row
+                            .try_get::<bool, _>(name)
+                            .ok()
+                            .map(serde_json::Value::Bool)
+                            .or_else(|| {
+                                row.try_get::<String, _>(name)
+                                    .ok()
+                                    .map(serde_json::Value::String)
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "INT2" | "INT4" | "INT8" => row
+                            .try_get::<i64, _>(name)
+                            .ok()
+                            .map(|v| serde_json::Value::String(v.to_string()))
+                            .or_else(|| {
+                                row.try_get::<String, _>(name)
+                                    .ok()
+                                    .map(serde_json::Value::String)
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "FLOAT4" | "FLOAT8" => row
+                            .try_get::<f64, _>(name)
+                            .ok()
+                            .map(serde_json::Value::from)
+                            .or_else(|| {
+                                row.try_get::<String, _>(name)
+                                    .ok()
+                                    .map(serde_json::Value::String)
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "NUMERIC" | "MONEY" => row
+                            .try_get::<Decimal, _>(name)
+                            .ok()
+                            .map(|v| serde_json::Value::String(v.to_string()))
+                            .or_else(|| {
+                                row.try_get::<String, _>(name)
+                                    .ok()
+                                    .map(serde_json::Value::String)
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "TEXT" | "VARCHAR" | "CHAR" | "BPCHAR" | "NAME" | "UUID" => row
+                            .try_get::<String, _>(name)
+                            .ok()
+                            .map(serde_json::Value::String)
+                            .unwrap_or(serde_json::Value::Null),
+                        "DATE" => row
+                            .try_get::<NaiveDate, _>(name)
+                            .ok()
+                            .map(|v| serde_json::Value::String(v.to_string()))
+                            .or_else(|| {
+                                row.try_get::<String, _>(name)
+                                    .ok()
+                                    .map(serde_json::Value::String)
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "TIME" | "TIMETZ" | "INTERVAL" => row
+                            .try_get::<NaiveTime, _>(name)
+                            .ok()
+                            .map(|v| serde_json::Value::String(v.to_string()))
+                            .or_else(|| {
+                                row.try_get::<String, _>(name)
+                                    .ok()
+                                    .map(serde_json::Value::String)
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "TIMESTAMP" => row
+                            .try_get::<NaiveDateTime, _>(name)
+                            .ok()
+                            .map(|v| serde_json::Value::String(v.to_string()))
+                            .or_else(|| {
+                                row.try_get::<String, _>(name)
+                                    .ok()
+                                    .map(serde_json::Value::String)
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "TIMESTAMPTZ" => row
+                            .try_get::<DateTime<Utc>, _>(name)
+                            .ok()
+                            .map(|v| serde_json::Value::String(v.to_string()))
+                            .or_else(|| {
+                                row.try_get::<String, _>(name)
+                                    .ok()
+                                    .map(serde_json::Value::String)
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "JSON" | "JSONB" => row
+                            .try_get::<sqlx::types::Json<serde_json::Value>, _>(name)
+                            .ok()
+                            .map(|v| v.0)
+                            .unwrap_or(serde_json::Value::Null),
+                        _ => {
+                            if let Ok(v) = row.try_get::<String, _>(name) {
+                                serde_json::Value::String(v)
+                            } else if let Ok(v) = row.try_get::<Vec<u8>, _>(name) {
+                                serde_json::Value::String(String::from_utf8_lossy(&v).to_string())
+                            } else {
+                                serde_json::Value::Null
+                            }
+                        }
+                    };
+                    obj.insert(name.to_string(), value);
+                }
+                data.push(serde_json::Value::Object(obj));
+            }
+            let row_count = rows.len() as i64;
+            (columns, data, row_count)
+        };
 
         let duration = start.elapsed();
         Ok(QueryResult {
             data,
-            row_count: rows.len() as i64,
+            row_count,
             columns,
             time_taken_ms: duration.as_millis() as i64,
             success: true,
@@ -1043,5 +1269,115 @@ mod tests {
         assert!(path.exists());
         cleanup_ca_file_opt(Some(&path));
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_split_sql_statements_multi_ddl() {
+        let sql = "CREATE TYPE mood_enum AS ENUM ('sad', 'ok'); CREATE TYPE address_type AS (street VARCHAR(100));";
+        let statements = split_sql_statements(sql);
+        assert_eq!(statements.len(), 2);
+        assert_eq!(
+            statements[0],
+            "CREATE TYPE mood_enum AS ENUM ('sad', 'ok')"
+        );
+        assert_eq!(
+            statements[1],
+            "CREATE TYPE address_type AS (street VARCHAR(100))"
+        );
+    }
+
+    #[test]
+    fn test_split_sql_statements_ignores_semicolon_in_literal_and_comment() {
+        let sql = "SELECT ';' AS x; -- noop ;\nSELECT 1;";
+        let statements = split_sql_statements(sql);
+        assert_eq!(statements.len(), 2);
+        assert_eq!(statements[0], "SELECT ';' AS x");
+        assert_eq!(statements[1], "SELECT 1");
+    }
+
+    #[test]
+    fn test_split_sql_statements_handles_domain_check_and_table_ddl() {
+        let sql = "
+CREATE DOMAIN email_domain AS VARCHAR(255)
+    CHECK (VALUE ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$');
+
+CREATE TABLE pg_data_type_test (
+    id BIGSERIAL PRIMARY KEY,
+    col_domain email_domain
+);";
+        let statements = split_sql_statements(sql);
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].starts_with("CREATE DOMAIN email_domain"));
+        assert!(statements[1].starts_with("CREATE TABLE pg_data_type_test"));
+    }
+
+    #[test]
+    fn test_is_high_precision_pg_type() {
+        assert!(is_high_precision_pg_type("bigint", "int8"));
+        assert!(is_high_precision_pg_type("numeric", "numeric"));
+        assert!(is_high_precision_pg_type("money", "money"));
+        assert!(!is_high_precision_pg_type("integer", "int4"));
+        assert!(!is_high_precision_pg_type("text", "text"));
+    }
+
+    #[test]
+    fn test_normalize_postgres_row_json_stringifies_high_precision_numbers() {
+        let mut row = serde_json::json!({
+            "col_bigint": 9007199254740993_i64,
+            "col_numeric": 1234.56,
+            "col_text": "hello",
+            "col_null": null
+        });
+        let high_precision_cols =
+            HashSet::from(["col_bigint".to_string(), "COL_NUMERIC".to_string()]);
+
+        normalize_postgres_row_json(&mut row, &high_precision_cols).unwrap();
+
+        assert_eq!(
+            row.get("col_bigint").and_then(|v| v.as_str()),
+            Some("9007199254740993")
+        );
+        assert_eq!(row.get("col_numeric").and_then(|v| v.as_str()), Some("1234.56"));
+        assert_eq!(row.get("col_text").and_then(|v| v.as_str()), Some("hello"));
+        assert!(row.get("col_null").unwrap().is_null());
+    }
+
+    #[test]
+    fn test_normalize_postgres_row_json_requires_object() {
+        let mut row = serde_json::json!(["a", "b"]);
+        let high_precision_cols = HashSet::from(["id".to_string()]);
+        assert!(normalize_postgres_row_json(&mut row, &high_precision_cols).is_err());
+    }
+
+    #[test]
+    fn test_is_json_projectable_statement() {
+        assert!(is_json_projectable_statement("SELECT 1"));
+        assert!(is_json_projectable_statement("  -- a\nWITH t AS (SELECT 1) SELECT * FROM t"));
+        assert!(is_json_projectable_statement("VALUES (1), (2)"));
+        assert!(is_json_projectable_statement("TABLE my_table"));
+        assert!(!is_json_projectable_statement("INSERT INTO t VALUES (1)"));
+        assert!(!is_json_projectable_statement("UPDATE t SET a = 1"));
+    }
+
+    #[test]
+    fn test_collect_high_precision_query_columns() {
+        let columns = vec![
+            QueryColumn {
+                name: "id".to_string(),
+                r#type: "INT8".to_string(),
+            },
+            QueryColumn {
+                name: "amount".to_string(),
+                r#type: "NUMERIC".to_string(),
+            },
+            QueryColumn {
+                name: "title".to_string(),
+                r#type: "TEXT".to_string(),
+            },
+        ];
+        let picked = collect_high_precision_query_columns(&columns);
+        assert!(picked.contains("id"));
+        assert!(picked.contains("amount"));
+        assert!(!picked.contains("title"));
     }
 }

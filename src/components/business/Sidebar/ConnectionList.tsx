@@ -83,8 +83,14 @@ interface TableInfo {
   columns: Column[];
 }
 
+interface SchemaInfo {
+  name: string;
+  tables: TableInfo[];
+}
+
 interface DatabaseInfo {
   name: string;
+  schemas: SchemaInfo[];
   tables: TableInfo[];
 }
 
@@ -179,6 +185,7 @@ const mssqlCollationOptions = [
   "Chinese_PRC_CI_AS",
   "Japanese_CI_AS",
 ];
+const schemaNodeDrivers: Driver[] = ["postgres", "mssql"];
 
 interface ConnectionListProps {
   onTableSelect?: (
@@ -187,6 +194,7 @@ interface ConnectionListProps {
     table: string,
     connectionId: number,
     driver: string,
+    schema?: string,
   ) => void;
   onConnect?: (form: ConnectionForm) => void;
   onCreateQuery?: (
@@ -230,6 +238,7 @@ export function ConnectionList({
   const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(
     new Set(),
   );
+  const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set());
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [selectedTableKey, setSelectedTableKey] = useState<string | null>(null);
   const [autoScrollRequest, setAutoScrollRequest] = useState<{
@@ -242,7 +251,8 @@ export function ConnectionList({
     y: number;
     connectionId: string | null;
     databaseName?: string | null;
-    type: "connection" | "database";
+    schemaName?: string | null;
+    type: "connection" | "database" | "schema";
   }>({ visible: false, x: 0, y: 0, connectionId: null, type: "connection" });
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("create");
@@ -279,6 +289,16 @@ export function ConnectionList({
 
   const supportsCreateDatabaseForDriver = (driver: Driver) =>
     createDatabaseSupportedDrivers.includes(driver);
+  const supportsSchemaNodeForDriver = (driver: Driver) =>
+    schemaNodeDrivers.includes(driver);
+  const getSchemaNodeKey = (databaseKey: string, schema: string) =>
+    `${databaseKey}::${schema}`;
+  const getTableNodeKey = (
+    connectionId: string,
+    databaseName: string,
+    schemaName: string,
+    tableName: string,
+  ) => `${connectionId}-${databaseName}-${schemaName}-${tableName}`;
 
   const createDbTargetConnection = useMemo(
     () => connections.find((conn) => conn.id === createDbConnectionId) || null,
@@ -317,11 +337,26 @@ export function ConnectionList({
       .map((conn) => {
         const filteredDbs = conn.databases
           .map((db) => {
+            const filteredSchemas = db.schemas
+              .map((schema) => {
+                const filteredTables = schema.tables.filter((t) =>
+                  t.name.toLowerCase().includes(lowerTerm),
+                );
+                if (filteredTables.length > 0) {
+                  return { ...schema, tables: filteredTables };
+                }
+                return null;
+              })
+              .filter(Boolean) as SchemaInfo[];
             const filteredTables = db.tables.filter((t) =>
               t.name.toLowerCase().includes(lowerTerm),
             );
-            if (filteredTables.length > 0) {
-              return { ...db, tables: filteredTables };
+            if (filteredSchemas.length > 0 || filteredTables.length > 0) {
+              return {
+                ...db,
+                schemas: filteredSchemas,
+                tables: filteredTables,
+              };
             }
             return null;
           })
@@ -339,16 +374,28 @@ export function ConnectionList({
     if (searchTerm) {
       const newExpandedConns = new Set(expandedConnections);
       const newExpandedDbs = new Set(expandedDatabases);
+      const newExpandedSchemas = new Set(expandedSchemas);
       filteredConnections.forEach((conn) => {
         newExpandedConns.add(conn.id);
         conn.databases.forEach((db) => {
-          newExpandedDbs.add(`${conn.id}-${db.name}`);
+          const databaseKey = `${conn.id}-${db.name}`;
+          newExpandedDbs.add(databaseKey);
+          db.schemas.forEach((schema) => {
+            newExpandedSchemas.add(getSchemaNodeKey(databaseKey, schema.name));
+          });
         });
       });
       setExpandedConnections(newExpandedConns);
       setExpandedDatabases(newExpandedDbs);
+      setExpandedSchemas(newExpandedSchemas);
     }
-  }, [searchTerm, filteredConnections]);
+  }, [
+    searchTerm,
+    filteredConnections,
+    expandedConnections,
+    expandedDatabases,
+    expandedSchemas,
+  ]);
 
   const isFileBased = form.driver === "sqlite" || form.driver === "duckdb";
   const supportsSslCa =
@@ -513,6 +560,7 @@ export function ConnectionList({
             connectError: undefined,
             databases: dbNames.map((name) => ({
               name,
+              schemas: [],
               tables: [],
             })),
           };
@@ -561,6 +609,12 @@ export function ConnectionList({
         );
         return next;
       });
+      setExpandedSchemas((prev) => {
+        const next = new Set(
+          [...prev].filter((key) => !key.startsWith(`${connectionId}-`)),
+        );
+        return next;
+      });
       setExpandedTables((prev) => {
         const next = new Set(
           [...prev].filter((key) => !key.startsWith(`${connectionId}-`)),
@@ -603,43 +657,101 @@ export function ConnectionList({
     connectionId: string,
     databaseName: string,
     options?: { force?: boolean },
-  ) => {
+  ): Promise<TableInfo[]> => {
     try {
-      // Use listTables to get table list by ID, passing the currently selected database
-      // For Postgres, databaseName usually corresponds to database field, schema might be public or others
-      // Simplified handling: pass databaseName to database parameter
       const tables = await api.metadata.listTables(
         Number(connectionId),
         databaseName,
       );
+      const nextTables: TableInfo[] = tables.map((t) => ({
+        name: t.name,
+        schema: t.schema,
+        columns: [],
+      }));
       setConnections((prev) =>
         prev.map((conn) => {
           if (conn.id !== connectionId) return conn;
+          const supportsSchemaNode = supportsSchemaNodeForDriver(conn.type);
           return {
             ...conn,
             databases: conn.databases.map((db) => {
               if (db.name !== databaseName) return db;
-              if (!options?.force && db.tables.length > 0) return db;
+              if (
+                !options?.force &&
+                (supportsSchemaNode
+                  ? db.schemas.length > 0
+                  : db.tables.length > 0)
+              ) {
+                return db;
+              }
+              if (!supportsSchemaNode) {
+                return {
+                  ...db,
+                  schemas: [],
+                  tables: nextTables,
+                };
+              }
+              const grouped = nextTables.reduce<Record<string, TableInfo[]>>(
+                (acc, table) => {
+                  const schemaName = (table.schema || "").trim() || "public";
+                  const current = acc[schemaName] || [];
+                  current.push(table);
+                  acc[schemaName] = current;
+                  return acc;
+                },
+                {},
+              );
+              const schemas = Object.entries(grouped)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([name, schemaTables]) => ({
+                  name,
+                  tables: [...schemaTables].sort((a, b) =>
+                    a.name.localeCompare(b.name),
+                  ),
+                }));
               return {
                 ...db,
-                tables: tables.map((t) => ({
-                  name: t.name,
-                  schema: t.schema,
-                  columns: [],
-                })),
+                schemas,
+                tables: [],
               };
             }),
           };
         }),
       );
+      return nextTables;
     } catch (e) {
       console.error(
         "listTables failed",
         e instanceof Error ? e.message : String(e),
       );
+      return [];
     }
   };
 
+  // Effect 1: Register scroll intent when active target changes
+  useEffect(() => {
+    if (!activeTableTarget) {
+      return;
+    }
+
+    const connectionId = String(activeTableTarget.connectionId);
+    const databaseName = activeTableTarget.database;
+    const tableName = activeTableTarget.table;
+    const schemaName = activeTableTarget.schema || "";
+    const nextTableKey = getTableNodeKey(
+      connectionId,
+      databaseName,
+      schemaName,
+      tableName,
+    );
+
+    setAutoScrollRequest({
+      key: nextTableKey,
+      id: ++autoScrollReqIdRef.current,
+    });
+  }, [activeTableTarget]);
+
+  // Effect 2: Sync UI state (expansion, selection) and load data if needed
   useEffect(() => {
     if (!activeTableTarget) {
       setSelectedTableKey(null);
@@ -649,8 +761,8 @@ export function ConnectionList({
     const connectionId = String(activeTableTarget.connectionId);
     const databaseName = activeTableTarget.database;
     const tableName = activeTableTarget.table;
+    const schemaName = activeTableTarget.schema || "";
     const dbKey = `${connectionId}-${databaseName}`;
-    const nextTableKey = `${dbKey}-${tableName}`;
     let cancelled = false;
 
     setExpandedConnections((prev) => {
@@ -663,24 +775,49 @@ export function ConnectionList({
       next.add(dbKey);
       return next;
     });
-    setSelectedTableKey(nextTableKey);
-    setAutoScrollRequest({
-      key: nextTableKey,
-      id: ++autoScrollReqIdRef.current,
-    });
 
     const ensureDatabaseTablesLoaded = async () => {
-      const targetConnection = connections.find((conn) => conn.id === connectionId);
+      const targetConnection = connections.find(
+        (conn) => conn.id === connectionId,
+      );
       const targetDatabase = targetConnection?.databases.find(
         (db) => db.name === databaseName,
       );
-      if (!targetDatabase || targetDatabase.tables.length > 0) return;
+      if (!targetDatabase) return;
 
-      await fetchAndSetTables(connectionId, databaseName);
+      const supportsSchemaNode = supportsSchemaNodeForDriver(
+        targetConnection?.type || "postgres",
+      );
+      const hasLoadedTables = supportsSchemaNode
+        ? targetDatabase.schemas.length > 0
+        : targetDatabase.tables.length > 0;
+      let availableTables = supportsSchemaNode
+        ? targetDatabase.schemas.flatMap((schema) => schema.tables)
+        : targetDatabase.tables;
+      if (!hasLoadedTables) {
+        availableTables = await fetchAndSetTables(connectionId, databaseName);
+      }
       if (cancelled) return;
-      setSelectedTableKey(nextTableKey);
+      const resolvedSchema =
+        schemaName ||
+        availableTables.find((table) => table.name === tableName)?.schema ||
+        "";
+      if (supportsSchemaNode && resolvedSchema) {
+        setExpandedSchemas((prev) => {
+          const next = new Set(prev);
+          next.add(getSchemaNodeKey(dbKey, resolvedSchema));
+          return next;
+        });
+      }
+      const resolvedTableKey = getTableNodeKey(
+        connectionId,
+        databaseName,
+        resolvedSchema,
+        tableName,
+      );
+      setSelectedTableKey(resolvedTableKey);
       setAutoScrollRequest({
-        key: nextTableKey,
+        key: resolvedTableKey,
         id: ++autoScrollReqIdRef.current,
       });
     };
@@ -741,7 +878,15 @@ export function ConnectionList({
     connectionId: string,
     databaseName: string,
   ) => {
-    const tableKeyPrefix = `${connectionId}-${databaseName}-`;
+    const databaseKey = `${connectionId}-${databaseName}`;
+    const tableKeyPrefix = `${databaseKey}-`;
+    const schemaKeyPrefix = `${databaseKey}::`;
+    setExpandedSchemas((prev) => {
+      const next = new Set(
+        [...prev].filter((key) => !key.startsWith(schemaKeyPrefix)),
+      );
+      return next;
+    });
     setExpandedTables((prev) => {
       const next = new Set(
         [...prev].filter((key) => !key.startsWith(tableKeyPrefix)),
@@ -762,16 +907,32 @@ export function ConnectionList({
       // Key format is "connectionId-dbName"
       const [connId, ...dbNameParts] = key.split("-");
       const dbName = dbNameParts.join("-");
-      // 找到对应的 connection 和 database
+      // Find the corresponding connection and database
       const conn = connections.find((c) => c.id === connId);
       if (conn) {
         const db = conn.databases.find((d) => d.name === dbName);
-        if (db && db.tables.length === 0) {
+        if (
+          db &&
+          (supportsSchemaNodeForDriver(conn.type)
+            ? db.schemas.length === 0
+            : db.tables.length === 0)
+        ) {
           fetchAndSetTables(connId, dbName);
         }
       }
     }
     setExpandedDatabases(newExpanded);
+  };
+  const toggleSchema = (schemaKey: string) => {
+    setExpandedSchemas((prev) => {
+      const next = new Set(prev);
+      if (next.has(schemaKey)) {
+        next.delete(schemaKey);
+      } else {
+        next.add(schemaKey);
+      }
+      return next;
+    });
   };
   const fetchAndSetTableColumns = async (
     connectionId: string,
@@ -795,8 +956,24 @@ export function ConnectionList({
               if (db.name !== databaseName) return db;
               return {
                 ...db,
+                schemas: db.schemas.map((schemaNode) => ({
+                  ...schemaNode,
+                  tables: schemaNode.tables.map((t) => {
+                    if (t.name !== tableName || t.schema !== schema) return t;
+                    if (t.columns.length > 0) return t;
+                    return {
+                      ...t,
+                      columns: metadata.columns.map((c) => ({
+                        name: c.name,
+                        type: c.type,
+                        isPrimaryKey: c.primaryKey,
+                        nullable: c.nullable,
+                      })),
+                    };
+                  }),
+                })),
                 tables: db.tables.map((t) => {
-                  if (t.name !== tableName) return t;
+                  if (t.name !== tableName || t.schema !== schema) return t;
                   if (t.columns.length > 0) return t;
                   return {
                     ...t,
@@ -857,6 +1034,7 @@ export function ConnectionList({
         table.name,
         Number(connection.id),
         connection.type,
+        table.schema,
       );
     }
   };
@@ -905,6 +1083,9 @@ export function ConnectionList({
       ),
     );
     setExpandedDatabases((prev) =>
+      new Set([...prev].filter((key) => !key.startsWith(`${connectionId}-`))),
+    );
+    setExpandedSchemas((prev) =>
       new Set([...prev].filter((key) => !key.startsWith(`${connectionId}-`))),
     );
     setExpandedTables((prev) =>
@@ -1221,6 +1402,12 @@ export function ConnectionList({
         return next;
       });
       setExpandedDatabases((prev) => {
+        const next = new Set(
+          [...prev].filter((key) => !key.startsWith(`${connectionId}-`)),
+        );
+        return next;
+      });
+      setExpandedSchemas((prev) => {
         const next = new Set(
           [...prev].filter((key) => !key.startsWith(`${connectionId}-`)),
         );
@@ -1860,6 +2047,137 @@ export function ConnectionList({
                   )
                   .map((database) => {
                     const dbKey = `${connection.id}-${database.name}`;
+                    const supportsSchemaNode = supportsSchemaNodeForDriver(
+                      connection.type,
+                    );
+                    const renderTableNode = (table: TableInfo, level: number) => {
+                      const tableKey = getTableNodeKey(
+                        connection.id,
+                        database.name,
+                        table.schema,
+                        table.name,
+                      );
+                      return (
+                        <ContextMenu key={tableKey}>
+                          <ContextMenuTrigger asChild>
+                            <div
+                              ref={(el) => {
+                                tableNodeRefs.current[tableKey] = el;
+                              }}
+                            >
+                              <TreeNode
+                                level={level}
+                                icon={<Table className="w-4 h-4" />}
+                                label={table.name}
+                                isSelected={selectedTableKey === tableKey}
+                                isExpanded={expandedTables.has(tableKey)}
+                                toggleOnRowClick={false}
+                                onToggle={() => {
+                                  toggleTable(
+                                    tableKey,
+                                    connection.id,
+                                    database.name,
+                                    table,
+                                  );
+                                }}
+                                onDoubleClick={() => {
+                                  handleTableClick(connection, database, table);
+                                }}
+                                actions={
+                                  <div onClick={(e) => e.stopPropagation()}>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0"
+                                      onClick={() =>
+                                        handleTableClick(connection, database, table)
+                                      }
+                                    >
+                                      <Play className="w-3 h-3" />
+                                    </Button>
+                                  </div>
+                                }
+                              >
+                                {table.columns.map((column) => (
+                                  <div
+                                    key={column.name}
+                                    className="flex items-center gap-1 px-2 py-1 hover:bg-accent text-xs"
+                                    style={{
+                                      paddingLeft: `${(level + 1) * 12 + 8}px`,
+                                    }}
+                                  >
+                                    <span className="w-4" />
+                                    {column.isPrimaryKey ? (
+                                      <Key className="w-3 h-3 text-yellow-600 shrink-0" />
+                                    ) : (
+                                      <span className="w-3 shrink-0" />
+                                    )}
+                                    <span className="flex-1 truncate text-foreground">
+                                      {column.name}
+                                    </span>
+                                    <span className="text-muted-foreground text-xs shrink-0">
+                                      {column.type}
+                                    </span>
+                                  </div>
+                                ))}
+                              </TreeNode>
+                            </div>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent>
+                            <ContextMenuItem
+                              onClick={() =>
+                                handleCreateQueryFromContext(
+                                  connection.id,
+                                  database.name,
+                                )
+                              }
+                            >
+                              <FileCode className="w-4 h-4 mr-2" />
+                              {t("connection.menu.newQuery")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              onClick={() =>
+                                void handleTableExport(
+                                  connection,
+                                  database,
+                                  table,
+                                  "csv",
+                                )
+                              }
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              {t("connection.menu.exportCsv")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              onClick={() =>
+                                void handleTableExport(
+                                  connection,
+                                  database,
+                                  table,
+                                  "json",
+                                )
+                              }
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              {t("connection.menu.exportJson")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              onClick={() =>
+                                void handleTableExport(
+                                  connection,
+                                  database,
+                                  table,
+                                  "sql",
+                                )
+                              }
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              {t("connection.menu.exportSql")}
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      );
+                    };
                     return (
                       <TreeNode
                         key={dbKey}
@@ -1891,137 +2209,43 @@ export function ConnectionList({
                           });
                         }}
                       >
-                        {database.tables.map((table) => {
-                          const tableKey = `${dbKey}-${table.name}`;
-                          return (
-                      <ContextMenu key={tableKey}>
-                        <ContextMenuTrigger asChild>
-                          <div
-                            ref={(el) => {
-                              tableNodeRefs.current[tableKey] = el;
-                            }}
-                          >
-                            <TreeNode
-                              level={2}
-                              icon={<Table className="w-4 h-4" />}
-                              label={table.name}
-                              isSelected={selectedTableKey === tableKey}
-                              isExpanded={expandedTables.has(tableKey)}
-                              toggleOnRowClick={false}
-                                    onToggle={() => {
-                                      toggleTable(
-                                        tableKey,
-                                        connection.id,
-                                        database.name,
-                                        table,
-                                      );
-                                    }}
-                                    onDoubleClick={() => {
-                                      handleTableClick(
-                                        connection,
-                                        database,
-                                        table,
-                                      );
-                                    }}
-                                    actions={
-                                      <div onClick={(e) => e.stopPropagation()}>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-6 w-6 p-0"
-                                          onClick={() =>
-                                            handleTableClick(
-                                              connection,
-                                              database,
-                                              table,
-                                            )
-                                          }
-                                        >
-                                          <Play className="w-3 h-3" />
-                                        </Button>
-                                      </div>
-                                    }
-                                  >
-                                    {table.columns.map((column) => (
-                                      <div
-                                        key={column.name}
-                                        className="flex items-center gap-1 px-2 py-1 hover:bg-accent text-xs"
-                                        style={{
-                                          paddingLeft: `${3 * 12 + 8}px`,
-                                        }}
-                                      >
-                                        <span className="w-4" />
-                                        {column.isPrimaryKey ? (
-                                          <Key className="w-3 h-3 text-yellow-600 shrink-0" />
-                                        ) : (
-                                          <span className="w-3 shrink-0" />
-                                        )}
-                                        <span className="flex-1 truncate text-foreground">
-                                          {column.name}
-                                        </span>
-                                        <span className="text-muted-foreground text-xs shrink-0">
-                                          {column.type}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </TreeNode>
-                                </div>
-                              </ContextMenuTrigger>
-                              <ContextMenuContent>
-                                <ContextMenuItem
-                                  onClick={() =>
-                                    handleCreateQueryFromContext(
-                                      connection.id,
-                                      database.name,
-                                    )
-                                  }
+                        {supportsSchemaNode
+                          ? database.schemas.map((schemaNode) => {
+                              const schemaKey = getSchemaNodeKey(
+                                dbKey,
+                                schemaNode.name,
+                              );
+                              return (
+                                <TreeNode
+                                  key={schemaKey}
+                                  level={2}
+                                  icon={<FolderOpen className="w-4 h-4" />}
+                                  label={schemaNode.name}
+                                  isExpanded={expandedSchemas.has(schemaKey)}
+                                  onToggle={() => toggleSchema(schemaKey)}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setContextMenu({
+                                      visible: true,
+                                      x: e.clientX,
+                                      y: e.clientY,
+                                      connectionId: connection.id,
+                                      databaseName: database.name,
+                                      schemaName: schemaNode.name,
+                                      type: "schema",
+                                    });
+                                  }}
                                 >
-                                  <FileCode className="w-4 h-4 mr-2" />
-                                  {t("connection.menu.newQuery")}
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onClick={() =>
-                                    void handleTableExport(
-                                      connection,
-                                      database,
-                                      table,
-                                      "csv",
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4 mr-2" />
-                                  {t("connection.menu.exportCsv")}
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onClick={() =>
-                                    void handleTableExport(
-                                      connection,
-                                      database,
-                                      table,
-                                      "json",
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4 mr-2" />
-                                  {t("connection.menu.exportJson")}
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onClick={() =>
-                                    void handleTableExport(
-                                      connection,
-                                      database,
-                                      table,
-                                      "sql",
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4 mr-2" />
-                                  {t("connection.menu.exportSql")}
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
-                          );
-                        })}
+                                  {schemaNode.tables.map((table) =>
+                                    renderTableNode(table, 3),
+                                  )}
+                                </TreeNode>
+                              );
+                            })
+                          : database.tables.map((table) =>
+                              renderTableNode(table, 2),
+                            )}
                       </TreeNode>
                     );
                   })}
@@ -2112,6 +2336,37 @@ export function ConnectionList({
               </button>
             </>
           ) : contextMenu.type === "database" ? (
+            <>
+              <button
+                className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
+                onClick={async () => {
+                  if (contextMenu.connectionId && contextMenu.databaseName) {
+                    await handleRefreshDatabaseTables(
+                      contextMenu.connectionId,
+                      contextMenu.databaseName,
+                    );
+                  }
+                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                }}
+              >
+                <RefreshCw className="w-4 h-4" />
+                {t("connection.menu.refreshTables")}
+              </button>
+              <button
+                className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
+                onClick={() => {
+                  handleCreateQueryFromContext(
+                    contextMenu.connectionId,
+                    contextMenu.databaseName,
+                  );
+                  setContextMenu((prev) => ({ ...prev, visible: false }));
+                }}
+              >
+                <FileCode className="w-4 h-4" />
+                {t("connection.menu.newQuery")}
+              </button>
+            </>
+          ) : contextMenu.type === "schema" ? (
             <>
               <button
                 className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
