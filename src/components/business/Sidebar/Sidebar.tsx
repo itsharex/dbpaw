@@ -80,7 +80,11 @@ export function Sidebar({
           </TabsTrigger>
         </TabsList>
         <div className="flex-1 overflow-hidden mt-2">
-          <TabsContent value="connections" className="h-full m-0 border-0">
+          <TabsContent
+            value="connections"
+            forceMount
+            className="h-full m-0 border-0"
+          >
             <ConnectionList
               onTableSelect={onTableSelect}
               onConnect={onConnect}
@@ -89,7 +93,7 @@ export function Sidebar({
               activeTableTarget={activeTableTarget}
             />
           </TabsContent>
-          <TabsContent value="queries" className="h-full m-0 border-0">
+          <TabsContent value="queries" forceMount className="h-full m-0 border-0">
             <SavedQueriesList
               onSelectQuery={onSelectSavedQuery}
               lastUpdated={lastUpdated}
