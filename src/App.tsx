@@ -1433,6 +1433,7 @@ export default function App() {
                                   <TabsTrigger
                                     value={tab.id}
                                     className={TAB_TRIGGER_CLASS}
+                                    asChild
                                     onMouseDown={(e) => {
                                       if (e.button === 1) {
                                         e.preventDefault();
@@ -1440,33 +1441,35 @@ export default function App() {
                                       }
                                     }}
                                   >
-                                    {tab.type === "table" ? (
-                                      <Table className="w-4 h-4 text-primary" />
-                                    ) : (
-                                      <FileCode className="w-4 h-4 text-primary" />
-                                    )}
-                                    <span className="max-w-[120px] flex items-center">
-                                      <span className="truncate">
-                                        {title}
-                                      </span>
-                                      {tab.type === "editor" && tab.isDirty && (
-                                        <span
-                                          className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ml-1 shrink-0"
-                                          aria-label={t("app.tab.unsavedChanges")}
-                                        />
+                                    <div className="relative inline-flex items-center gap-2 min-w-0">
+                                      {tab.type === "table" ? (
+                                        <Table className="w-4 h-4 text-primary" />
+                                      ) : (
+                                        <FileCode className="w-4 h-4 text-primary" />
                                       )}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      aria-label={t("app.tab.closeAria", { title })}
-                                      className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded-sm cursor-pointer transition-opacity"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleCloseTab(tab.id);
-                                      }}
-                                    >
-                                      <X className="w-3 h-3 text-muted-foreground" />
-                                    </button>
+                                      <span className="max-w-[120px] flex items-center">
+                                        <span className="truncate">
+                                          {title}
+                                        </span>
+                                        {tab.type === "editor" && tab.isDirty && (
+                                          <span
+                                            className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ml-1 shrink-0"
+                                            aria-label={t("app.tab.unsavedChanges")}
+                                          />
+                                        )}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        aria-label={t("app.tab.closeAria", { title })}
+                                        className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded-sm cursor-pointer transition-opacity"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleCloseTab(tab.id);
+                                        }}
+                                      >
+                                        <X className="w-3 h-3 text-muted-foreground" />
+                                      </button>
+                                    </div>
                                   </TabsTrigger>
                                 </span>
                               </ContextMenuTrigger>
