@@ -51,6 +51,12 @@ export const zh: Translations = {
       exportCompleted: "导出完成（{{count}} 行）",
     },
   },
+  sidebar: {
+    tabs: {
+      connections: "连接",
+      queries: "查询",
+    },
+  },
   settings: {
     title: "设置",
     description: "管理应用外观与偏好。",

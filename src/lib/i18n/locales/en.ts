@@ -50,6 +50,12 @@ export const en = {
       exportCompleted: "Export completed ({{count}} rows)",
     },
   },
+  sidebar: {
+    tabs: {
+      connections: "Connections",
+      queries: "Queries",
+    },
+  },
   settings: {
     title: "Settings",
     description: "Manage your app appearance and preferences.",

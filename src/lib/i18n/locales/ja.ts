@@ -52,6 +52,12 @@ export const ja: Translations = {
       exportCompleted: "エクスポート完了（{{count}} 行）",
     },
   },
+  sidebar: {
+    tabs: {
+      connections: "接続",
+      queries: "クエリ",
+    },
+  },
   settings: {
     title: "設定",
     description: "アプリの外観と設定を管理します。",
