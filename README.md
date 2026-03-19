@@ -94,46 +94,8 @@ If your device is managed by an organization, you may need your IT admin to allo
 
 ## 🛠️ Development
 
-If you want to contribute or build from source, follow these steps:
-
-### Prerequisites
-
-- [Rust](https://www.rust-lang.org/tools/install) (latest stable)
-- [Bun](https://bun.sh/) or Node.js (v18+)
-
-### Setup
-
-1. **Clone the repository**
-
-   ```bash
-   git clone https://github.com/codeErrorSleep/dbpaw.git
-   cd dbpaw
-   ```
-
-2. **Install frontend dependencies**
-
-   ```bash
-   bun install
-   ```
-
-3. **Run in Development Mode**
-
-   **Frontend-only (Mock Mode)** - Recommended for UI work:
-
-   ```bash
-   bun dev:mock
-   ```
-
-   **Full App (Tauri + Rust)** - For full functionality testing:
-
-   ```bash
-   bun tauri dev
-   ```
-
-4. **Build for Production**
-   ```bash
-   bun tauri build
-   ```
+- Development guide: [docs/en/Development/DEVELOPMENT.md](docs/en/Development/DEVELOPMENT.md)
+- Contributing guide: [docs/en/Community/CONTRIBUTING.md](docs/en/Community/CONTRIBUTING.md)
 
 ## 🏗️ Tech Stack
 
