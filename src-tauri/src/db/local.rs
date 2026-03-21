@@ -1203,4 +1203,54 @@ mod tests {
         );
         assert_eq!(after_update[1].name, "first-renamed");
     }
+
+    #[tokio::test]
+    async fn saved_query_crud_round_trip() {
+        let db = make_test_db().await;
+
+        let created = db
+            .create_saved_query(
+                "q1".to_string(),
+                "SELECT 1".to_string(),
+                Some("desc".to_string()),
+                Some(10),
+                Some("db1".to_string()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(created.name, "q1");
+        assert_eq!(created.query, "SELECT 1");
+        assert_eq!(created.description.as_deref(), Some("desc"));
+        assert_eq!(created.connection_id, Some(10));
+        assert_eq!(created.database.as_deref(), Some("db1"));
+
+        let updated = db
+            .update_saved_query(
+                created.id,
+                "q1-updated".to_string(),
+                "SELECT 2".to_string(),
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.id, created.id);
+        assert_eq!(updated.name, "q1-updated");
+        assert_eq!(updated.query, "SELECT 2");
+        assert!(updated.description.is_none());
+        assert!(updated.connection_id.is_none());
+        assert!(updated.database.is_none());
+
+        let list = db.list_saved_queries().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, created.id);
+
+        db.delete_saved_query(created.id).await.unwrap();
+        let get_err = db.get_saved_query_by_id(created.id).await.unwrap_err();
+        assert!(get_err.contains("[GET_QUERY_ERROR]"));
+
+        let list_after = db.list_saved_queries().await.unwrap();
+        assert!(list_after.is_empty());
+    }
 }

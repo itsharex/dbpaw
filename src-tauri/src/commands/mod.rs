@@ -132,7 +132,7 @@ fn is_connection_error(e: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::execute_with_retry_core;
+    use super::{connection_pool_key, execute_with_retry_core, is_connection_error};
     use crate::db::drivers::DatabaseDriver;
     use crate::models::{
         QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableMetadata, TableStructure,
@@ -297,5 +297,21 @@ mod tests {
         assert_eq!(task_calls.load(Ordering::SeqCst), 2);
         assert_eq!(ensure_calls.load(Ordering::SeqCst), 2);
         assert_eq!(remove_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn connection_pool_key_handles_none_and_empty_db() {
+        assert_eq!(connection_pool_key(1, &None), "1");
+        assert_eq!(connection_pool_key(1, &Some("".to_string())), "1");
+        assert_eq!(connection_pool_key(1, &Some("app".to_string())), "1:app");
+    }
+
+    #[test]
+    fn is_connection_error_matches_common_messages() {
+        assert!(is_connection_error("connection reset by peer"));
+        assert!(is_connection_error("broken pipe"));
+        assert!(is_connection_error("timeout while waiting"));
+        assert!(is_connection_error("EOF while reading"));
+        assert!(!is_connection_error("syntax error at or near"));
     }
 }

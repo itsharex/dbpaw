@@ -496,6 +496,8 @@ mod tests {
         assert_eq!(csv_escape("simple"), "simple");
         assert_eq!(csv_escape("a,b"), "\"a,b\"");
         assert_eq!(csv_escape("a\"b"), "\"a\"\"b\"");
+        assert_eq!(csv_escape("a\nb"), "\"a\nb\"");
+        assert_eq!(csv_escape("a,\nb"), "\"a,\nb\"");
     }
 
     #[test]
@@ -506,6 +508,8 @@ mod tests {
             sql_value(&Value::String("O'Reilly".to_string())),
             "'O''Reilly'"
         );
+        assert_eq!(sql_value(&Value::Number(serde_json::Number::from(42))), "42");
+        assert_eq!(sql_value(&Value::Bool(false)), "FALSE");
     }
 
     #[test]
@@ -551,6 +555,14 @@ mod tests {
             quote_target(Some("analytics"), "events", "duckdb"),
             "\"analytics\".\"events\""
         );
+    }
+
+    #[test]
+    fn quote_ident_escapes_driver_specific_chars() {
+        assert_eq!(quote_ident("a`b", "mysql"), "`a``b`");
+        assert_eq!(quote_ident("a`b", "clickhouse"), "`a``b`");
+        assert_eq!(quote_ident("a]b", "mssql"), "[a]]b]");
+        assert_eq!(quote_ident("a\"b", "postgres"), "\"a\"\"b\"");
     }
 
     #[test]

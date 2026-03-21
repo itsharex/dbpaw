@@ -851,7 +851,10 @@ pub async fn list_sql_execution_logs(
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_sql_execution_logs_limit, maybe_apply_default_limit};
+    use super::{
+        clamp_sql_execution_logs_limit, collect_top_level_keywords, is_single_statement,
+        make_query_id, maybe_apply_default_limit, statement_kind_for_limit_guard,
+    };
 
     #[test]
     fn adds_limit_to_simple_select() {
@@ -1031,5 +1034,54 @@ mod tests {
     fn sql_logs_limit_clamps_upper_bound() {
         assert_eq!(clamp_sql_execution_logs_limit(Some(101)), 100);
         assert_eq!(clamp_sql_execution_logs_limit(Some(9999)), 100);
+    }
+
+    #[test]
+    fn is_single_statement_handles_comments_and_quotes() {
+        assert!(is_single_statement("SELECT 1 -- comment\n"));
+        assert!(is_single_statement("SELECT 'a; b'"));
+        assert!(is_single_statement("SELECT \"a; b\""));
+        assert!(is_single_statement("SELECT `a; b`"));
+        assert!(!is_single_statement("SELECT 1; SELECT 2"));
+    }
+
+    #[test]
+    fn is_single_statement_handles_nested_parens_and_unbalanced() {
+        assert!(is_single_statement("SELECT (SELECT 1)"));
+        assert!(!is_single_statement("SELECT (1;"));
+        assert!(!is_single_statement("SELECT 1)"));
+    }
+
+    #[test]
+    fn collect_top_level_keywords_skips_subqueries_and_strings() {
+        let tokens = collect_top_level_keywords(
+            "WITH cte AS (SELECT 'from' AS v) SELECT * FROM cte",
+        );
+        assert_eq!(tokens.first().map(String::as_str), Some("with"));
+        assert!(tokens.contains(&"select".to_string()));
+        assert!(tokens.contains(&"from".to_string()));
+    }
+
+    #[test]
+    fn statement_kind_for_limit_guard_classifies_with_queries() {
+        assert_eq!(
+            statement_kind_for_limit_guard("WITH c AS (SELECT 1) SELECT * FROM c"),
+            Some("select")
+        );
+        assert_eq!(
+            statement_kind_for_limit_guard("WITH c AS (SELECT 1) UPDATE t SET a = 1"),
+            Some("non_select")
+        );
+    }
+
+    #[test]
+    fn make_query_id_uses_provided_and_falls_back() {
+        assert_eq!(
+            make_query_id(42, Some(" custom-id ".to_string())),
+            "custom-id"
+        );
+
+        let generated = make_query_id(7, Some("   ".to_string()));
+        assert!(generated.starts_with("q-7-"));
     }
 }
