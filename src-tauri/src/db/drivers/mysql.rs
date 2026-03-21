@@ -68,6 +68,8 @@ fn build_dsn_and_ca_path(form: &ConnectionForm) -> Result<(String, Option<PathBu
         .password
         .clone()
         .ok_or("[VALIDATION_ERROR] password cannot be empty")?;
+    let username = percent_encode_query_value(&username);
+    let password = percent_encode_query_value(&password);
     let mut dsn = format!("mysql://{}:{}@{}:{}", username, password, host, port);
 
     if let Some(db) = &form.database {
@@ -149,7 +151,11 @@ impl MysqlDriver {
             .acquire_timeout(std::time::Duration::from_secs(3))
             .connect(&dsn)
             .await
-            .map_err(|e| format!("[CONN_FAILED] {e}"))?;
+            .map_err(|e| {
+                format!(
+                    "[CONN_FAILED] {e} (hint: check if username/password contain special characters; they must be URL-encoded)"
+                )
+            })?;
 
         Ok(Self {
             pool,
@@ -973,6 +979,25 @@ mod tests {
 
         let conn_str = build_dsn(&form).unwrap();
         assert_eq!(conn_str, "mysql://user:pass@127.0.0.1:3307");
+    }
+
+    #[test]
+    fn test_conn_string_encodes_credentials() {
+        let form = ConnectionForm {
+            driver: "mysql".to_string(),
+            host: Some("localhost".to_string()),
+            port: Some(3306),
+            username: Some("user@name".to_string()),
+            password: Some("p@ss:word#?".to_string()),
+            database: Some("test_db".to_string()),
+            ..Default::default()
+        };
+
+        let conn_str = build_dsn(&form).unwrap();
+        assert_eq!(
+            conn_str,
+            "mysql://user%40name:p%40ss%3Aword%23%3F@localhost:3306/test_db"
+        );
     }
 
     #[test]
