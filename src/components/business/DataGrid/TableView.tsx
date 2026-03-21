@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { save } from "@tauri-apps/plugin-dialog";
 import {
   Download,
@@ -18,6 +19,7 @@ import {
   RotateCw,
   Search,
   Plus,
+  SquareTerminal,
   Trash2,
   X,
 } from "lucide-react";
@@ -121,6 +123,11 @@ interface TableViewProps {
     filter?: string;
     orderBy?: string;
   }) => void | Promise<unknown>;
+  onCreateQuery?: (
+    connectionId: number,
+    database: string,
+    driver: string,
+  ) => void;
   tableContext?: {
     connectionId: number;
     database: string;
@@ -148,8 +155,10 @@ export function TableView({
   onFilterChange,
   onOpenDDL,
   onDataRefresh,
+  onCreateQuery,
   tableContext,
 }: TableViewProps) {
+  const { t } = useTranslation();
   const PAGE_SIZE_OPTIONS = ["10", "50", "100", "200", "500", "1000"] as const;
   const [whereInput, setWhereInput] = useState(controlledFilter || "");
   const [orderByInput, setOrderByInput] = useState(controlledOrderBy || "");
@@ -1483,6 +1492,24 @@ export function TableView({
             </div>
 
             <div className="flex items-center gap-1.5">
+              {tableContext && onCreateQuery && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-2 text-xs hover:bg-muted/60"
+                  onClick={() =>
+                    onCreateQuery(
+                      tableContext.connectionId,
+                      tableContext.database,
+                      tableContext.driver,
+                    )
+                  }
+                  title={t("connection.menu.newQuery")}
+                >
+                  <SquareTerminal className="w-3.5 h-3.5" />
+                  {t("connection.menu.newQuery")}
+                </Button>
+              )}
               {isEditable && (
                 <>
                   <Button

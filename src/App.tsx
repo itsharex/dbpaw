@@ -1602,6 +1602,7 @@ export default function App() {
                           onDataRefresh={(params) =>
                             handleTableRefresh(tab.id, params)
                           }
+                          onCreateQuery={handleCreateQuery}
                           tableContext={
                             tab.connectionId &&
                             tab.database &&
