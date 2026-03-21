@@ -134,6 +134,9 @@ export const ja: Translations = {
       saveFailed: "AI プロバイダーの保存に失敗しました",
       clearFailed: "API Key の削除に失敗しました",
       fillRequired: "プロバイダー項目をすべて入力してください",
+      deleteProvider: "プロバイダーを削除",
+      deleteSuccess: "プロバイダーを削除しました",
+      deleteFailed: "プロバイダーの削除に失敗しました",
     },
     shortcuts: {
       title: "ショートカット",

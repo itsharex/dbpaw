@@ -129,6 +129,9 @@ export const zh: Translations = {
       saveFailed: "保存 AI 提供商失败",
       clearFailed: "清除 API Key 失败",
       fillRequired: "请填写所有提供商字段",
+      deleteProvider: "删除提供商",
+      deleteSuccess: "已删除提供商",
+      deleteFailed: "删除提供商失败",
     },
     shortcuts: {
       title: "快捷键",

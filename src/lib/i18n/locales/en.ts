@@ -131,6 +131,9 @@ export const en = {
       saveFailed: "Failed to save AI provider",
       clearFailed: "Failed to clear API key",
       fillRequired: "Please fill all provider fields",
+      deleteProvider: "Delete Provider",
+      deleteSuccess: "Provider deleted",
+      deleteFailed: "Failed to delete provider",
     },
     shortcuts: {
       title: "Shortcuts",

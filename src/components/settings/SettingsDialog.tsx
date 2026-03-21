@@ -5,6 +5,7 @@ import {
   Palette,
   RefreshCw,
   Settings2,
+  Trash2,
 } from "lucide-react";
 import {
   useTheme,
@@ -241,6 +242,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     getUpdateTaskSnapshot().state,
   );
   const [providers, setProviders] = useState<AIProviderConfig[]>([]);
+  const [deletingProviderId, setDeletingProviderId] = useState<number | null>(null);
   const [selectedProviderType, setSelectedProviderType] =
     useState<AIProviderType>(AI_PROVIDER_OPTIONS[0].type);
   const [providerBaseUrl, setProviderBaseUrl] = useState(
@@ -419,6 +421,23 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
       toast.error(t("settings.aiProviders.clearFailed"), {
         description: e instanceof Error ? e.message : String(e),
       });
+    }
+  };
+
+  const handleDeleteProvider = async (id: number) => {
+    if (deletingProviderId != null) return;
+    setDeletingProviderId(id);
+    try {
+      await api.ai.providers.delete(id);
+      const updated = await reloadProviders();
+      applyProviderToForm(selectedProviderType, updated);
+      toast.success(t("settings.aiProviders.deleteSuccess"));
+    } catch (e) {
+      toast.error(t("settings.aiProviders.deleteFailed"), {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setDeletingProviderId(null);
     }
   };
 
@@ -737,11 +756,24 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                               <span className="truncate">
                                 {label} · {provider.model}
                               </span>
-                              {provider.isDefault && (
-                                <span className="shrink-0 rounded border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                                  {t("settings.aiProviders.default")}
-                                </span>
-                              )}
+                              <div className="flex shrink-0 items-center gap-1">
+                                {provider.isDefault && (
+                                  <span className="rounded border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                    {t("settings.aiProviders.default")}
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  disabled={deletingProviderId === provider.id}
+                                  onClick={() =>
+                                    handleDeleteProvider(provider.id)
+                                  }
+                                  className="rounded-sm p-0.5 text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40 disabled:pointer-events-none"
+                                  title={t("settings.aiProviders.deleteProvider")}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
                             </div>
                           );
                         })}
