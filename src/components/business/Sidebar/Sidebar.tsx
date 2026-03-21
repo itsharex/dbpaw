@@ -3,6 +3,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConnectionList } from "./ConnectionList";
 import { SavedQueriesList } from "./SavedQueriesList";
 import { ConnectionForm, SavedQuery } from "@/services/api";
+import { useTranslation } from "react-i18next";
 
 interface ActiveTableTarget {
   connectionId: number;
@@ -51,6 +52,7 @@ export function Sidebar({
   lastUpdated,
   activeTableTarget,
 }: SidebarProps) {
+  const { t } = useTranslation();
   const [sidebarTab, setSidebarTab] = useState<"connections" | "queries">(
     "connections",
   );
@@ -71,14 +73,18 @@ export function Sidebar({
       >
         <TabsList className="w-full grid grid-cols-2 overflow-hidden">
           <TabsTrigger value="connections" className="min-w-0 truncate">
-            Connections
+            {t("sidebar.tabs.connections")}
           </TabsTrigger>
           <TabsTrigger value="queries" className="min-w-0 truncate">
-            Queries
+            {t("sidebar.tabs.queries")}
           </TabsTrigger>
         </TabsList>
         <div className="flex-1 overflow-hidden mt-2">
-          <TabsContent value="connections" className="h-full m-0 border-0">
+          <TabsContent
+            value="connections"
+            forceMount
+            className="h-full m-0 border-0"
+          >
             <ConnectionList
               onTableSelect={onTableSelect}
               onConnect={onConnect}
@@ -87,7 +93,7 @@ export function Sidebar({
               activeTableTarget={activeTableTarget}
             />
           </TabsContent>
-          <TabsContent value="queries" className="h-full m-0 border-0">
+          <TabsContent value="queries" forceMount className="h-full m-0 border-0">
             <SavedQueriesList
               onSelectQuery={onSelectSavedQuery}
               lastUpdated={lastUpdated}

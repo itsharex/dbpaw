@@ -26,6 +26,25 @@ export function isMockEnabled() {
 function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+function getUpdaterAccessKey(): string | undefined {
+  const value = (import.meta.env.VITE_UPGRADE_LINK_ACCESS_KEY ?? "").trim();
+  return value.length > 0 ? value : undefined;
+}
+
+function getUpdaterCheckOptions(): { timeout: number; headers?: Record<string, string> } {
+  const accessKey = getUpdaterAccessKey();
+  if (!accessKey) {
+    return { timeout: 5000 };
+  }
+
+  return {
+    timeout: 5000,
+    headers: {
+      "X-AccessKey": accessKey,
+    },
+  };
+}
 // =====================================
 
 export type UpdateState =
@@ -145,7 +164,7 @@ export async function checkForUpdates(
   checkInFlight = (async () => {
     options?.onStateChange?.("checking");
     try {
-      const update = await check();
+      const update = await check(getUpdaterCheckOptions());
       if (update?.available) {
         options?.onStateChange?.("available");
         return {
@@ -225,7 +244,7 @@ export function startBackgroundInstall(
       if (!update?.available) {
         updateTaskState("checking");
         options?.onStateChange?.("checking");
-        const latest = await check();
+        const latest = await check(getUpdaterCheckOptions());
         if (!latest?.available) {
           updateTaskState("idle", {
             message: "You are on the latest version.",
