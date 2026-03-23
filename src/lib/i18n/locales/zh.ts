@@ -129,6 +129,9 @@ export const zh: Translations = {
       saveFailed: "保存 AI 提供商失败",
       clearFailed: "清除 API Key 失败",
       fillRequired: "请填写所有提供商字段",
+      deleteProvider: "删除提供商",
+      deleteSuccess: "已删除提供商",
+      deleteFailed: "删除提供商失败",
     },
     shortcuts: {
       title: "快捷键",
@@ -224,6 +227,19 @@ export const zh: Translations = {
       },
       sslValidation: {
         caRequired: "SSL 模式为校验 CA 时必须填写 CA 证书。",
+      },
+      inputValidation: {
+        filePathRequired: "请填写文件路径。",
+        hostRequired: "请填写主机地址。",
+        usernameRequired: "请填写用户名。",
+        passwordRequired: "请填写密码。",
+        portRange: "端口必须是 1 到 65535 之间的整数。",
+        hostWhitespace: "主机地址不能包含空白字符。",
+        hostPortNotAllowed: "当前数据库类型不支持在主机字段中填写 host:port，请将端口填写到端口字段。",
+        sshHostRequired: "已开启 SSH，请填写 SSH 主机。",
+        sshUsernameRequired: "已开启 SSH，请填写 SSH 用户名。",
+        sshPortRange: "SSH 端口必须是 1 到 65535 之间的整数。",
+        sshAuthRequired: "已开启 SSH，请填写 SSH 密码或 SSH 密钥路径。",
       },
     },
     menu: {

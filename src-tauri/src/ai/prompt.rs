@@ -1,52 +1,37 @@
 use super::types::{AiChatMessage, AiPromptBundle, AiSchemaOverview, AiTableSummary};
 
-const PROMPT_VERSION: &str = "v1.0.0";
+const PROMPT_VERSION: &str = "v2.0.0";
 const MAX_TABLES: usize = 8;
 const MAX_COLUMNS: usize = 12;
 const MAX_SCHEMA_CHARS: usize = 6000;
 
+/// Build a minimal prompt bundle without restrictive rules.
+/// User input is passed directly to the AI with schema context attached.
 pub fn build_prompt_bundle(
-    scenario: &str,
+    _scenario: &str,
     input: &str,
     schema_overview: Option<&AiSchemaOverview>,
 ) -> AiPromptBundle {
     let selected = select_tables(input, schema_overview);
     let schema_text = render_schema_summary(&selected);
 
-    let system = AiChatMessage {
-        role: "system".to_string(),
-        content: "You are an expert SQL assistant. Follow user requirements accurately, prioritize correctness, and avoid destructive statements unless explicitly requested.".to_string(),
-    };
-
-    // Many OpenAI-compatible providers only support system/user/assistant roles.
-    // Keep template instructions in a second system message for compatibility.
-    let developer = AiChatMessage {
-        role: "system".to_string(),
-        content: build_template(scenario, &schema_text),
+    // Simple user message with schema context attached
+    let content = if schema_text.is_empty() || schema_text == "(No schema provided)" {
+        input.to_string()
+    } else {
+        format!("{}\n\nDatabase schema:\n{}", input, schema_text)
     };
 
     AiPromptBundle {
         prompt_version: PROMPT_VERSION.to_string(),
-        messages: vec![system, developer],
+        messages: vec![AiChatMessage {
+            role: "user".to_string(),
+            content,
+        }],
     }
 }
 
-fn build_template(scenario: &str, schema_summary: &str) -> String {
-    let base_rules = "Rules:\n1. Return concise output.\n2. If scenario is sql_generate or sql_optimize, output only SQL without markdown fences.\n3. Prefer safe SQL and explain assumptions briefly only for sql_explain.";
-
-    let scenario_rules = match scenario {
-        "sql_explain" => {
-            "Task: explain the SQL clearly with execution intent and optimization opportunities."
-        }
-        "sql_optimize" => {
-            "Task: optimize the SQL for performance while keeping semantics unchanged. Return SQL only."
-        }
-        _ => "Task: generate SQL from natural language. Return SQL only.",
-    };
-
-    format!("{base_rules}\n{scenario_rules}\n\nAvailable tables and schemas:\n{schema_summary}",)
-}
-
+/// Select relevant tables based on keyword matching with user input.
 fn select_tables(input: &str, schema_overview: Option<&AiSchemaOverview>) -> Vec<AiTableSummary> {
     let Some(overview) = schema_overview else {
         return vec![];
@@ -106,6 +91,7 @@ fn select_tables(input: &str, schema_overview: Option<&AiSchemaOverview>) -> Vec
     selected
 }
 
+/// Render schema summary in a readable format.
 fn render_schema_summary(tables: &[AiTableSummary]) -> String {
     if tables.is_empty() {
         return "(No schema provided)".to_string();
@@ -118,7 +104,7 @@ fn render_schema_summary(tables: &[AiTableSummary]) -> String {
             out.push('\n');
         }
 
-        out.push_str(&format!("{}.{}\n", table.schema, table.name));
+        out.push_str(&format!("{}.{}", table.schema, table.name));
 
         let mut cols = Vec::new();
         let mut truncated_cols = false;
@@ -135,7 +121,7 @@ fn render_schema_summary(tables: &[AiTableSummary]) -> String {
             cols.push(piece);
         }
 
-        out.push_str("  Columns: ");
+        out.push_str("\n  Columns: ");
         out.push_str(&cols.join(", "));
         if truncated_cols {
             out.push_str(", ... (truncated)");
@@ -203,7 +189,7 @@ mod tests {
 
         let out = render_schema_summary(&[users, orders]);
         assert!(out.contains("public.users\n  Columns: id (int), email (text, nullable)\n"));
-        assert!(out.contains("\n\npublic.orders\n  Columns: id (int), user_id (int)\n"));
+        assert!(out.contains("public.orders\n  Columns: id (int), user_id (int)\n"));
     }
 
     #[test]
@@ -229,5 +215,37 @@ mod tests {
         }
         let out = render_schema_summary(&tables);
         assert!(out.contains("... (truncated)"));
+    }
+
+    #[test]
+    fn build_prompt_bundle_includes_schema() {
+        let users = table(
+            "public",
+            "users",
+            vec![
+                col("id", "int", Some(false)),
+                col("email", "text", Some(true)),
+            ],
+        );
+        let overview = AiSchemaOverview {
+            tables: vec![users],
+        };
+
+        let bundle = build_prompt_bundle("sql_generate", "List all users", Some(&overview));
+
+        assert_eq!(bundle.messages.len(), 1);
+        assert_eq!(bundle.messages[0].role, "user");
+        assert!(bundle.messages[0].content.contains("List all users"));
+        assert!(bundle.messages[0].content.contains("Database schema:"));
+        assert!(bundle.messages[0].content.contains("public.users"));
+    }
+
+    #[test]
+    fn build_prompt_bundle_without_schema() {
+        let bundle = build_prompt_bundle("sql_generate", "Hello", None);
+
+        assert_eq!(bundle.messages.len(), 1);
+        assert_eq!(bundle.messages[0].role, "user");
+        assert_eq!(bundle.messages[0].content, "Hello");
     }
 }

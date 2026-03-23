@@ -69,6 +69,8 @@ import {
   sanitizeConnectionErrorMessage,
 } from "./connection-list/helpers";
 import { useTranslation } from "react-i18next";
+import { normalizeConnectionFormInput } from "@/lib/connection-form/rules";
+import { validateConnectionFormInput } from "@/lib/connection-form/validate";
 
 interface Column {
   name: string;
@@ -411,15 +413,18 @@ export function ConnectionList({
       form.driver !== "mariadb"
     );
   }, [form.driver]);
+  const normalizedForm = useMemo(() => normalizeConnectionFormInput(form), [form]);
+  const validationIssues = useMemo(
+    () =>
+      validateConnectionFormInput(
+        normalizedForm,
+        dialogMode === "edit" ? "edit" : "create",
+      ),
+    [normalizedForm, dialogMode],
+  );
   const requiredOk = useMemo(() => {
-    if (isFileBased) return !!form.filePath;
-    const hasBasic = !!form.host && !!form.port && !!form.username;
-    if (dialogMode === "edit") return hasBasic;
-    if (isPasswordRequiredOnCreate) {
-      return hasBasic && !!form.password;
-    }
-    return hasBasic;
-  }, [form, isFileBased, dialogMode, isPasswordRequiredOnCreate]);
+    return validationIssues.length === 0;
+  }, [validationIssues]);
 
   const validateSslSettings = () => {
     if (!form.ssl || !supportsSslCa) {
@@ -429,6 +434,14 @@ export function ConnectionList({
       return t("connection.dialog.sslValidation.caRequired");
     }
     return null;
+  };
+
+  const getFirstValidationMessage = () => {
+    if (validationIssues.length === 0) {
+      return null;
+    }
+    const issue = validationIssues[0];
+    return t(issue.key);
   };
 
   const pickSingleFile = async (params: {
@@ -1153,6 +1166,11 @@ export function ConnectionList({
   const handleTestConnection = async () => {
     try {
       setValidationMsg(null);
+      const fieldValidationError = getFirstValidationMessage();
+      if (fieldValidationError) {
+        setValidationMsg(fieldValidationError);
+        return;
+      }
       const sslError = validateSslSettings();
       if (sslError) {
         setValidationMsg(sslError);
@@ -1160,7 +1178,7 @@ export function ConnectionList({
       }
       setIsTesting(true);
       setTestMsg(null);
-      const res = await api.connections.testEphemeral(form);
+      const res = await api.connections.testEphemeral(normalizedForm);
       setTestMsg({
         ok: res.success,
         text: res.message,
@@ -1175,14 +1193,7 @@ export function ConnectionList({
 
   const handleConnect = async () => {
     if (!requiredOk) {
-      const requiredFields = isFileBased
-        ? t("connection.dialog.requiredFilePath")
-        : isPasswordRequiredOnCreate
-          ? t("connection.dialog.requiredCreateWithPassword")
-          : t("connection.dialog.requiredCreateNoPassword");
-      setValidationMsg(
-        t("connection.dialog.requiredMessage", { fields: requiredFields }),
-      );
+      setValidationMsg(getFirstValidationMessage());
       return;
     }
     setValidationMsg(null);
@@ -1193,7 +1204,7 @@ export function ConnectionList({
     }
     setIsConnecting(true);
     try {
-      const res = await api.connections.create(form);
+      const res = await api.connections.create(normalizedForm);
       setConnections((prev) => [
         {
           id: String(res.id),
@@ -1222,7 +1233,7 @@ export function ConnectionList({
       ]);
       setIsDialogOpen(false);
       setForm(defaultForm);
-      if (onConnect) onConnect(form);
+      if (onConnect) onConnect(normalizedForm);
     } catch (e: any) {
       setValidationMsg(String(e?.message || e));
     } finally {
@@ -1233,12 +1244,7 @@ export function ConnectionList({
   const handleSaveEdit = async () => {
     if (!editingConnectionId) return;
     if (!requiredOk) {
-      const requiredFields = isFileBased
-        ? t("connection.dialog.requiredFilePath")
-        : t("connection.dialog.requiredEdit");
-      setValidationMsg(
-        t("connection.dialog.requiredMessage", { fields: requiredFields }),
-      );
+      setValidationMsg(getFirstValidationMessage());
       return;
     }
 
@@ -1250,7 +1256,7 @@ export function ConnectionList({
     }
     setIsSavingEdit(true);
     try {
-      await api.connections.update(Number(editingConnectionId), form);
+      await api.connections.update(Number(editingConnectionId), normalizedForm);
       await fetchConnections();
       setIsDialogOpen(false);
       setDialogMode("create");

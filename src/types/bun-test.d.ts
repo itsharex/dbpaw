@@ -3,4 +3,7 @@ declare module "bun:test" {
   export const test: (...args: any[]) => any;
   export const it: typeof test;
   export const expect: (...args: any[]) => any;
+  export const mock: {
+    module: (id: string, factory: () => any) => void;
+  };
 }

@@ -74,6 +74,8 @@ fn build_dsn_and_ca_path(form: &ConnectionForm) -> Result<(String, Option<PathBu
         .password
         .clone()
         .ok_or("[VALIDATION_ERROR] password cannot be empty")?;
+    let username = percent_encode_query_value(&username);
+    let password = percent_encode_query_value(&password);
     let mut dsn = format!(
         "postgres://{}:{}@{}:{}/{}",
         username, password, host, port, database
@@ -151,7 +153,11 @@ impl PostgresDriver {
             .acquire_timeout(std::time::Duration::from_secs(3))
             .connect(&dsn)
             .await
-            .map_err(|e| format!("[CONN_FAILED] {e}"))?;
+            .map_err(|e| {
+                format!(
+                    "[CONN_FAILED] {e} (hint: check if username/password contain special characters; they must be URL-encoded)"
+                )
+            })?;
 
         Ok(Self {
             pool,
@@ -1176,6 +1182,25 @@ mod tests {
         // Use build_dsn directly
         let dsn = build_dsn(&form).unwrap();
         assert_eq!(dsn, "postgres://postgres:password@localhost:5432/mydb");
+    }
+
+    #[test]
+    fn test_conn_string_encodes_credentials() {
+        let form = ConnectionForm {
+            driver: "postgres".to_string(),
+            host: Some("localhost".to_string()),
+            port: Some(5432),
+            username: Some("user@name".to_string()),
+            password: Some("p@ss:word#?".to_string()),
+            database: Some("mydb".to_string()),
+            ..Default::default()
+        };
+
+        let dsn = build_dsn(&form).unwrap();
+        assert_eq!(
+            dsn,
+            "postgres://user%40name:p%40ss%3Aword%23%3F@localhost:5432/mydb"
+        );
     }
 
     #[test]

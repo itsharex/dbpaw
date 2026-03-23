@@ -142,21 +142,15 @@ impl LocalDb {
             .map_err(|e| format!("[MIGRATION_008_ERROR] {e}"))?;
         }
 
-        let has_provider_type_trigger_insert: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='trg_ai_providers_provider_type_insert')",
-        )
-        .fetch_one(&pool)
+        // Migration 009: Always execute — its SQL is idempotent (DROP IF EXISTS + CREATE IF NOT EXISTS).
+        // The previous conditional check based on trigger name was buggy because migration 008
+        // already created a trigger with the same name, causing migration 009 to be skipped.
+        sqlx::query(include_str!(
+            "../../migrations/009_ai_provider_type_relaxed.sql"
+        ))
+        .execute(&pool)
         .await
-        .map_err(|e| format!("[MIGRATION_009_CHECK_ERROR] {e}"))?;
-
-        if !has_provider_type_trigger_insert {
-            sqlx::query(include_str!(
-                "../../migrations/009_ai_provider_type_relaxed.sql"
-            ))
-            .execute(&pool)
-            .await
-            .map_err(|e| format!("[MIGRATION_009_ERROR] {e}"))?;
-        }
+        .map_err(|e| format!("[MIGRATION_009_ERROR] {e}"))?;
 
         let has_sql_execution_logs: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='sql_execution_logs')",
@@ -1202,5 +1196,55 @@ mod tests {
             vec![second.id, first.id]
         );
         assert_eq!(after_update[1].name, "first-renamed");
+    }
+
+    #[tokio::test]
+    async fn saved_query_crud_round_trip() {
+        let db = make_test_db().await;
+
+        let created = db
+            .create_saved_query(
+                "q1".to_string(),
+                "SELECT 1".to_string(),
+                Some("desc".to_string()),
+                Some(10),
+                Some("db1".to_string()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(created.name, "q1");
+        assert_eq!(created.query, "SELECT 1");
+        assert_eq!(created.description.as_deref(), Some("desc"));
+        assert_eq!(created.connection_id, Some(10));
+        assert_eq!(created.database.as_deref(), Some("db1"));
+
+        let updated = db
+            .update_saved_query(
+                created.id,
+                "q1-updated".to_string(),
+                "SELECT 2".to_string(),
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.id, created.id);
+        assert_eq!(updated.name, "q1-updated");
+        assert_eq!(updated.query, "SELECT 2");
+        assert!(updated.description.is_none());
+        assert!(updated.connection_id.is_none());
+        assert!(updated.database.is_none());
+
+        let list = db.list_saved_queries().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, created.id);
+
+        db.delete_saved_query(created.id).await.unwrap();
+        let get_err = db.get_saved_query_by_id(created.id).await.unwrap_err();
+        assert!(get_err.contains("[GET_QUERY_ERROR]"));
+
+        let list_after = db.list_saved_queries().await.unwrap();
+        assert!(list_after.is_empty());
     }
 }

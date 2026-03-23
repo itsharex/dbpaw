@@ -159,6 +159,7 @@ pub fn run() {
 
 pub mod ai;
 pub mod commands;
+pub mod connection_input;
 pub mod db;
 pub mod error;
 pub mod events;

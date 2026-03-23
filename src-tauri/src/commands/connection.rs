@@ -169,6 +169,7 @@ fn normalize_create_database_error(err: String, db_name: &str) -> String {
 
 #[tauri::command]
 pub async fn list_databases(form: ConnectionForm) -> Result<Vec<String>, String> {
+    let form = crate::connection_input::normalize_connection_form(form)?;
     let driver = crate::db::drivers::connect(&form).await?;
     driver.list_databases().await
 }
@@ -262,6 +263,7 @@ pub async fn create_database_by_id(
 pub async fn test_connection_ephemeral(
     form: ConnectionForm,
 ) -> Result<TestConnectionResult, String> {
+    let form = crate::connection_input::normalize_connection_form(form)?;
     let start = Instant::now();
     let driver = crate::db::drivers::connect(&form).await?;
     driver.test_connection().await.map_err(|e| e.to_string())?;
@@ -292,6 +294,7 @@ pub async fn create_connection(
     state: State<'_, AppState>,
     form: ConnectionForm,
 ) -> Result<Connection, String> {
+    let form = crate::connection_input::normalize_connection_form(form)?;
     let local_db = {
         let lock = state.local_db.lock().await;
         lock.clone()
@@ -309,6 +312,7 @@ pub async fn update_connection(
     id: i64,
     form: ConnectionForm,
 ) -> Result<Connection, String> {
+    let form = crate::connection_input::normalize_connection_form(form)?;
     let local_db = {
         let lock = state.local_db.lock().await;
         lock.clone()
@@ -345,11 +349,68 @@ mod tests {
         build_mssql_create_database_sql, build_mysql_create_database_sql,
         build_postgres_create_database_sql, validate_database_name, CreateDatabasePayload,
     };
+    use super::{
+        normalize_create_database_error, normalize_option_token, quote_mssql_ident,
+        quote_mysql_ident, quote_pg_ident,
+    };
 
     #[test]
     fn validate_database_name_rejects_empty_and_null() {
         assert!(validate_database_name("  ").is_err());
         assert!(validate_database_name("ab\0cd").is_err());
+    }
+
+    #[test]
+    fn validate_database_name_length_boundaries() {
+        let name_128 = "a".repeat(128);
+        let name_129 = "a".repeat(129);
+        assert_eq!(validate_database_name(&name_128).unwrap(), name_128);
+        assert!(validate_database_name(&name_129).is_err());
+    }
+
+    #[test]
+    fn normalize_option_token_accepts_safe_and_rejects_unsafe() {
+        let ok = normalize_option_token(&Some("utf8mb4_0900_ai_ci".into()), "collation")
+            .unwrap()
+            .unwrap();
+        assert_eq!(ok, "utf8mb4_0900_ai_ci");
+
+        let empty = normalize_option_token(&Some("   ".into()), "collation").unwrap();
+        assert!(empty.is_none());
+
+        let err = normalize_option_token(&Some("utf8 mb4".into()), "charset").unwrap_err();
+        assert!(err.contains("Invalid characters"));
+
+        let err = normalize_option_token(&Some("utf8;drop".into()), "charset").unwrap_err();
+        assert!(err.contains("Invalid characters"));
+    }
+
+    #[test]
+    fn normalize_create_database_error_classifies_known_errors() {
+        let already = normalize_create_database_error(
+            "ERROR 1007 (HY000): Can't create database; database exists".to_string(),
+            "app",
+        );
+        assert!(already.contains("[ALREADY_EXISTS]"));
+
+        let postgres = normalize_create_database_error(
+            "ERROR: 42P04 duplicate_database".to_string(),
+            "app",
+        );
+        assert!(postgres.contains("[ALREADY_EXISTS]"));
+
+        let perm = normalize_create_database_error(
+            "ERROR: permission denied for database app".to_string(),
+            "app",
+        );
+        assert!(perm.contains("[PERMISSION_DENIED]"));
+    }
+
+    #[test]
+    fn quote_idents_escape_driver_specific_characters() {
+        assert_eq!(quote_mysql_ident("a`b"), "`a``b`");
+        assert_eq!(quote_pg_ident("a\"b"), "\"a\"\"b\"");
+        assert_eq!(quote_mssql_ident("a]b"), "[a]]b]");
     }
 
     #[test]
