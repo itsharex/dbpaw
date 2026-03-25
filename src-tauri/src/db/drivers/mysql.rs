@@ -142,6 +142,11 @@ fn build_dsn(form: &ConnectionForm) -> Result<String, String> {
     Ok(build_dsn_and_ca_path(form)?.0)
 }
 
+#[cfg(test)]
+pub(crate) fn build_test_dsn(form: &ConnectionForm) -> Result<String, String> {
+    build_dsn(form)
+}
+
 fn build_dsn_with_ca_path(form: &ConnectionForm) -> Result<(String, Option<PathBuf>), String> {
     build_dsn_and_ca_path(form)
 }
@@ -1040,6 +1045,22 @@ mod tests {
     }
 
     #[test]
+    fn test_conn_string_allows_empty_password_when_present() {
+        let form = ConnectionForm {
+            driver: "mysql".to_string(),
+            host: Some("127.0.0.1".to_string()),
+            port: Some(3307),
+            username: Some("user".to_string()),
+            password: Some(String::new()),
+            database: None,
+            ..Default::default()
+        };
+
+        let conn_str = build_dsn(&form).unwrap();
+        assert_eq!(conn_str, "mysql://user:@127.0.0.1:3307");
+    }
+
+    #[test]
     fn test_conn_string_strips_host_embedded_port() {
         let form = ConnectionForm {
             driver: "mysql".to_string(),
@@ -1087,6 +1108,34 @@ mod tests {
         assert_eq!(
             conn_str,
             "mysql://user%40name:p%40ss%3Aword%23%3F@localhost:3306/test_db"
+        );
+    }
+
+    #[test]
+    fn test_conn_string_encodes_credentials_when_ssh_rewrites_target_host() {
+        let mut form = ConnectionForm {
+            driver: "mysql".to_string(),
+            host: Some("db.internal".to_string()),
+            port: Some(3306),
+            username: Some("user@name".to_string()),
+            password: Some("p#ss*@)".to_string()),
+            database: Some("test_db".to_string()),
+            ssh_enabled: Some(true),
+            ssh_host: Some("bastion.internal".to_string()),
+            ssh_port: Some(22),
+            ssh_username: Some("jump".to_string()),
+            ssh_password: Some("ssh#pass".to_string()),
+            ..Default::default()
+        };
+
+        // Match the production flow after the SSH tunnel assigns a local endpoint.
+        form.host = Some("127.0.0.1".to_string());
+        form.port = Some(4406);
+
+        let conn_str = build_dsn(&form).unwrap();
+        assert_eq!(
+            conn_str,
+            "mysql://user%40name:p%23ss%2A%40%29@127.0.0.1:4406/test_db"
         );
     }
 

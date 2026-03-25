@@ -1209,6 +1209,34 @@ mod tests {
     }
 
     #[test]
+    fn test_conn_string_encodes_credentials_when_ssh_rewrites_target_host() {
+        let mut form = ConnectionForm {
+            driver: "postgres".to_string(),
+            host: Some("db.internal".to_string()),
+            port: Some(5432),
+            username: Some("user@name".to_string()),
+            password: Some("p#ss*@)".to_string()),
+            database: Some("mydb".to_string()),
+            ssh_enabled: Some(true),
+            ssh_host: Some("bastion.internal".to_string()),
+            ssh_port: Some(22),
+            ssh_username: Some("jump".to_string()),
+            ssh_password: Some("ssh#pass".to_string()),
+            ..Default::default()
+        };
+
+        // Match the production flow after the SSH tunnel assigns a local endpoint.
+        form.host = Some("127.0.0.1".to_string());
+        form.port = Some(55432);
+
+        let dsn = build_dsn(&form).unwrap();
+        assert_eq!(
+            dsn,
+            "postgres://user%40name:p%23ss%2A%40%29@127.0.0.1:55432/mydb"
+        );
+    }
+
+    #[test]
     fn test_conn_string_missing_fields() {
         let form = ConnectionForm {
             driver: "postgres".to_string(),

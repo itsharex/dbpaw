@@ -345,6 +345,8 @@ pub async fn delete_connection(state: State<'_, AppState>, id: i64) -> Result<()
 
 #[cfg(test)]
 mod tests {
+    use crate::connection_input::normalize_connection_form;
+    use crate::models::ConnectionForm;
     use super::{
         build_mssql_create_database_sql, build_mysql_create_database_sql,
         build_postgres_create_database_sql, validate_database_name, CreateDatabasePayload,
@@ -404,6 +406,25 @@ mod tests {
             "app",
         );
         assert!(perm.contains("[PERMISSION_DENIED]"));
+    }
+
+    #[test]
+    fn mysql_ephemeral_flow_preserves_empty_password_through_normalization() {
+        let form = ConnectionForm {
+            driver: "mysql".to_string(),
+            host: Some(" localhost ".to_string()),
+            port: Some(3306),
+            username: Some(" root ".to_string()),
+            password: Some("   ".to_string()),
+            database: Some(" app ".to_string()),
+            ..Default::default()
+        };
+
+        let normalized = normalize_connection_form(form).unwrap();
+        let dsn = crate::db::drivers::mysql::build_test_dsn(&normalized).unwrap();
+
+        assert_eq!(normalized.password, Some(String::new()));
+        assert_eq!(dsn, "mysql://root:@localhost:3306/app");
     }
 
     #[test]

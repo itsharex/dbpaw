@@ -6,6 +6,10 @@ fn trim_to_option(value: Option<String>) -> Option<String> {
         .and_then(|v| if v.is_empty() { None } else { Some(v) })
 }
 
+fn trim_preserve_empty(value: Option<String>) -> Option<String> {
+    value.map(|v| v.trim().to_string())
+}
+
 fn parse_host_embedded_port(host: &str, fallback_port: Option<i64>) -> (String, Option<i64>) {
     if host.starts_with('[') || host.contains(' ') || host.matches(':').count() != 1 {
         return (host.to_string(), fallback_port);
@@ -42,12 +46,12 @@ pub fn normalize_connection_form(mut form: ConnectionForm) -> Result<ConnectionF
     form.database = trim_to_option(form.database);
     form.schema = trim_to_option(form.schema);
     form.username = trim_to_option(form.username);
-    form.password = trim_to_option(form.password);
-    form.ssl_ca_cert = trim_to_option(form.ssl_ca_cert);
+    form.password = trim_preserve_empty(form.password);
+    form.ssl_ca_cert = trim_preserve_empty(form.ssl_ca_cert);
     form.file_path = trim_to_option(form.file_path);
     form.ssh_host = trim_to_option(form.ssh_host);
     form.ssh_username = trim_to_option(form.ssh_username);
-    form.ssh_password = trim_to_option(form.ssh_password);
+    form.ssh_password = trim_preserve_empty(form.ssh_password);
     form.ssh_key_path = trim_to_option(form.ssh_key_path);
 
     validate_port_range("port", form.port)?;
@@ -107,6 +111,24 @@ mod tests {
         assert_eq!(normalized.host, Some("127.0.0.1".to_string()));
         assert_eq!(normalized.port, Some(3307));
         assert_eq!(normalized.username, Some("root".to_string()));
+    }
+
+    #[test]
+    fn normalize_preserves_empty_secret_fields_when_present() {
+        let form = ConnectionForm {
+            driver: "mysql".to_string(),
+            host: Some(" localhost ".to_string()),
+            username: Some(" root ".to_string()),
+            password: Some("   ".to_string()),
+            ssl_ca_cert: Some("   ".to_string()),
+            ssh_password: Some("   ".to_string()),
+            ..Default::default()
+        };
+
+        let normalized = normalize_connection_form(form).unwrap();
+        assert_eq!(normalized.password, Some(String::new()));
+        assert_eq!(normalized.ssl_ca_cert, Some(String::new()));
+        assert_eq!(normalized.ssh_password, Some(String::new()));
     }
 
     #[test]
