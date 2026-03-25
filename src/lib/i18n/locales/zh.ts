@@ -81,6 +81,7 @@ export const zh: Translations = {
     description: "管理应用外观与偏好。",
     sections: {
       general: "通用",
+      layout: "布局",
       ai: "AI",
       shortcuts: "快捷键",
       about: "关于",
@@ -100,6 +101,13 @@ export const zh: Translations = {
       fontSizeTitle: "字体大小",
       fontSizeDescription: "调整应用全局文字大小（范围：{{min}}-{{max}}px）",
 
+    },
+    layout: {
+      title: "布局",
+      modeTitle: "侧边栏布局",
+      modeDescription: "选择连接与查询的展示方式。",
+      modeTabs: "标签式（连接/查询）",
+      modeTree: "树状（查询挂在连接下）",
     },
     updates: {
       title: "更新",
@@ -179,6 +187,10 @@ export const zh: Translations = {
       failed: "连接失败",
       connecting: "连接中",
       idle: "未连接",
+    },
+    tree: {
+      database: "数据库",
+      queries: "查询",
     },
     dialog: {
       editTitle: "编辑数据库连接",

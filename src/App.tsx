@@ -63,6 +63,7 @@ import {
   normalizeDatabaseOptions,
   resolvePreferredDatabase,
 } from "@/lib/sqlEditorDatabase";
+import { getSetting } from "@/services/store";
 
 interface TabItem {
   id: string;
@@ -114,6 +115,8 @@ type ActiveTableTarget = {
   table: string;
   schema?: string;
 };
+
+type SidebarLayoutMode = "tabs" | "tree";
 
 const DEFAULT_SQL = "";
 
@@ -203,9 +206,18 @@ export default function App() {
   );
   const [isUnsavedConfirmOpen, setIsUnsavedConfirmOpen] = useState(false);
   const [isCloseSaveDialogOpen, setIsCloseSaveDialogOpen] = useState(false);
+  const [sidebarLayout, setSidebarLayout] = useState<SidebarLayoutMode>("tabs");
   const closeSaveCompletedRef = useRef(false);
   const unsavedConfirmActionRef = useRef<"save" | "discard" | null>(null);
   const schemaOverviewRequestKeysRef = useRef<Map<string, string>>(new Map());
+
+  useEffect(() => {
+    void getSetting<SidebarLayoutMode>("sidebarLayout", "tabs").then(
+      (layout) => {
+        setSidebarLayout(layout === "tree" ? "tree" : "tabs");
+      },
+    );
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -1396,6 +1408,7 @@ export default function App() {
               onSelectSavedQuery={handleOpenSavedQuery}
               lastUpdated={queriesLastUpdated}
               activeTableTarget={activeTableTarget}
+              layoutMode={sidebarLayout}
             />
           </ResizablePanel>
 
@@ -1728,7 +1741,12 @@ export default function App() {
       />
       {openSettings && (
         <Suspense fallback={null}>
-          <SettingsDialog open={openSettings} onOpenChange={setOpenSettings} />
+          <SettingsDialog
+            open={openSettings}
+            onOpenChange={setOpenSettings}
+            sidebarLayout={sidebarLayout}
+            onSidebarLayoutChange={setSidebarLayout}
+          />
         </Suspense>
       )}
       <UpdaterChecker />

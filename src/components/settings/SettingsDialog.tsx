@@ -2,6 +2,7 @@ import {
   Bot,
   Command,
   Info,
+  LayoutPanelLeft,
   Palette,
   RefreshCw,
   Settings2,
@@ -52,9 +53,11 @@ import { useTranslation } from "react-i18next";
 interface SettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  sidebarLayout?: "tabs" | "tree";
+  onSidebarLayoutChange?: (layout: "tabs" | "tree") => void;
 }
 
-type SettingsSection = "general" | "ai" | "shortcuts" | "about";
+type SettingsSection = "general" | "layout" | "ai" | "shortcuts" | "about";
 type AIProviderPreset = {
   type: AIProviderType;
   label: string;
@@ -216,7 +219,12 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
   },
 ];
 
-export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
+export function SettingsDialog({
+  open,
+  onOpenChange,
+  sidebarLayout = "tabs",
+  onSidebarLayoutChange,
+}: SettingsDialogProps) {
   const { t } = useTranslation();
   const {
     theme,
@@ -245,6 +253,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [providerHasApiKey, setProviderHasApiKey] = useState(false);
   const [showProviderApiKey, setShowProviderApiKey] = useState(false);
   const [fontSizeInput, setFontSizeInput] = useState(String(fontSizePx));
+  const [layoutMode, setLayoutMode] = useState<"tabs" | "tree">(sidebarLayout);
 
   const clampFontSize = (size: number) => {
     const rounded = Math.round(size);
@@ -262,6 +271,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     if (open) {
       setActiveSection("general");
       setFontSizeInput(String(fontSizePx));
+      setLayoutMode(sidebarLayout);
       getSetting("autoUpdate", true).then(setAutoUpdate);
       api.ai.providers
         .list()
@@ -279,7 +289,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
           toast.error(t("settings.aiProviders.loadFailed"));
         });
     }
-  }, [open, t]);
+  }, [fontSizePx, open, sidebarLayout, t]);
 
   useEffect(() => {
     setFontSizeInput(String(fontSizePx));
@@ -449,6 +459,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     setFontSizeInput(String(normalized));
   };
 
+  const handleLayoutChange = async (value: "tabs" | "tree") => {
+    setLayoutMode(value);
+    await saveSetting("sidebarLayout", value);
+    onSidebarLayoutChange?.(value);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[860px] w-[92vw] h-[80vh] max-h-[80vh] flex flex-col overflow-hidden">
@@ -472,6 +488,17 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
               >
                 <Settings2 className="w-4 h-4" />
                 {t("settings.sections.general")}
+              </button>
+              <button
+                className={`w-full text-left rounded-md px-3 py-2 text-sm transition-colors flex items-center gap-2 ${
+                  activeSection === "layout"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:bg-muted/60"
+                }`}
+                onClick={() => setActiveSection("layout")}
+              >
+                <LayoutPanelLeft className="w-4 h-4" />
+                {t("settings.sections.layout")}
               </button>
               <button
                 className={`w-full text-left rounded-md px-3 py-2 text-sm transition-colors flex items-center gap-2 ${
@@ -625,6 +652,36 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                         ? t("settings.updates.updating")
                         : t("settings.updates.checkNow")}
                   </Button>
+                </div>
+              </div>
+            )}
+
+            {activeSection === "layout" && (
+              <div className="space-y-4">
+                <h3 className="text-lg font-medium flex items-center gap-2">
+                  <LayoutPanelLeft className="w-5 h-5" /> {t("settings.layout.title")}
+                </h3>
+                <div className="grid grid-cols-2 gap-4 items-center">
+                  <div className="space-y-1">
+                    <Label className="text-base">{t("settings.layout.modeTitle")}</Label>
+                    <p className="text-xs text-muted-foreground">
+                      {t("settings.layout.modeDescription")}
+                    </p>
+                  </div>
+                  <Select
+                    value={layoutMode}
+                    onValueChange={(value) =>
+                      void handleLayoutChange(value as "tabs" | "tree")
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={t("settings.layout.modeTitle")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="tabs">{t("settings.layout.modeTabs")}</SelectItem>
+                      <SelectItem value="tree">{t("settings.layout.modeTree")}</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             )}

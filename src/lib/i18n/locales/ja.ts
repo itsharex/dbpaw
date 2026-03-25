@@ -82,6 +82,7 @@ export const ja: Translations = {
     description: "アプリの外観と設定を管理します。",
     sections: {
       general: "一般",
+      layout: "レイアウト",
       ai: "AI",
       shortcuts: "ショートカット",
       about: "情報",
@@ -101,7 +102,13 @@ export const ja: Translations = {
       fontSizeTitle: "フォントサイズ",
       fontSizeDescription:
         "アプリ全体の文字サイズを調整します（範囲：{{min}}-{{max}}px）",
-      accentColor: "アクセントカラー",
+    },
+    layout: {
+      title: "レイアウト",
+      modeTitle: "サイドバー配置",
+      modeDescription: "接続とクエリの表示方法を選択します。",
+      modeTabs: "タブ（接続/クエリ）",
+      modeTree: "ツリー（接続配下にクエリ）",
     },
     updates: {
       title: "アップデート",
@@ -186,6 +193,10 @@ export const ja: Translations = {
       failed: "接続失敗",
       connecting: "接続中",
       idle: "未接続",
+    },
+    tree: {
+      database: "データベース",
+      queries: "クエリ",
     },
     dialog: {
       editTitle: "データベース接続を編集",

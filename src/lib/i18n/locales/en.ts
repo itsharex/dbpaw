@@ -80,6 +80,7 @@ export const en = {
     description: "Manage your app appearance and preferences.",
     sections: {
       general: "General",
+      layout: "Layout",
       ai: "AI",
       shortcuts: "Shortcuts",
       about: "About",
@@ -100,6 +101,13 @@ export const en = {
       fontSizeDescription:
         "Adjust global text size across the app (Range: {{min}}-{{max}}px)",
 
+    },
+    layout: {
+      title: "Layout",
+      modeTitle: "Sidebar Layout",
+      modeDescription: "Choose how Connections and Queries are arranged.",
+      modeTabs: "Tabs (Connections/Queries)",
+      modeTree: "Tree (Queries under connection)",
     },
     updates: {
       title: "Updates",
@@ -182,6 +190,10 @@ export const en = {
       failed: "Connection failed",
       connecting: "Connecting",
       idle: "Not connected",
+    },
+    tree: {
+      database: "Database",
+      queries: "Queries",
     },
     dialog: {
       editTitle: "Edit Database Connection",
