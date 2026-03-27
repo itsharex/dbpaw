@@ -298,6 +298,16 @@ export interface ExportResult {
   rowCount: number;
 }
 
+export interface ImportSqlResult {
+  filePath: string;
+  totalStatements: number;
+  successStatements: number;
+  failedAt?: number;
+  error?: string;
+  timeTakenMs: number;
+  rolledBack: boolean;
+}
+
 export const api = {
   query: {
     execute: (
@@ -426,6 +436,12 @@ export const api = {
       format: TransferFormat;
       filePath?: string;
     }) => invoke<ExportResult>("export_query_result", params),
+    importSqlFile: (params: {
+      id: number;
+      database?: string;
+      filePath: string;
+      driver: string;
+    }) => invoke<ImportSqlResult>("import_sql_file", params),
   },
   connections: {
     list: () => invoke<any[]>("get_connections"),

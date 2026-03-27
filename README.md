@@ -36,6 +36,7 @@ English | [简体中文](README_CN.md) | [日本語](README_JA.md)
 - Connect to PostgreSQL, MySQL, MariaDB (MySQL-compatible), TiDB (MySQL-compatible), SQLite, SQL Server, and ClickHouse (preview, currently read-only)
 - Write and run SQL with syntax highlighting, auto-completion, and one-click formatting
 - Browse query results in a data grid with filtering, sorting, pagination, and export
+- Import `.sql` files into MySQL/PostgreSQL with all-or-nothing rollback
 - Save and reuse frequently used SQL scripts with Saved Queries
 - Use the AI sidebar to draft SQL and explain queries (optional)
 - Access remote databases through SSH tunneling

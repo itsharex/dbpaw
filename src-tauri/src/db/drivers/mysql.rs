@@ -165,6 +165,11 @@ fn cleanup_ca_file_opt(path: Option<&PathBuf>) {
     }
 }
 
+fn is_prepared_protocol_unsupported_error(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    lower.contains("1295") || lower.contains("prepared statement protocol")
+}
+
 impl Drop for MysqlDriver {
     fn drop(&mut self) {
         cleanup_ca_file_opt(self.ca_cert_path.as_ref());
@@ -388,7 +393,10 @@ fn normalize_mysql_row_json(
     Ok(())
 }
 
-fn decode_mysql_json_cell(row: &sqlx::mysql::MySqlRow, column_name: &str) -> Result<serde_json::Value, String> {
+fn decode_mysql_json_cell(
+    row: &sqlx::mysql::MySqlRow,
+    column_name: &str,
+) -> Result<serde_json::Value, String> {
     if let Ok(v) = row.try_get::<sqlx::types::Json<serde_json::Value>, _>(column_name) {
         return Ok(v.0);
     }
@@ -403,10 +411,7 @@ fn decode_mysql_json_cell(row: &sqlx::mysql::MySqlRow, column_name: &str) -> Res
     Err("[QUERY_ERROR] Failed to decode MySQL JSON cell".to_string())
 }
 
-fn build_mysql_json_object_expr(
-    columns: &[(String, String)],
-    table_alias: Option<&str>,
-) -> String {
+fn build_mysql_json_object_expr(columns: &[(String, String)], table_alias: Option<&str>) -> String {
     if columns.is_empty() {
         return "JSON_OBJECT()".to_string();
     }
@@ -857,10 +862,23 @@ impl DatabaseDriver for MysqlDriver {
             let row_count = data.len() as i64;
             (columns, data, row_count)
         } else {
-            let rows = sqlx::query(&sql)
-                .fetch_all(&self.pool)
-                .await
-                .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+            let mut executed_with_raw_sql = false;
+            let rows = match sqlx::query(&sql).fetch_all(&self.pool).await {
+                Ok(rows) => rows,
+                Err(e) => {
+                    let error_text = e.to_string();
+                    if is_prepared_protocol_unsupported_error(&error_text) {
+                        sqlx::raw_sql(&sql)
+                            .execute(&self.pool)
+                            .await
+                            .map_err(|raw_err| format!("[QUERY_ERROR] {raw_err}"))?;
+                        executed_with_raw_sql = true;
+                        Vec::new()
+                    } else {
+                        return Err(format!("[QUERY_ERROR] {e}"));
+                    }
+                }
+            };
             let columns = if let Some(first_row) = rows.first() {
                 first_row
                     .columns()
@@ -870,6 +888,8 @@ impl DatabaseDriver for MysqlDriver {
                         r#type: col.type_info().to_string(),
                     })
                     .collect()
+            } else if executed_with_raw_sql {
+                Vec::new()
             } else {
                 self.describe_query_columns(&sql).await?
             };
@@ -1025,7 +1045,10 @@ mod tests {
         };
 
         let conn_str = build_dsn(&form).unwrap();
-        assert_eq!(conn_str, "mysql://root:password@localhost:3306/test_db?ssl-mode=DISABLED");
+        assert_eq!(
+            conn_str,
+            "mysql://root:password@localhost:3306/test_db?ssl-mode=DISABLED"
+        );
     }
 
     #[test]
@@ -1041,7 +1064,10 @@ mod tests {
         };
 
         let conn_str = build_dsn(&form).unwrap();
-        assert_eq!(conn_str, "mysql://user:pass@127.0.0.1:3307?ssl-mode=DISABLED");
+        assert_eq!(
+            conn_str,
+            "mysql://user:pass@127.0.0.1:3307?ssl-mode=DISABLED"
+        );
     }
 
     #[test]
@@ -1073,7 +1099,10 @@ mod tests {
         };
 
         let conn_str = build_dsn(&form).unwrap();
-        assert_eq!(conn_str, "mysql://user:pass@127.0.0.1:3307?ssl-mode=DISABLED");
+        assert_eq!(
+            conn_str,
+            "mysql://user:pass@127.0.0.1:3307?ssl-mode=DISABLED"
+        );
     }
 
     #[test]
@@ -1089,7 +1118,10 @@ mod tests {
         };
 
         let conn_str = build_dsn(&form).unwrap();
-        assert_eq!(conn_str, "mysql://root:password@localhost:3308/test_db?ssl-mode=DISABLED");
+        assert_eq!(
+            conn_str,
+            "mysql://root:password@localhost:3308/test_db?ssl-mode=DISABLED"
+        );
     }
 
     #[test]
@@ -1245,7 +1277,9 @@ mod tests {
     #[test]
     fn test_is_json_projectable_statement() {
         assert!(is_json_projectable_statement("SELECT 1"));
-        assert!(is_json_projectable_statement("  WITH t AS (SELECT 1) SELECT * FROM t"));
+        assert!(is_json_projectable_statement(
+            "  WITH t AS (SELECT 1) SELECT * FROM t"
+        ));
         assert!(!is_json_projectable_statement("SHOW TABLES"));
         assert!(!is_json_projectable_statement("UPDATE t SET a = 1"));
     }
@@ -1279,7 +1313,10 @@ mod tests {
 
         normalize_mysql_row_json(&mut row, &high_precision_cols).unwrap();
 
-        assert_eq!(row.get("id").and_then(|v| v.as_str()), Some("9223372036854775807"));
+        assert_eq!(
+            row.get("id").and_then(|v| v.as_str()),
+            Some("9223372036854775807")
+        );
         assert_eq!(row.get("amount").and_then(|v| v.as_str()), Some("1234.56"));
         assert_eq!(row.get("name").and_then(|v| v.as_str()), Some("demo"));
         assert!(row.get("nullable").unwrap().is_null());
@@ -1297,5 +1334,18 @@ mod tests {
         let sql = build_mysql_json_projection_query("SELECT * FROM t;;;", "JSON_OBJECT()");
         assert!(sql.contains("FROM (SELECT * FROM t) AS `__dbpaw_row`"));
         assert!(!sql.contains(";) AS `__dbpaw_row`"));
+    }
+
+    #[test]
+    fn test_is_prepared_protocol_unsupported_error() {
+        assert!(is_prepared_protocol_unsupported_error(
+            "error returned from database: 1295 (HY000): This command is not supported in the prepared statement protocol yet"
+        ));
+        assert!(is_prepared_protocol_unsupported_error(
+            "prepared statement protocol is unsupported"
+        ));
+        assert!(!is_prepared_protocol_unsupported_error(
+            "syntax error near ...",
+        ));
     }
 }

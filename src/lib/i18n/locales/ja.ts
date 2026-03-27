@@ -291,9 +291,17 @@ export const ja: Translations = {
       refreshTables: "テーブルを更新",
       newQuery: "新規クエリ",
       newDatabase: "新規 Database",
+      importSql: "SQL をインポート",
       exportCsv: "CSV としてエクスポート",
       exportJson: "JSON としてエクスポート",
       exportSql: "SQL としてエクスポート",
+    },
+    importDialog: {
+      title: "SQL をインポート",
+      description:
+        "データベース {{database}} に SQL をインポートします。途中で失敗した場合は全件ロールバックされます。",
+      confirm: "インポート",
+      importing: "インポート中…",
     },
     createDbDialog: {
       title: "Database を作成",
@@ -337,6 +345,13 @@ export const ja: Translations = {
       duplicateFailed: "接続の複製に失敗しました",
       createDatabaseSuccess: "Database を作成しました",
       createDatabaseFailed: "Database の作成に失敗しました",
+      importDesktopOnly:
+        "SQL インポートは Tauri デスクトップモードでのみ利用できます。",
+      importUnsupportedDriver:
+        "現在の SQL インポートは MySQL / PostgreSQL のみ対応しています。",
+      selectImportSqlFile: "インポートする SQL ファイルを選択",
+      importSuccess: "インポート完了（{{count}} 文）",
+      importFailed: "インポートに失敗しました",
       exportDesktopOnly:
         "エクスポートダイアログは Tauri デスクトップモードでのみ利用できます。",
       saveExportFile: "エクスポートファイルを保存",

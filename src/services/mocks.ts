@@ -7,6 +7,7 @@ import {
   TestConnectionResult,
   SavedQuery,
   ExportResult,
+  ImportSqlResult,
   AIProviderConfig,
   AIConversation,
   AIConversationDetail,
@@ -953,6 +954,19 @@ export async function mockExportQueryResult(
   };
 }
 
+export async function mockImportSqlFile(_params: any): Promise<ImportSqlResult> {
+  await new Promise((resolve) => setTimeout(resolve, 160));
+  return {
+    filePath: _params?.filePath || `/tmp/dbpaw-import-${Date.now()}.sql`,
+    totalStatements: 3,
+    successStatements: 3,
+    failedAt: undefined,
+    error: undefined,
+    timeTakenMs: 120,
+    rolledBack: false,
+  };
+}
+
 /**
  * Invoke corresponding mock handler function by command name
  */
@@ -1072,6 +1086,9 @@ export async function invokeMock<T>(cmd: string, args?: any): Promise<T> {
 
     case "export_query_result":
       return mockExportQueryResult(args) as Promise<T>;
+
+    case "import_sql_file":
+      return mockImportSqlFile(args) as Promise<T>;
 
     case "ai_list_providers":
       return Promise.resolve([...mockAiProviders]) as Promise<T>;

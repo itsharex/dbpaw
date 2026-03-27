@@ -36,6 +36,7 @@
 - 连接 PostgreSQL、MySQL、MariaDB（MySQL 兼容）、TiDB（MySQL 兼容）、SQLite、SQL Server 与 ClickHouse（预览版，当前只读）
 - 编写与执行 SQL：语法高亮、自动补全、一键格式化
 - 在数据网格中浏览结果，支持过滤、排序、分页与导出
+- 支持将 `.sql` 文件导入 MySQL/PostgreSQL，并在失败时全量回滚
 - 使用 Saved Queries 保存并复用常用 SQL 脚本
 - 使用 AI 侧边栏辅助写 SQL、解释查询（可选）
 - 通过 SSH 隧道访问远程数据库

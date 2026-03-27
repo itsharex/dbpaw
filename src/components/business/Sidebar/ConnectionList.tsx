@@ -16,6 +16,7 @@ import {
   Search,
   Download,
   FolderOpen,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -189,6 +190,7 @@ const mssqlCollationOptions = [
   "Japanese_CI_AS",
 ];
 const schemaNodeDrivers: Driver[] = ["postgres", "mssql"];
+const importSupportedDrivers: Driver[] = ["postgres", "mysql"];
 
 interface ConnectionListProps {
   onTableSelect?: (
@@ -283,6 +285,7 @@ export function ConnectionList({
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isCreatingDatabase, setIsCreatingDatabase] = useState(false);
+  const [isImportingSql, setIsImportingSql] = useState(false);
   const [deleteTargetConnectionId, setDeleteTargetConnectionId] = useState<
     string | null
   >(null);
@@ -308,11 +311,20 @@ export function ConnectionList({
   const [savedQueriesByConnection, setSavedQueriesByConnection] = useState<
     Record<string, SavedQuery[]>
   >({});
+  const [pendingImport, setPendingImport] = useState<{
+    connectionId: string;
+    databaseName: string;
+    driver: Driver;
+    filePath: string;
+  } | null>(null);
+  const [isImportConfirmOpen, setIsImportConfirmOpen] = useState(false);
 
   const supportsCreateDatabaseForDriver = (driver: Driver) =>
     createDatabaseSupportedDrivers.includes(driver);
   const supportsSchemaNodeForDriver = (driver: Driver) =>
     schemaNodeDrivers.includes(driver);
+  const supportsImportForDriver = (driver: Driver) =>
+    importSupportedDrivers.includes(driver);
   const getSchemaNodeKey = (databaseKey: string, schema: string) =>
     `${databaseKey}::${schema}`;
   const getTableNodeKey = (
@@ -1614,7 +1626,84 @@ export function ConnectionList({
     }
   };
 
+  const handleDatabaseImport = async (
+    connectionId: string,
+    databaseName: string,
+  ) => {
+    const connection = connections.find((conn) => conn.id === connectionId);
+    if (!connection) return;
+
+    if (!supportsImportForDriver(connection.type)) {
+      toast.error(t("connection.toast.importUnsupportedDriver"));
+      return;
+    }
+
+    if (!isTauri()) {
+      toast.error(t("connection.toast.importDesktopOnly"));
+      return;
+    }
+
+    const selectedPath = await pickSingleFile({
+      title: t("connection.toast.selectImportSqlFile"),
+      filters: [{ name: "SQL", extensions: ["sql"] }],
+    });
+    if (!selectedPath) return;
+
+    setPendingImport({
+      connectionId,
+      databaseName,
+      driver: connection.type,
+      filePath: selectedPath,
+    });
+    setIsImportConfirmOpen(true);
+  };
+
+  const handleConfirmImport = async () => {
+    if (!pendingImport) return;
+
+    setIsImportingSql(true);
+    try {
+      const result = await api.transfer.importSqlFile({
+        id: Number(pendingImport.connectionId),
+        database: pendingImport.databaseName,
+        filePath: pendingImport.filePath,
+        driver: pendingImport.driver,
+      });
+
+      if (result.error || result.failedAt) {
+        toast.error(t("connection.toast.importFailed"), {
+          description: result.error || t("common.unknown"),
+        });
+      } else {
+        toast.success(
+          t("connection.toast.importSuccess", {
+            count: result.successStatements,
+          }),
+          {
+            description: pendingImport.filePath,
+          },
+        );
+      }
+
+      await handleRefreshDatabaseTables(
+        pendingImport.connectionId,
+        pendingImport.databaseName,
+      );
+    } catch (e) {
+      toast.error(t("connection.toast.importFailed"), {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setIsImportingSql(false);
+      setIsImportConfirmOpen(false);
+      setPendingImport(null);
+    }
+  };
+
   const contextMenuConnection = contextMenu.connectionId
+    ? connections.find((conn) => conn.id === contextMenu.connectionId)
+    : null;
+  const contextMenuDatabaseConnection = contextMenu.connectionId
     ? connections.find((conn) => conn.id === contextMenu.connectionId)
     : null;
 
@@ -2762,6 +2851,24 @@ export function ConnectionList({
                 <RefreshCw className="w-4 h-4" />
                 {t("connection.menu.refreshTables")}
               </button>
+              {contextMenu.connectionId &&
+              contextMenu.databaseName &&
+              contextMenuDatabaseConnection &&
+              supportsImportForDriver(contextMenuDatabaseConnection.type) ? (
+                <button
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
+                  onClick={async () => {
+                    await handleDatabaseImport(
+                      contextMenu.connectionId!,
+                      contextMenu.databaseName!,
+                    );
+                    setContextMenu((prev) => ({ ...prev, visible: false }));
+                  }}
+                >
+                  <Upload className="w-4 h-4" />
+                  {t("connection.menu.importSql")}
+                </button>
+              ) : null}
               <button
                 className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
                 onClick={() => {
@@ -3121,6 +3228,50 @@ export function ConnectionList({
               }}
             >
               {isDeleting ? t("connection.deleteDialog.deleting") : t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={isImportConfirmOpen}
+        onOpenChange={(open) => {
+          setIsImportConfirmOpen(open);
+          if (!open && !isImportingSql) {
+            setPendingImport(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("connection.importDialog.title")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("connection.importDialog.description", {
+                database: pendingImport?.databaseName || "",
+              })}
+            </AlertDialogDescription>
+            <div className="text-xs text-muted-foreground font-mono break-all mt-2">
+              {pendingImport?.filePath || ""}
+            </div>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isImportingSql}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isImportingSql || !pendingImport}
+              onClick={async (e) => {
+                e.preventDefault();
+                await handleConfirmImport();
+              }}
+            >
+              {isImportingSql ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {t("connection.importDialog.importing")}
+                </>
+              ) : (
+                t("connection.importDialog.confirm")
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

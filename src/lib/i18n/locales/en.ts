@@ -286,9 +286,17 @@ export const en = {
       refreshTables: "Refresh Tables",
       newQuery: "New Query",
       newDatabase: "New Database",
+      importSql: "Import SQL",
       exportCsv: "Export as CSV",
       exportJson: "Export as JSON",
       exportSql: "Export as SQL",
+    },
+    importDialog: {
+      title: "Import SQL",
+      description:
+        "Import SQL into database {{database}}. Any statement failure will roll back all changes.",
+      confirm: "Import",
+      importing: "Importing…",
     },
     createDbDialog: {
       title: "Create Database",
@@ -331,6 +339,12 @@ export const en = {
       duplicateFailed: "Failed to duplicate connection",
       createDatabaseSuccess: "Database created successfully",
       createDatabaseFailed: "Failed to create database",
+      importDesktopOnly: "SQL import is only available in Tauri desktop mode.",
+      importUnsupportedDriver:
+        "SQL import is currently supported only for MySQL and PostgreSQL.",
+      selectImportSqlFile: "Select SQL File to Import",
+      importSuccess: "Import completed ({{count}} statements)",
+      importFailed: "Import failed",
       exportDesktopOnly: "Export dialog is only available in Tauri desktop mode.",
       saveExportFile: "Save Export File",
       openSaveDialogFailed: "Failed to open save dialog",

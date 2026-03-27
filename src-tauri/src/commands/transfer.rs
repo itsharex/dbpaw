@@ -3,10 +3,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::State;
 
 const DEFAULT_CHUNK_SIZE: i64 = 2000;
+const MAX_IMPORT_FILE_SIZE_BYTES: u64 = 20 * 1024 * 1024;
+const MAX_IMPORT_STATEMENTS: usize = 50_000;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -29,6 +31,18 @@ pub enum ExportScope {
 pub struct ExportResult {
     pub file_path: String,
     pub row_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportSqlResult {
+    pub file_path: String,
+    pub total_statements: i64,
+    pub success_statements: i64,
+    pub failed_at: Option<i64>,
+    pub error: Option<String>,
+    pub time_taken_ms: i64,
+    pub rolled_back: bool,
 }
 
 #[tauri::command]
@@ -200,6 +214,104 @@ pub async fn export_query_result(
     .await
 }
 
+#[tauri::command]
+pub async fn import_sql_file(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    file_path: String,
+    driver: String,
+) -> Result<ImportSqlResult, String> {
+    let normalized_driver = driver.trim().to_ascii_lowercase();
+    if normalized_driver != "postgres" && normalized_driver != "mysql" {
+        return Err(format!(
+            "[UNSUPPORTED] Driver {} is not supported for SQL import",
+            driver
+        ));
+    }
+
+    let import_path = PathBuf::from(file_path.trim());
+    validate_import_path(&import_path)?;
+    validate_import_file_size(&import_path)?;
+
+    let source = fs::read_to_string(&import_path)
+        .map_err(|e| format!("[IMPORT_ERROR] failed to read sql file: {e}"))?;
+    let source = source
+        .strip_prefix('\u{feff}')
+        .unwrap_or(&source)
+        .to_string();
+
+    let statements = parse_sql_statements(&source, &normalized_driver)?;
+    if statements.is_empty() {
+        return Err("[IMPORT_ERROR] SQL file does not contain executable statements".to_string());
+    }
+    if statements.len() > MAX_IMPORT_STATEMENTS {
+        return Err(format!(
+            "[IMPORT_ERROR] statement count exceeds limit ({} > {})",
+            statements.len(),
+            MAX_IMPORT_STATEMENTS
+        ));
+    }
+
+    let started_at = std::time::Instant::now();
+    let total_statements = statements.len() as i64;
+
+    super::execute_with_retry(&state, id, database, |db_driver| {
+        let statements = statements.clone();
+        let import_path = import_path.clone();
+        async move {
+            db_driver
+                .execute_query("BEGIN".to_string())
+                .await
+                .map_err(|e| format!("[IMPORT_ERROR] failed to start transaction: {e}"))?;
+
+            let mut success_statements = 0i64;
+            for (idx, statement) in statements.iter().enumerate() {
+                if let Err(e) = db_driver.execute_query(statement.clone()).await {
+                    let _ = db_driver.execute_query("ROLLBACK".to_string()).await;
+                    return Ok(ImportSqlResult {
+                        file_path: import_path.to_string_lossy().to_string(),
+                        total_statements,
+                        success_statements,
+                        failed_at: Some((idx + 1) as i64),
+                        error: Some(truncate_error_message(&e)),
+                        time_taken_ms: started_at.elapsed().as_millis() as i64,
+                        rolled_back: true,
+                    });
+                }
+                success_statements += 1;
+            }
+
+            if let Err(e) = db_driver.execute_query("COMMIT".to_string()).await {
+                let _ = db_driver.execute_query("ROLLBACK".to_string()).await;
+                return Ok(ImportSqlResult {
+                    file_path: import_path.to_string_lossy().to_string(),
+                    total_statements,
+                    success_statements,
+                    failed_at: None,
+                    error: Some(format!(
+                        "[IMPORT_ERROR] failed to commit transaction: {}",
+                        truncate_error_message(&e)
+                    )),
+                    time_taken_ms: started_at.elapsed().as_millis() as i64,
+                    rolled_back: true,
+                });
+            }
+
+            Ok(ImportSqlResult {
+                file_path: import_path.to_string_lossy().to_string(),
+                total_statements,
+                success_statements: total_statements,
+                failed_at: None,
+                error: None,
+                time_taken_ms: started_at.elapsed().as_millis() as i64,
+                rolled_back: false,
+            })
+        }
+    })
+    .await
+}
+
 fn extension_for_format(format: &ExportFormat) -> &'static str {
     match format {
         ExportFormat::Csv => "csv",
@@ -230,6 +342,250 @@ fn resolve_output_path(
         fs::create_dir_all(parent).map_err(|e| format!("[EXPORT_ERROR] create dir failed: {e}"))?;
     }
     Ok(path)
+}
+
+fn validate_import_path(path: &Path) -> Result<(), String> {
+    if path.as_os_str().is_empty() {
+        return Err("[IMPORT_ERROR] Invalid import path".to_string());
+    }
+    if path.is_dir() {
+        return Err("[IMPORT_ERROR] Import path points to a directory".to_string());
+    }
+    if !path.exists() {
+        return Err("[IMPORT_ERROR] Import file does not exist".to_string());
+    }
+    let Some(ext) = path.extension().and_then(|v| v.to_str()) else {
+        return Err("[IMPORT_ERROR] Import file must use .sql extension".to_string());
+    };
+    if !ext.eq_ignore_ascii_case("sql") {
+        return Err("[IMPORT_ERROR] Import file must use .sql extension".to_string());
+    }
+    Ok(())
+}
+
+fn validate_import_file_size(path: &Path) -> Result<(), String> {
+    let metadata = fs::metadata(path)
+        .map_err(|e| format!("[IMPORT_ERROR] failed to read file metadata: {e}"))?;
+    if metadata.len() > MAX_IMPORT_FILE_SIZE_BYTES {
+        return Err(format!(
+            "[IMPORT_ERROR] file is too large (max {} bytes)",
+            MAX_IMPORT_FILE_SIZE_BYTES
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+enum SqlScanState {
+    Normal,
+    SingleQuoted,
+    DoubleQuoted,
+    BacktickQuoted,
+    DollarQuoted(String),
+    LineComment,
+    BlockComment,
+}
+
+fn parse_sql_statements(sql: &str, driver: &str) -> Result<Vec<String>, String> {
+    let mysql_style_hash_comment = matches!(driver, "mysql" | "mariadb" | "tidb");
+    let chars: Vec<char> = sql.chars().collect();
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut state = SqlScanState::Normal;
+    let mut i = 0usize;
+
+    while i < chars.len() {
+        match &state {
+            SqlScanState::Normal => {
+                let ch = chars[i];
+                let next = chars.get(i + 1).copied();
+
+                if ch == '-' && next == Some('-') {
+                    state = SqlScanState::LineComment;
+                    i += 2;
+                    continue;
+                }
+                if mysql_style_hash_comment && ch == '#' {
+                    state = SqlScanState::LineComment;
+                    i += 1;
+                    continue;
+                }
+                if ch == '/' && next == Some('*') {
+                    state = SqlScanState::BlockComment;
+                    i += 2;
+                    continue;
+                }
+                if ch == '\'' {
+                    current.push(ch);
+                    state = SqlScanState::SingleQuoted;
+                    i += 1;
+                    continue;
+                }
+                if ch == '"' {
+                    current.push(ch);
+                    state = SqlScanState::DoubleQuoted;
+                    i += 1;
+                    continue;
+                }
+                if ch == '`' {
+                    current.push(ch);
+                    state = SqlScanState::BacktickQuoted;
+                    i += 1;
+                    continue;
+                }
+                if ch == '$' {
+                    if let Some((tag, end_idx)) = parse_dollar_quote_tag(&chars, i) {
+                        current.push_str(&tag);
+                        state = SqlScanState::DollarQuoted(tag);
+                        i = end_idx + 1;
+                        continue;
+                    }
+                }
+                if ch == ';' {
+                    let statement = current.trim();
+                    if !statement.is_empty() {
+                        out.push(statement.to_string());
+                    }
+                    current.clear();
+                    i += 1;
+                    continue;
+                }
+                current.push(ch);
+                i += 1;
+            }
+            SqlScanState::SingleQuoted => {
+                let ch = chars[i];
+                current.push(ch);
+                if ch == '\\' {
+                    if let Some(next) = chars.get(i + 1) {
+                        current.push(*next);
+                        i += 2;
+                        continue;
+                    }
+                }
+                if ch == '\'' {
+                    if chars.get(i + 1) == Some(&'\'') {
+                        current.push('\'');
+                        i += 2;
+                        continue;
+                    }
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::DoubleQuoted => {
+                let ch = chars[i];
+                current.push(ch);
+                if ch == '"' {
+                    if chars.get(i + 1) == Some(&'"') {
+                        current.push('"');
+                        i += 2;
+                        continue;
+                    }
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::BacktickQuoted => {
+                let ch = chars[i];
+                current.push(ch);
+                if ch == '`' {
+                    if chars.get(i + 1) == Some(&'`') {
+                        current.push('`');
+                        i += 2;
+                        continue;
+                    }
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::DollarQuoted(tag) => {
+                if starts_with_tag(&chars, i, tag) {
+                    current.push_str(tag);
+                    i += tag.chars().count();
+                    state = SqlScanState::Normal;
+                    continue;
+                }
+                current.push(chars[i]);
+                i += 1;
+            }
+            SqlScanState::LineComment => {
+                if chars[i] == '\n' {
+                    current.push('\n');
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::BlockComment => {
+                if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+                    state = SqlScanState::Normal;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    match state {
+        SqlScanState::Normal | SqlScanState::LineComment => {}
+        SqlScanState::BlockComment => {
+            return Err("[IMPORT_ERROR] Unterminated block comment in SQL file".to_string());
+        }
+        SqlScanState::SingleQuoted
+        | SqlScanState::DoubleQuoted
+        | SqlScanState::BacktickQuoted
+        | SqlScanState::DollarQuoted(_) => {
+            return Err("[IMPORT_ERROR] Unterminated string literal in SQL file".to_string());
+        }
+    }
+
+    let tail = current.trim();
+    if !tail.is_empty() {
+        out.push(tail.to_string());
+    }
+    Ok(out)
+}
+
+fn parse_dollar_quote_tag(chars: &[char], start: usize) -> Option<(String, usize)> {
+    if chars.get(start) != Some(&'$') {
+        return None;
+    }
+    let mut idx = start + 1;
+    while idx < chars.len() && (chars[idx].is_ascii_alphanumeric() || chars[idx] == '_') {
+        idx += 1;
+    }
+    if idx < chars.len() && chars[idx] == '$' {
+        let tag: String = chars[start..=idx].iter().collect();
+        return Some((tag, idx));
+    }
+    None
+}
+
+fn starts_with_tag(chars: &[char], idx: usize, tag: &str) -> bool {
+    let tag_chars: Vec<char> = tag.chars().collect();
+    if idx + tag_chars.len() > chars.len() {
+        return false;
+    }
+    for (offset, ch) in tag_chars.iter().enumerate() {
+        if chars[idx + offset] != *ch {
+            return false;
+        }
+    }
+    true
+}
+
+fn truncate_error_message(message: &str) -> String {
+    const MAX_CHARS: usize = 500;
+    let mut out = String::new();
+    for (idx, ch) in message.chars().enumerate() {
+        if idx >= MAX_CHARS {
+            out.push_str("...");
+            break;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 fn validate_output_path(path: &PathBuf) -> Result<(), String> {
@@ -508,7 +864,10 @@ mod tests {
             sql_value(&Value::String("O'Reilly".to_string())),
             "'O''Reilly'"
         );
-        assert_eq!(sql_value(&Value::Number(serde_json::Number::from(42))), "42");
+        assert_eq!(
+            sql_value(&Value::Number(serde_json::Number::from(42))),
+            "42"
+        );
         assert_eq!(sql_value(&Value::Bool(false)), "FALSE");
     }
 
@@ -612,5 +971,46 @@ mod tests {
             .unwrap_err();
         assert_eq!(err, "[EXPORT_ERROR] row is not a JSON object");
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn parse_sql_statements_handles_quotes_and_comments() {
+        let sql = r#"
+            -- comment 1
+            INSERT INTO users (name, note) VALUES ('alice', 'hello;world');
+            /* block comment ; ; */
+            INSERT INTO users (name) VALUES ("bob");
+            # mysql style comment
+            INSERT INTO users(name) VALUES ($tag$semi;inside$tag$);
+        "#;
+
+        let statements = parse_sql_statements(sql, "mysql").unwrap();
+        assert_eq!(statements.len(), 3);
+        assert!(statements[0].starts_with("INSERT INTO users"));
+        assert!(statements[1].contains("\"bob\""));
+        assert!(statements[2].contains("$tag$semi;inside$tag$"));
+    }
+
+    #[test]
+    fn parse_sql_statements_rejects_unterminated_block_comment() {
+        let err = parse_sql_statements("INSERT INTO t VALUES (1); /*", "mysql").unwrap_err();
+        assert!(err.contains("Unterminated block comment"));
+    }
+
+    #[test]
+    fn parse_sql_statements_preserves_hash_for_postgres() {
+        let sql = "SELECT 1 # 2;\nSELECT '#not_comment';";
+        let statements = parse_sql_statements(sql, "postgres").unwrap();
+        assert_eq!(statements.len(), 2);
+        assert_eq!(statements[0], "SELECT 1 # 2");
+        assert_eq!(statements[1], "SELECT '#not_comment'");
+    }
+
+    #[test]
+    fn truncate_error_message_caps_length() {
+        let source = "x".repeat(600);
+        let truncated = truncate_error_message(&source);
+        assert!(truncated.len() <= 503);
+        assert!(truncated.ends_with("..."));
     }
 }
