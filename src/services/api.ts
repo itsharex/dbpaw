@@ -489,7 +489,9 @@ export const api = {
       setDefault: (id: number) =>
         invoke<void>("ai_set_default_provider", { id }),
       clearApiKey: (providerType: string) =>
-        invoke<void>("ai_clear_provider_api_key", { provider_type: providerType }),
+        invoke<void>("ai_clear_provider_api_key", {
+          provider_type: providerType,
+        }),
     },
     chat: {
       start: (request: AIChatRequest) =>

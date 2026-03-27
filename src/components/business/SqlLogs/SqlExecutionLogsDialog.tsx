@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { CheckCircle2, Copy, History, Loader2, XCircle } from "lucide-react";
 import { api, SqlExecutionLog } from "@/services/api";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { toast } from "sonner";
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -74,7 +78,9 @@ export function SqlExecutionLogsDropdown() {
       <PopoverContent align="end" className="w-[680px] p-2">
         <div className="flex items-center justify-between px-1 pb-2">
           <div className="text-sm font-medium">SQL Logs (latest 100)</div>
-          {loading && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+          {loading && (
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          )}
         </div>
 
         <div className="max-h-[460px] overflow-auto space-y-1">

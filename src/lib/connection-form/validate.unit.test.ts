@@ -36,7 +36,9 @@ describe("validateConnectionFormInput", () => {
 
     const keys = issues.map((i) => i.key);
     expect(keys).toContain("connection.dialog.inputValidation.sshHostRequired");
-    expect(keys).toContain("connection.dialog.inputValidation.sshUsernameRequired");
+    expect(keys).toContain(
+      "connection.dialog.inputValidation.sshUsernameRequired",
+    );
     expect(keys).toContain("connection.dialog.inputValidation.sshPortRange");
     expect(keys).toContain("connection.dialog.inputValidation.sshAuthRequired");
   });

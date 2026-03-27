@@ -62,7 +62,9 @@ export const parseHostEmbeddedPort = (
   };
 };
 
-export const normalizeConnectionFormInput = (raw: ConnectionForm): ConnectionForm => {
+export const normalizeConnectionFormInput = (
+  raw: ConnectionForm,
+): ConnectionForm => {
   const driver = raw.driver;
   const normalizedHost = normalizeTextValue(raw.host);
   const normalizedPort = normalizePortNumber(raw.port);

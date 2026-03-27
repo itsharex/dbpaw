@@ -101,9 +101,9 @@ export function SavedQueriesList({
 }: SavedQueriesListProps) {
   const { t } = useTranslation();
   const [queries, setQueries] = useState<SavedQuery[]>([]);
-  const [connectionOptions, setConnectionOptions] = useState<ConnectionOption[]>(
-    [],
-  );
+  const [connectionOptions, setConnectionOptions] = useState<
+    ConnectionOption[]
+  >([]);
   const [connections, setConnections] = useState<Record<number, string>>({});
   const [connectionTypes, setConnectionTypes] = useState<
     Record<number, Driver>
@@ -223,7 +223,9 @@ export function SavedQueriesList({
   const handleCreate = () => {
     if (!onCreateQuery || !selectedConnectionId) return;
     const connectionId = Number(selectedConnectionId);
-    const connection = connectionOptions.find((item) => item.id === connectionId);
+    const connection = connectionOptions.find(
+      (item) => item.id === connectionId,
+    );
     if (!connection) return;
     const explicitDatabase =
       selectedDatabase === DEFAULT_DATABASE_VALUE ? "" : selectedDatabase;
@@ -323,10 +325,15 @@ export function SavedQueriesList({
         )}
       </div>
 
-      <Dialog open={createDialogOpen} onOpenChange={handleCreateDialogOpenChange}>
+      <Dialog
+        open={createDialogOpen}
+        onOpenChange={handleCreateDialogOpenChange}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t("sidebar.queries.newQueryDialog.title")}</DialogTitle>
+            <DialogTitle>
+              {t("sidebar.queries.newQueryDialog.title")}
+            </DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-2">

@@ -169,7 +169,9 @@ mod tests {
 
     #[test]
     fn conn_failed_error_tls_hint() {
-        let msg = conn_failed_error(&"error communicating with database: received fatal alert: HandshakeFailure");
+        let msg = conn_failed_error(
+            &"error communicating with database: received fatal alert: HandshakeFailure",
+        );
         assert!(msg.starts_with("[CONN_FAILED]"));
         assert!(msg.contains("TLS/SSL handshake failed"));
         assert!(!msg.contains("username/password"));

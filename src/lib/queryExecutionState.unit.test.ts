@@ -1,5 +1,8 @@
 import { describe, it, expect } from "bun:test";
-import { applyQueryCompletionToTab, QueryResultsState } from "./queryExecutionState";
+import {
+  applyQueryCompletionToTab,
+  QueryResultsState,
+} from "./queryExecutionState";
 
 // Mock Tab type
 interface TestTab {
@@ -23,7 +26,12 @@ describe("applyQueryCompletionToTab", () => {
       lastQueryId: "query-A",
     };
 
-    const result = applyQueryCompletionToTab(tab, "tab-1", "query-A", mockResults);
+    const result = applyQueryCompletionToTab(
+      tab,
+      "tab-1",
+      "query-A",
+      mockResults,
+    );
 
     expect(result.queryResults).toEqual(mockResults);
     expect(result.activeQueryId).toBeUndefined();
@@ -42,7 +50,12 @@ describe("applyQueryCompletionToTab", () => {
     };
 
     // query-A response returns
-    const result = applyQueryCompletionToTab(tab, "tab-1", "query-A", mockResults);
+    const result = applyQueryCompletionToTab(
+      tab,
+      "tab-1",
+      "query-A",
+      mockResults,
+    );
 
     // should remain unchanged
     expect(result.queryResults).toBeUndefined();
@@ -59,7 +72,12 @@ describe("applyQueryCompletionToTab", () => {
       lastQueryId: "query-A",
     };
 
-    const result = applyQueryCompletionToTab(tab, "tab-2", "query-A", mockResults);
+    const result = applyQueryCompletionToTab(
+      tab,
+      "tab-2",
+      "query-A",
+      mockResults,
+    );
 
     // should remain unchanged
     expect(result.queryResults).toBeUndefined();
@@ -81,7 +99,12 @@ describe("applyQueryCompletionToTab", () => {
       lastQueryId: "query-A",
     };
 
-    const result = applyQueryCompletionToTab(tab, "tab-1", "query-A", errorResults);
+    const result = applyQueryCompletionToTab(
+      tab,
+      "tab-1",
+      "query-A",
+      errorResults,
+    );
 
     expect(result.queryResults).toEqual(errorResults);
     expect(result.queryResults?.error).toBe("Connection timeout");
@@ -103,30 +126,45 @@ describe("applyQueryCompletionToTab", () => {
     tab = { ...tab, activeQueryId: "query-3", lastQueryId: "query-3" };
 
     // query-2 completes first (already stale)
-    const resultFromQuery2 = applyQueryCompletionToTab(tab, "tab-1", "query-2", {
-      ...mockResults,
-      data: [{ id: 2 }],
-    });
+    const resultFromQuery2 = applyQueryCompletionToTab(
+      tab,
+      "tab-1",
+      "query-2",
+      {
+        ...mockResults,
+        data: [{ id: 2 }],
+      },
+    );
 
     // should be ignored
     expect(resultFromQuery2.queryResults).toBeUndefined();
     expect(resultFromQuery2.lastQueryId).toBe("query-3");
 
     // then query-3 completes (latest)
-    const resultFromQuery3 = applyQueryCompletionToTab(tab, "tab-1", "query-3", {
-      ...mockResults,
-      data: [{ id: 3 }],
-    });
+    const resultFromQuery3 = applyQueryCompletionToTab(
+      tab,
+      "tab-1",
+      "query-3",
+      {
+        ...mockResults,
+        data: [{ id: 3 }],
+      },
+    );
 
     // should be accepted
     expect(resultFromQuery3.queryResults?.data).toEqual([{ id: 3 }]);
     expect(resultFromQuery3.lastQueryId).toBeUndefined();
 
     // finally query-1 completes (even more stale)
-    const resultFromQuery1 = applyQueryCompletionToTab(resultFromQuery3, "tab-1", "query-1", {
-      ...mockResults,
-      data: [{ id: 1 }],
-    });
+    const resultFromQuery1 = applyQueryCompletionToTab(
+      resultFromQuery3,
+      "tab-1",
+      "query-1",
+      {
+        ...mockResults,
+        data: [{ id: 1 }],
+      },
+    );
 
     // should be ignored, keep query-3 results
     expect(resultFromQuery1.queryResults?.data).toEqual([{ id: 3 }]);

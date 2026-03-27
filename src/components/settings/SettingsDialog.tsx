@@ -24,7 +24,12 @@ import {
   subscribeUpdateTask,
   UpdateTaskState,
 } from "@/services/updater";
-import { AIProviderConfig, AIProviderForm, AIProviderType, api } from "@/services/api";
+import {
+  AIProviderConfig,
+  AIProviderForm,
+  AIProviderType,
+  api,
+} from "@/services/api";
 import { toast } from "sonner";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
@@ -226,12 +231,7 @@ export function SettingsDialog({
   onSidebarLayoutChange,
 }: SettingsDialogProps) {
   const { t } = useTranslation();
-  const {
-    theme,
-    setTheme,
-    fontSizePx,
-    setFontSizePx,
-  } = useTheme();
+  const { theme, setTheme, fontSizePx, setFontSizePx } = useTheme();
   const [activeSection, setActiveSection] =
     useState<SettingsSection>("general");
   const [autoUpdate, setAutoUpdate] = useState(true);
@@ -240,7 +240,9 @@ export function SettingsDialog({
     getUpdateTaskSnapshot().state,
   );
   const [providers, setProviders] = useState<AIProviderConfig[]>([]);
-  const [deletingProviderId, setDeletingProviderId] = useState<number | null>(null);
+  const [deletingProviderId, setDeletingProviderId] = useState<number | null>(
+    null,
+  );
   const [selectedProviderType, setSelectedProviderType] =
     useState<AIProviderType>(AI_PROVIDER_OPTIONS[0].type);
   const [providerBaseUrl, setProviderBaseUrl] = useState(
@@ -339,19 +341,22 @@ export function SettingsDialog({
     try {
       const result = await checkForUpdates();
       if (result.state === "available" && result.update) {
-        toast.info(t("settings.updates.available", { version: result.update.version }), {
-          action: {
-            label: t("settings.updates.updateAction"),
-            onClick: () => {
-              const startResult = startBackgroundInstall(result.update);
-              if (!startResult.started) {
-                toast.info(t("settings.updates.inBackgroundProgress"));
-                return;
-              }
-              toast.success(t("settings.updates.backgroundStarted"));
+        toast.info(
+          t("settings.updates.available", { version: result.update.version }),
+          {
+            action: {
+              label: t("settings.updates.updateAction"),
+              onClick: () => {
+                const startResult = startBackgroundInstall(result.update);
+                if (!startResult.started) {
+                  toast.info(t("settings.updates.inBackgroundProgress"));
+                  return;
+                }
+                toast.success(t("settings.updates.backgroundStarted"));
+              },
             },
           },
-        });
+        );
       } else {
         toast.success(result.message ?? t("settings.updates.latest"));
       }
@@ -378,7 +383,11 @@ export function SettingsDialog({
       );
       const apiKey = providerApiKeyInput.trim();
       const requireApiKey = !existing || !existing.hasApiKey;
-      if (!providerBaseUrl.trim() || !providerModel.trim() || (requireApiKey && !apiKey)) {
+      if (
+        !providerBaseUrl.trim() ||
+        !providerModel.trim() ||
+        (requireApiKey && !apiKey)
+      ) {
         toast.error(t("settings.aiProviders.fillRequired"));
         return;
       }
@@ -470,9 +479,7 @@ export function SettingsDialog({
       <DialogContent className="sm:max-w-[860px] w-[92vw] h-[80vh] max-h-[80vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>{t("settings.title")}</DialogTitle>
-          <DialogDescription>
-            {t("settings.description")}
-          </DialogDescription>
+          <DialogDescription>{t("settings.description")}</DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-1 sm:grid-cols-[190px_1fr] gap-4 py-2 min-h-0 flex-1">
@@ -542,12 +549,15 @@ export function SettingsDialog({
                 <div className="space-y-4">
                   <LanguageSelector />
                   <h3 className="text-lg font-medium flex items-center gap-2">
-                    <Palette className="w-5 h-5" /> {t("settings.appearance.title")}
+                    <Palette className="w-5 h-5" />{" "}
+                    {t("settings.appearance.title")}
                   </h3>
 
                   <div className="grid grid-cols-2 gap-4 items-center">
                     <div className="space-y-1">
-                      <Label className="text-base">{t("settings.appearance.themeTitle")}</Label>
+                      <Label className="text-base">
+                        {t("settings.appearance.themeTitle")}
+                      </Label>
                       <p className="text-xs text-muted-foreground">
                         {t("settings.appearance.themeDescription")}
                       </p>
@@ -557,7 +567,9 @@ export function SettingsDialog({
                       onValueChange={(v) => setTheme(v as ThemeId)}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder={t("settings.appearance.selectTheme")} />
+                        <SelectValue
+                          placeholder={t("settings.appearance.selectTheme")}
+                        />
                       </SelectTrigger>
                       <SelectContent>
                         {/* Light themes */}
@@ -582,7 +594,9 @@ export function SettingsDialog({
 
                   <div className="grid grid-cols-2 gap-4 items-center">
                     <div className="space-y-1">
-                      <Label className="text-base">{t("settings.appearance.fontSizeTitle")}</Label>
+                      <Label className="text-base">
+                        {t("settings.appearance.fontSizeTitle")}
+                      </Label>
                       <p className="text-xs text-muted-foreground">
                         {t("settings.appearance.fontSizeDescription", {
                           min: MIN_FONT_SIZE_PX,
@@ -609,19 +623,20 @@ export function SettingsDialog({
                       <span className="text-sm text-muted-foreground">px</span>
                     </div>
                   </div>
-
-
                 </div>
 
                 <Separator />
 
                 <div className="space-y-4">
                   <h3 className="text-lg font-medium flex items-center gap-2">
-                    <RefreshCw className="w-5 h-5" /> {t("settings.updates.title")}
+                    <RefreshCw className="w-5 h-5" />{" "}
+                    {t("settings.updates.title")}
                   </h3>
                   <div className="flex items-center justify-between">
                     <div className="space-y-1">
-                      <Label className="text-base">{t("settings.updates.autoUpdate")}</Label>
+                      <Label className="text-base">
+                        {t("settings.updates.autoUpdate")}
+                      </Label>
                       <p className="text-xs text-muted-foreground">
                         {t("settings.updates.autoUpdateDescription")}
                       </p>
@@ -645,12 +660,12 @@ export function SettingsDialog({
                     {updateTaskState === "ready_to_restart"
                       ? t("settings.updates.restartNow")
                       : checking
-                      ? t("settings.updates.checking")
-                      : updateTaskState === "checking" ||
-                          updateTaskState === "downloading" ||
-                          updateTaskState === "installing"
-                        ? t("settings.updates.updating")
-                        : t("settings.updates.checkNow")}
+                        ? t("settings.updates.checking")
+                        : updateTaskState === "checking" ||
+                            updateTaskState === "downloading" ||
+                            updateTaskState === "installing"
+                          ? t("settings.updates.updating")
+                          : t("settings.updates.checkNow")}
                   </Button>
                 </div>
               </div>
@@ -659,11 +674,14 @@ export function SettingsDialog({
             {activeSection === "layout" && (
               <div className="space-y-4">
                 <h3 className="text-lg font-medium flex items-center gap-2">
-                  <LayoutPanelLeft className="w-5 h-5" /> {t("settings.layout.title")}
+                  <LayoutPanelLeft className="w-5 h-5" />{" "}
+                  {t("settings.layout.title")}
                 </h3>
                 <div className="grid grid-cols-2 gap-4 items-center">
                   <div className="space-y-1">
-                    <Label className="text-base">{t("settings.layout.modeTitle")}</Label>
+                    <Label className="text-base">
+                      {t("settings.layout.modeTitle")}
+                    </Label>
                     <p className="text-xs text-muted-foreground">
                       {t("settings.layout.modeDescription")}
                     </p>
@@ -675,11 +693,17 @@ export function SettingsDialog({
                     }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder={t("settings.layout.modeTitle")} />
+                      <SelectValue
+                        placeholder={t("settings.layout.modeTitle")}
+                      />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="tabs">{t("settings.layout.modeTabs")}</SelectItem>
-                      <SelectItem value="tree">{t("settings.layout.modeTree")}</SelectItem>
+                      <SelectItem value="tabs">
+                        {t("settings.layout.modeTabs")}
+                      </SelectItem>
+                      <SelectItem value="tree">
+                        {t("settings.layout.modeTree")}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -699,7 +723,9 @@ export function SettingsDialog({
                       onValueChange={handleProviderTypeChange}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder={t("settings.aiProviders.selectProvider")} />
+                        <SelectValue
+                          placeholder={t("settings.aiProviders.selectProvider")}
+                        />
                       </SelectTrigger>
                       <SelectContent>
                         {AI_PROVIDER_OPTIONS.map((item) => (
@@ -759,7 +785,11 @@ export function SettingsDialog({
                 </div>
 
                 <div className="rounded-md border p-3 text-xs text-muted-foreground">
-                  <div>{t("settings.aiProviders.configured", { count: providers.length })}</div>
+                  <div>
+                    {t("settings.aiProviders.configured", {
+                      count: providers.length,
+                    })}
+                  </div>
                   <div className="mt-2 border-t border-border/60 pt-2">
                     <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/90">
                       {t("settings.aiProviders.configuredDetails")}
@@ -793,7 +823,9 @@ export function SettingsDialog({
                                     handleDeleteProvider(provider.id)
                                   }
                                   className="rounded-sm p-0.5 text-muted-foreground/60 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40 disabled:pointer-events-none"
-                                  title={t("settings.aiProviders.deleteProvider")}
+                                  title={t(
+                                    "settings.aiProviders.deleteProvider",
+                                  )}
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
@@ -813,7 +845,8 @@ export function SettingsDialog({
             {activeSection === "shortcuts" && (
               <div className="space-y-4">
                 <h3 className="text-lg font-medium flex items-center gap-2">
-                  <Command className="w-5 h-5" /> {t("settings.shortcuts.title")}
+                  <Command className="w-5 h-5" />{" "}
+                  {t("settings.shortcuts.title")}
                 </h3>
                 <div className="rounded-md border p-3 text-xs text-muted-foreground">
                   {t("settings.shortcuts.readonlyHint")}
@@ -831,9 +864,13 @@ export function SettingsDialog({
                             className="grid grid-cols-1 gap-2 px-3 py-2 sm:grid-cols-[1.2fr_220px_140px]"
                           >
                             <div className="space-y-0.5">
-                              <div className="text-sm text-foreground">{item.action}</div>
+                              <div className="text-sm text-foreground">
+                                {item.action}
+                              </div>
                               {item.note && (
-                                <div className="text-xs text-muted-foreground">{item.note}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {item.note}
+                                </div>
                               )}
                             </div>
                             <div className="text-sm font-mono text-foreground">

@@ -38,10 +38,11 @@ pub fn start_ssh_tunnel(config: &ConnectionForm) -> Result<SshTunnel, String> {
         .clone()
         .ok_or("SSH Username is required")?;
     let ssh_password = config.ssh_password.clone();
-    let ssh_key_path = config
-        .ssh_key_path
-        .clone()
-        .and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
+    let ssh_key_path =
+        config
+            .ssh_key_path
+            .clone()
+            .and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
 
     let target_host = config.host.clone().unwrap_or("localhost".to_string());
     let default_port: i64 = match config.driver.to_ascii_lowercase().as_str() {

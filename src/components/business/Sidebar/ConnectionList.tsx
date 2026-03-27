@@ -259,7 +259,9 @@ export function ConnectionList({
   const [expandedQueryGroups, setExpandedQueryGroups] = useState<Set<string>>(
     new Set(),
   );
-  const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set());
+  const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(
+    new Set(),
+  );
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
   const [selectedTableKey, setSelectedTableKey] = useState<string | null>(null);
   const [autoScrollRequest, setAutoScrollRequest] = useState<{
@@ -289,14 +291,14 @@ export function ConnectionList({
   const [deleteTargetConnectionId, setDeleteTargetConnectionId] = useState<
     string | null
   >(null);
-  const [createDbConnectionId, setCreateDbConnectionId] = useState<string | null>(
-    null,
-  );
+  const [createDbConnectionId, setCreateDbConnectionId] = useState<
+    string | null
+  >(null);
   const [isCreateDbDialogOpen, setIsCreateDbDialogOpen] = useState(false);
   const [showCreateDbAdvanced, setShowCreateDbAdvanced] = useState(false);
-  const [createDbValidationMsg, setCreateDbValidationMsg] = useState<string | null>(
-    null,
-  );
+  const [createDbValidationMsg, setCreateDbValidationMsg] = useState<
+    string | null
+  >(null);
   const [createDbForm, setCreateDbForm] = useState<CreateDatabaseForm>(
     defaultCreateDatabaseForm,
   );
@@ -437,7 +439,12 @@ export function ConnectionList({
         return null;
       })
       .filter(Boolean) as Connection[];
-  }, [connections, savedQueriesByConnection, searchTerm, showSavedQueriesInTree]);
+  }, [
+    connections,
+    savedQueriesByConnection,
+    searchTerm,
+    showSavedQueriesInTree,
+  ]);
 
   useEffect(() => {
     if (searchTerm) {
@@ -486,11 +493,7 @@ export function ConnectionList({
         });
       }
     }
-  }, [
-    searchTerm,
-    filteredConnections,
-    showSavedQueriesInTree,
-  ]);
+  }, [searchTerm, filteredConnections, showSavedQueriesInTree]);
 
   useEffect(
     () => () => {
@@ -515,7 +518,10 @@ export function ConnectionList({
       form.driver !== "mariadb"
     );
   }, [form.driver]);
-  const normalizedForm = useMemo(() => normalizeConnectionFormInput(form), [form]);
+  const normalizedForm = useMemo(
+    () => normalizeConnectionFormInput(form),
+    [form],
+  );
   const validationIssues = useMemo(
     () =>
       validateConnectionFormInput(
@@ -576,7 +582,10 @@ export function ConnectionList({
     const selectedPath = await pickSingleFile({
       title: t("connection.dialog.sslCaFileDialogTitle"),
       filters: [
-        { name: t("connection.dialog.fileFilterCert"), extensions: ["pem", "crt", "cer"] },
+        {
+          name: t("connection.dialog.fileFilterCert"),
+          extensions: ["pem", "crt", "cer"],
+        },
         { name: t("connection.dialog.fileFilterAll"), extensions: ["*"] },
       ],
     });
@@ -595,7 +604,10 @@ export function ConnectionList({
     const selectedPath = await pickSingleFile({
       title: t("connection.dialog.sshKeyFileDialogTitle"),
       filters: [
-        { name: t("connection.dialog.fileFilterPem"), extensions: ["pem", "key", "ppk"] },
+        {
+          name: t("connection.dialog.fileFilterPem"),
+          extensions: ["pem", "key", "ppk"],
+        },
         { name: t("connection.dialog.fileFilterAll"), extensions: ["*"] },
       ],
     });
@@ -676,7 +688,8 @@ export function ConnectionList({
   const toggleConnection = (id: string) => {
     const connection = connections.find((conn) => conn.id === id);
     if (!connection) return;
-    if (connection.connectState !== "success" && !showSavedQueriesInTree) return;
+    if (connection.connectState !== "success" && !showSavedQueriesInTree)
+      return;
 
     const newExpanded = new Set(expandedConnections);
     if (newExpanded.has(id)) {
@@ -1245,24 +1258,30 @@ export function ConnectionList({
         conn.id === connectionId ? { ...conn, databases: [] } : conn,
       ),
     );
-    setExpandedDatabases((prev) =>
-      new Set([...prev].filter((key) => !key.startsWith(`${connectionId}-`))),
+    setExpandedDatabases(
+      (prev) =>
+        new Set([...prev].filter((key) => !key.startsWith(`${connectionId}-`))),
     );
-    setExpandedSchemas((prev) =>
-      new Set([...prev].filter((key) => !key.startsWith(`${connectionId}-`))),
+    setExpandedSchemas(
+      (prev) =>
+        new Set([...prev].filter((key) => !key.startsWith(`${connectionId}-`))),
     );
-    setExpandedTables((prev) =>
-      new Set([...prev].filter((key) => !key.startsWith(`${connectionId}-`))),
+    setExpandedTables(
+      (prev) =>
+        new Set([...prev].filter((key) => !key.startsWith(`${connectionId}-`))),
     );
   };
 
   const handleCreateDatabase = async () => {
     const connection = createDbTargetConnection;
-    if (!connection || !supportsCreateDatabaseForDriver(connection.type)) return;
+    if (!connection || !supportsCreateDatabaseForDriver(connection.type))
+      return;
 
     const name = createDbForm.name.trim();
     if (!name) {
-      setCreateDbValidationMsg(t("connection.createDbDialog.validation.requiredName"));
+      setCreateDbValidationMsg(
+        t("connection.createDbDialog.validation.requiredName"),
+      );
       return;
     }
 
@@ -1271,16 +1290,19 @@ export function ConnectionList({
       ifNotExists: createDbForm.ifNotExists,
     };
     if (isMySqlFamilyCreateDb) {
-      if (createDbForm.charset.trim()) payload.charset = createDbForm.charset.trim();
+      if (createDbForm.charset.trim())
+        payload.charset = createDbForm.charset.trim();
       if (createDbForm.collation.trim()) {
         payload.collation = createDbForm.collation.trim();
       }
     } else if (isPostgresCreateDb) {
-      if (createDbForm.encoding.trim()) payload.encoding = createDbForm.encoding.trim();
+      if (createDbForm.encoding.trim())
+        payload.encoding = createDbForm.encoding.trim();
       if (createDbForm.lcCollate.trim()) {
         payload.lcCollate = createDbForm.lcCollate.trim();
       }
-      if (createDbForm.lcCtype.trim()) payload.lcCtype = createDbForm.lcCtype.trim();
+      if (createDbForm.lcCtype.trim())
+        payload.lcCtype = createDbForm.lcCtype.trim();
     } else if (isMssqlCreateDb) {
       if (createDbForm.collation.trim()) {
         payload.collation = createDbForm.collation.trim();
@@ -1751,7 +1773,9 @@ export function ConnectionList({
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="type">{t("connection.dialog.fields.databaseType")}</Label>
+                    <Label htmlFor="type">
+                      {t("connection.dialog.fields.databaseType")}
+                    </Label>
                     <Select
                       value={form.driver}
                       onValueChange={(v: Driver) =>
@@ -1765,18 +1789,22 @@ export function ConnectionList({
                                 ? 3306
                                 : v === "mariadb"
                                   ? 3306
-                                : v === "tidb"
-                                  ? 4000
-                                : v === "clickhouse"
-                                  ? 8123
-                                  : v === "mssql"
-                                    ? 1433
-                                  : f.port,
+                                  : v === "tidb"
+                                    ? 4000
+                                    : v === "clickhouse"
+                                      ? 8123
+                                      : v === "mssql"
+                                        ? 1433
+                                        : f.port,
                         }))
                       }
                     >
                       <SelectTrigger id="type">
-                        <SelectValue placeholder={t("connection.dialog.placeholders.selectDatabaseType")} />
+                        <SelectValue
+                          placeholder={t(
+                            "connection.dialog.placeholders.selectDatabaseType",
+                          )}
+                        />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="postgres">PostgreSQL</SelectItem>
@@ -1791,7 +1819,9 @@ export function ConnectionList({
                     </Select>
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="name">{t("connection.dialog.fields.connectionName")}</Label>
+                    <Label htmlFor="name">
+                      {t("connection.dialog.fields.connectionName")}
+                    </Label>
                     <Input
                       id="name"
                       value={form.name || ""}
@@ -1830,11 +1860,11 @@ export function ConnectionList({
                                   ? "3306"
                                   : form.driver === "mariadb"
                                     ? "3306"
-                                  : form.driver === "tidb"
-                                    ? "4000"
-                                  : form.driver === "mssql"
-                                    ? "1433"
-                                  : "8123"
+                                    : form.driver === "tidb"
+                                      ? "4000"
+                                      : form.driver === "mssql"
+                                        ? "1433"
+                                        : "8123"
                             }
                             value={String(form.port || "")}
                             onChange={(e) =>
@@ -1866,16 +1896,19 @@ export function ConnectionList({
                         <div className="grid gap-2">
                           <Label htmlFor="password">
                             {t("connection.dialog.fields.password")}{" "}
-                            {dialogMode === "create" && isPasswordRequiredOnCreate && (
-                              <span className="text-red-600">*</span>
-                            )}
+                            {dialogMode === "create" &&
+                              isPasswordRequiredOnCreate && (
+                                <span className="text-red-600">*</span>
+                              )}
                           </Label>
                           <Input
                             id="password"
                             type="password"
                             placeholder={
                               dialogMode === "edit"
-                                ? t("connection.dialog.placeholders.keepPassword")
+                                ? t(
+                                    "connection.dialog.placeholders.keepPassword",
+                                  )
                                 : undefined
                             }
                             value={form.password || ""}
@@ -1890,7 +1923,9 @@ export function ConnectionList({
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="grid gap-2">
-                          <Label htmlFor="database">{t("connection.dialog.fields.database")}</Label>
+                          <Label htmlFor="database">
+                            {t("connection.dialog.fields.database")}
+                          </Label>
                           <Input
                             id="database"
                             value={form.database || ""}
@@ -1903,7 +1938,9 @@ export function ConnectionList({
                           />
                         </div>
                         <div className="grid gap-2">
-                          <Label htmlFor="schema">{t("connection.dialog.fields.schema")}</Label>
+                          <Label htmlFor="schema">
+                            {t("connection.dialog.fields.schema")}
+                          </Label>
                           <Input
                             id="schema"
                             value={form.schema || ""}
@@ -1921,7 +1958,9 @@ export function ConnectionList({
                             setForm((f) => ({ ...f, ssl: checked === true }))
                           }
                         />
-                        <Label htmlFor="ssl">{t("connection.dialog.fields.ssl")}</Label>
+                        <Label htmlFor="ssl">
+                          {t("connection.dialog.fields.ssl")}
+                        </Label>
                       </div>
                       {form.ssl && supportsSslCa && (
                         <div className="border p-3 rounded-md space-y-3 bg-muted/20">
@@ -1968,7 +2007,9 @@ export function ConnectionList({
                               <Textarea
                                 id="sslCaCert"
                                 rows={5}
-                                placeholder={t("connection.dialog.placeholders.sslCaCert")}
+                                placeholder={t(
+                                  "connection.dialog.placeholders.sslCaCert",
+                                )}
                                 value={form.sslCaCert || ""}
                                 onChange={(e) =>
                                   setForm((f) => ({
@@ -1993,17 +2034,23 @@ export function ConnectionList({
                             }))
                           }
                         />
-                        <Label htmlFor="ssh">{t("connection.dialog.fields.ssh")}</Label>
+                        <Label htmlFor="ssh">
+                          {t("connection.dialog.fields.ssh")}
+                        </Label>
                       </div>
 
                       {form.sshEnabled && (
                         <div className="border p-3 rounded-md space-y-3 bg-muted/20">
                           <div className="grid grid-cols-2 gap-2">
                             <div className="grid gap-2">
-                              <Label htmlFor="sshHost">{t("connection.dialog.fields.sshHost")}</Label>
+                              <Label htmlFor="sshHost">
+                                {t("connection.dialog.fields.sshHost")}
+                              </Label>
                               <Input
                                 id="sshHost"
-                                placeholder={t("connection.dialog.placeholders.sshHost")}
+                                placeholder={t(
+                                  "connection.dialog.placeholders.sshHost",
+                                )}
                                 value={form.sshHost || ""}
                                 onChange={(e) =>
                                   setForm((f) => ({
@@ -2014,10 +2061,14 @@ export function ConnectionList({
                               />
                             </div>
                             <div className="grid gap-2">
-                              <Label htmlFor="sshPort">{t("connection.dialog.fields.sshPort")}</Label>
+                              <Label htmlFor="sshPort">
+                                {t("connection.dialog.fields.sshPort")}
+                              </Label>
                               <Input
                                 id="sshPort"
-                                placeholder={t("connection.dialog.placeholders.sshPort")}
+                                placeholder={t(
+                                  "connection.dialog.placeholders.sshPort",
+                                )}
                                 value={String(form.sshPort || "")}
                                 onChange={(e) =>
                                   setForm((f) => ({
@@ -2030,10 +2081,14 @@ export function ConnectionList({
                             </div>
                           </div>
                           <div className="grid gap-2">
-                            <Label htmlFor="sshUsername">{t("connection.dialog.fields.sshUsername")}</Label>
+                            <Label htmlFor="sshUsername">
+                              {t("connection.dialog.fields.sshUsername")}
+                            </Label>
                             <Input
                               id="sshUsername"
-                              placeholder={t("connection.dialog.placeholders.sshUsername")}
+                              placeholder={t(
+                                "connection.dialog.placeholders.sshUsername",
+                              )}
                               value={form.sshUsername || ""}
                               onChange={(e) =>
                                 setForm((f) => ({
@@ -2044,11 +2099,15 @@ export function ConnectionList({
                             />
                           </div>
                           <div className="grid gap-2">
-                            <Label htmlFor="sshPassword">{t("connection.dialog.fields.sshPassword")}</Label>
+                            <Label htmlFor="sshPassword">
+                              {t("connection.dialog.fields.sshPassword")}
+                            </Label>
                             <Input
                               id="sshPassword"
                               type="password"
-                              placeholder={t("connection.dialog.placeholders.sshPassword")}
+                              placeholder={t(
+                                "connection.dialog.placeholders.sshPassword",
+                              )}
                               value={form.sshPassword || ""}
                               onChange={(e) =>
                                 setForm((f) => ({
@@ -2059,11 +2118,15 @@ export function ConnectionList({
                             />
                           </div>
                           <div className="grid gap-2">
-                            <Label htmlFor="sshKeyPath">{t("connection.dialog.fields.sshKeyPath")}</Label>
+                            <Label htmlFor="sshKeyPath">
+                              {t("connection.dialog.fields.sshKeyPath")}
+                            </Label>
                             <div className="flex gap-2">
                               <Input
                                 id="sshKeyPath"
-                                placeholder={t("connection.dialog.placeholders.sshKeyPath")}
+                                placeholder={t(
+                                  "connection.dialog.placeholders.sshKeyPath",
+                                )}
                                 value={form.sshKeyPath || ""}
                                 onChange={(e) =>
                                   setForm((f) => ({
@@ -2128,7 +2191,10 @@ export function ConnectionList({
                                       ? ["duckdb", "db"]
                                       : ["sqlite", "db", "sqlite3", "db3"],
                                 },
-                                { name: t("connection.dialog.fileFilterAll"), extensions: ["*"] },
+                                {
+                                  name: t("connection.dialog.fileFilterAll"),
+                                  extensions: ["*"],
+                                },
                               ],
                             });
                             if (!selected) return;
@@ -2194,7 +2260,9 @@ export function ConnectionList({
                 {validationMsg && (
                   <div className="mt-3">
                     <Alert variant="destructive">
-                      <AlertTitle>{t("connection.dialog.validationFailed")}</AlertTitle>
+                      <AlertTitle>
+                        {t("connection.dialog.validationFailed")}
+                      </AlertTitle>
                       <AlertDescription>{validationMsg}</AlertDescription>
                     </Alert>
                   </div>
@@ -2242,8 +2310,10 @@ export function ConnectionList({
         onClick={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
       >
         {filteredConnections.map((connection) => {
-          const queriesForConnection = (savedQueriesByConnection[connection.id] || []).filter(
-            (query) => query.name.toLowerCase().includes(searchTerm.toLowerCase()),
+          const queriesForConnection = (
+            savedQueriesByConnection[connection.id] || []
+          ).filter((query) =>
+            query.name.toLowerCase().includes(searchTerm.toLowerCase()),
           );
           const visibleDatabases = connection.databases.filter(
             (database) =>
@@ -2294,8 +2364,12 @@ export function ConnectionList({
                     level={1}
                     icon={<FileCode className="w-4 h-4" />}
                     label={t("connection.tree.queries")}
-                    isExpanded={expandedQueryGroups.has(`${connection.id}::queries`)}
-                    onToggle={() => toggleQueryGroup(`${connection.id}::queries`)}
+                    isExpanded={expandedQueryGroups.has(
+                      `${connection.id}::queries`,
+                    )}
+                    onToggle={() =>
+                      toggleQueryGroup(`${connection.id}::queries`)
+                    }
                     forceShowToggle={queriesForConnection.length > 0}
                     canToggle={queriesForConnection.length > 0}
                   >
@@ -2319,235 +2393,31 @@ export function ConnectionList({
                   </TreeNode>
                 ) : null}
 
-                {connection.connectState === "success"
-                  ? (showSavedQueriesInTree ? (
-                      <TreeNode
-                        level={1}
-                        icon={<Database className="w-4 h-4" />}
-                        label={t("connection.tree.database")}
-                        isExpanded={expandedDatabaseGroups.has(
-                          `${connection.id}::databases`,
-                        )}
-                        onToggle={() =>
-                          toggleDatabaseGroup(`${connection.id}::databases`)
-                        }
-                        forceShowToggle={visibleDatabases.length > 0}
-                        canToggle={visibleDatabases.length > 0}
-                      >
-                        {visibleDatabases.map((database) => {
-                          const databaseLevel = 2;
-                          const dbKey = `${connection.id}-${database.name}`;
-                          const supportsSchemaNode = supportsSchemaNodeForDriver(
-                            connection.type,
-                          );
-                          const renderTableNode = (table: TableInfo, level: number) => {
-                            const tableKey = getTableNodeKey(
-                              connection.id,
-                              database.name,
-                              table.schema,
-                              table.name,
-                            );
-                            return (
-                              <ContextMenu key={tableKey}>
-                                <ContextMenuTrigger asChild>
-                                  <div
-                                    ref={(el) => {
-                                      tableNodeRefs.current[tableKey] = el;
-                                    }}
-                                  >
-                                    <TreeNode
-                                      level={level}
-                                      icon={<Table className="w-4 h-4" />}
-                                      label={table.name}
-                                      isSelected={selectedTableKey === tableKey}
-                                      isExpanded={expandedTables.has(tableKey)}
-                                      toggleOnRowClick={false}
-                                      onToggle={() => {
-                                        toggleTable(
-                                          tableKey,
-                                          connection.id,
-                                          database.name,
-                                          table,
-                                        );
-                                      }}
-                                      onDoubleClick={() => {
-                                        handleTableClick(connection, database, table);
-                                      }}
-                                      actions={
-                                        <div onClick={(e) => e.stopPropagation()}>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-6 w-6 p-0"
-                                            onClick={() =>
-                                              handleTableClick(connection, database, table)
-                                            }
-                                          >
-                                            <Play className="w-3 h-3" />
-                                          </Button>
-                                        </div>
-                                      }
-                                    >
-                                      {table.columns.map((column) => (
-                                        <div
-                                          key={column.name}
-                                          className="flex items-center gap-1 px-2 py-1 hover:bg-accent text-xs"
-                                          style={{
-                                            paddingLeft: `${(level + 1) * 12 + 8}px`,
-                                          }}
-                                        >
-                                          <span className="w-4" />
-                                          {column.isPrimaryKey ? (
-                                            <Key className="w-3 h-3 text-yellow-600 shrink-0" />
-                                          ) : (
-                                            <span className="w-3 shrink-0" />
-                                          )}
-                                          <span className="flex-1 truncate text-foreground">
-                                            {column.name}
-                                          </span>
-                                          <span className="text-muted-foreground text-xs shrink-0">
-                                            {column.type}
-                                          </span>
-                                        </div>
-                                      ))}
-                                    </TreeNode>
-                                  </div>
-                                </ContextMenuTrigger>
-                                <ContextMenuContent>
-                                  <ContextMenuItem
-                                    onClick={() =>
-                                      handleCreateQueryFromContext(
-                                        connection.id,
-                                        database.name,
-                                      )
-                                    }
-                                  >
-                                    <FileCode className="w-4 h-4 mr-2" />
-                                    {t("connection.menu.newQuery")}
-                                  </ContextMenuItem>
-                                  <ContextMenuItem
-                                    onClick={() =>
-                                      void handleTableExport(
-                                        connection,
-                                        database,
-                                        table,
-                                        "csv",
-                                      )
-                                    }
-                                  >
-                                    <Download className="w-4 h-4 mr-2" />
-                                    {t("connection.menu.exportCsv")}
-                                  </ContextMenuItem>
-                                  <ContextMenuItem
-                                    onClick={() =>
-                                      void handleTableExport(
-                                        connection,
-                                        database,
-                                        table,
-                                        "json",
-                                      )
-                                    }
-                                  >
-                                    <Download className="w-4 h-4 mr-2" />
-                                    {t("connection.menu.exportJson")}
-                                  </ContextMenuItem>
-                                  <ContextMenuItem
-                                    onClick={() =>
-                                      void handleTableExport(
-                                        connection,
-                                        database,
-                                        table,
-                                        "sql",
-                                      )
-                                    }
-                                  >
-                                    <Download className="w-4 h-4 mr-2" />
-                                    {t("connection.menu.exportSql")}
-                                  </ContextMenuItem>
-                                </ContextMenuContent>
-                              </ContextMenu>
-                            );
-                          };
-                          return (
-                            <TreeNode
-                              key={dbKey}
-                              level={databaseLevel}
-                              icon={<Database className="w-4 h-4" />}
-                              label={
-                                (connection.type === "sqlite" ||
-                                  connection.type === "duckdb") &&
-                                database.name === "main"
-                                  ? t(
-                                      connection.type === "duckdb"
-                                        ? "connection.duckdbMainLabel"
-                                        : "connection.sqliteMainLabel",
-                                    )
-                                  : database.name
-                              }
-                              isExpanded={expandedDatabases.has(dbKey)}
-                              onToggle={() => toggleDatabase(dbKey)}
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setContextMenu({
-                                  visible: true,
-                                  x: e.clientX,
-                                  y: e.clientY,
-                                  connectionId: connection.id,
-                                  databaseName: database.name,
-                                  type: "database",
-                                });
-                              }}
-                            >
-                              {supportsSchemaNode
-                                ? database.schemas.map((schemaNode) => {
-                                    const schemaKey = getSchemaNodeKey(
-                                      dbKey,
-                                      schemaNode.name,
-                                    );
-                                    return (
-                                      <TreeNode
-                                        key={schemaKey}
-                                        level={databaseLevel + 1}
-                                        icon={<FolderOpen className="w-4 h-4" />}
-                                        label={schemaNode.name}
-                                        isExpanded={expandedSchemas.has(schemaKey)}
-                                        onToggle={() => toggleSchema(schemaKey)}
-                                        onContextMenu={(e) => {
-                                          e.preventDefault();
-                                          e.stopPropagation();
-                                          setContextMenu({
-                                            visible: true,
-                                            x: e.clientX,
-                                            y: e.clientY,
-                                            connectionId: connection.id,
-                                            databaseName: database.name,
-                                            schemaName: schemaNode.name,
-                                            type: "schema",
-                                          });
-                                        }}
-                                      >
-                                        {schemaNode.tables.map((table) =>
-                                          renderTableNode(table, databaseLevel + 2),
-                                        )}
-                                      </TreeNode>
-                                    );
-                                  })
-                                : database.tables.map((table) =>
-                                    renderTableNode(table, databaseLevel + 1),
-                                  )}
-                            </TreeNode>
-                          );
-                        })}
-                      </TreeNode>
-                    ) : (
-                      visibleDatabases.map((database) => {
-                        const databaseLevel = 1;
+                {connection.connectState === "success" ? (
+                  showSavedQueriesInTree ? (
+                    <TreeNode
+                      level={1}
+                      icon={<Database className="w-4 h-4" />}
+                      label={t("connection.tree.database")}
+                      isExpanded={expandedDatabaseGroups.has(
+                        `${connection.id}::databases`,
+                      )}
+                      onToggle={() =>
+                        toggleDatabaseGroup(`${connection.id}::databases`)
+                      }
+                      forceShowToggle={visibleDatabases.length > 0}
+                      canToggle={visibleDatabases.length > 0}
+                    >
+                      {visibleDatabases.map((database) => {
+                        const databaseLevel = 2;
                         const dbKey = `${connection.id}-${database.name}`;
                         const supportsSchemaNode = supportsSchemaNodeForDriver(
                           connection.type,
                         );
-                        const renderTableNode = (table: TableInfo, level: number) => {
+                        const renderTableNode = (
+                          table: TableInfo,
+                          level: number,
+                        ) => {
                           const tableKey = getTableNodeKey(
                             connection.id,
                             database.name,
@@ -2578,7 +2448,11 @@ export function ConnectionList({
                                       );
                                     }}
                                     onDoubleClick={() => {
-                                      handleTableClick(connection, database, table);
+                                      handleTableClick(
+                                        connection,
+                                        database,
+                                        table,
+                                      );
                                     }}
                                     actions={
                                       <div onClick={(e) => e.stopPropagation()}>
@@ -2587,7 +2461,11 @@ export function ConnectionList({
                                           size="sm"
                                           className="h-6 w-6 p-0"
                                           onClick={() =>
-                                            handleTableClick(connection, database, table)
+                                            handleTableClick(
+                                              connection,
+                                              database,
+                                              table,
+                                            )
                                           }
                                         >
                                           <Play className="w-3 h-3" />
@@ -2718,7 +2596,9 @@ export function ConnectionList({
                                       level={databaseLevel + 1}
                                       icon={<FolderOpen className="w-4 h-4" />}
                                       label={schemaNode.name}
-                                      isExpanded={expandedSchemas.has(schemaKey)}
+                                      isExpanded={expandedSchemas.has(
+                                        schemaKey,
+                                      )}
                                       onToggle={() => toggleSchema(schemaKey)}
                                       onContextMenu={(e) => {
                                         e.preventDefault();
@@ -2735,7 +2615,10 @@ export function ConnectionList({
                                       }}
                                     >
                                       {schemaNode.tables.map((table) =>
-                                        renderTableNode(table, databaseLevel + 2),
+                                        renderTableNode(
+                                          table,
+                                          databaseLevel + 2,
+                                        ),
                                       )}
                                     </TreeNode>
                                   );
@@ -2745,9 +2628,227 @@ export function ConnectionList({
                                 )}
                           </TreeNode>
                         );
-                      })
-                    ))
-                  : null}
+                      })}
+                    </TreeNode>
+                  ) : (
+                    visibleDatabases.map((database) => {
+                      const databaseLevel = 1;
+                      const dbKey = `${connection.id}-${database.name}`;
+                      const supportsSchemaNode = supportsSchemaNodeForDriver(
+                        connection.type,
+                      );
+                      const renderTableNode = (
+                        table: TableInfo,
+                        level: number,
+                      ) => {
+                        const tableKey = getTableNodeKey(
+                          connection.id,
+                          database.name,
+                          table.schema,
+                          table.name,
+                        );
+                        return (
+                          <ContextMenu key={tableKey}>
+                            <ContextMenuTrigger asChild>
+                              <div
+                                ref={(el) => {
+                                  tableNodeRefs.current[tableKey] = el;
+                                }}
+                              >
+                                <TreeNode
+                                  level={level}
+                                  icon={<Table className="w-4 h-4" />}
+                                  label={table.name}
+                                  isSelected={selectedTableKey === tableKey}
+                                  isExpanded={expandedTables.has(tableKey)}
+                                  toggleOnRowClick={false}
+                                  onToggle={() => {
+                                    toggleTable(
+                                      tableKey,
+                                      connection.id,
+                                      database.name,
+                                      table,
+                                    );
+                                  }}
+                                  onDoubleClick={() => {
+                                    handleTableClick(
+                                      connection,
+                                      database,
+                                      table,
+                                    );
+                                  }}
+                                  actions={
+                                    <div onClick={(e) => e.stopPropagation()}>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-6 w-6 p-0"
+                                        onClick={() =>
+                                          handleTableClick(
+                                            connection,
+                                            database,
+                                            table,
+                                          )
+                                        }
+                                      >
+                                        <Play className="w-3 h-3" />
+                                      </Button>
+                                    </div>
+                                  }
+                                >
+                                  {table.columns.map((column) => (
+                                    <div
+                                      key={column.name}
+                                      className="flex items-center gap-1 px-2 py-1 hover:bg-accent text-xs"
+                                      style={{
+                                        paddingLeft: `${(level + 1) * 12 + 8}px`,
+                                      }}
+                                    >
+                                      <span className="w-4" />
+                                      {column.isPrimaryKey ? (
+                                        <Key className="w-3 h-3 text-yellow-600 shrink-0" />
+                                      ) : (
+                                        <span className="w-3 shrink-0" />
+                                      )}
+                                      <span className="flex-1 truncate text-foreground">
+                                        {column.name}
+                                      </span>
+                                      <span className="text-muted-foreground text-xs shrink-0">
+                                        {column.type}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </TreeNode>
+                              </div>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>
+                              <ContextMenuItem
+                                onClick={() =>
+                                  handleCreateQueryFromContext(
+                                    connection.id,
+                                    database.name,
+                                  )
+                                }
+                              >
+                                <FileCode className="w-4 h-4 mr-2" />
+                                {t("connection.menu.newQuery")}
+                              </ContextMenuItem>
+                              <ContextMenuItem
+                                onClick={() =>
+                                  void handleTableExport(
+                                    connection,
+                                    database,
+                                    table,
+                                    "csv",
+                                  )
+                                }
+                              >
+                                <Download className="w-4 h-4 mr-2" />
+                                {t("connection.menu.exportCsv")}
+                              </ContextMenuItem>
+                              <ContextMenuItem
+                                onClick={() =>
+                                  void handleTableExport(
+                                    connection,
+                                    database,
+                                    table,
+                                    "json",
+                                  )
+                                }
+                              >
+                                <Download className="w-4 h-4 mr-2" />
+                                {t("connection.menu.exportJson")}
+                              </ContextMenuItem>
+                              <ContextMenuItem
+                                onClick={() =>
+                                  void handleTableExport(
+                                    connection,
+                                    database,
+                                    table,
+                                    "sql",
+                                  )
+                                }
+                              >
+                                <Download className="w-4 h-4 mr-2" />
+                                {t("connection.menu.exportSql")}
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
+                        );
+                      };
+                      return (
+                        <TreeNode
+                          key={dbKey}
+                          level={databaseLevel}
+                          icon={<Database className="w-4 h-4" />}
+                          label={
+                            (connection.type === "sqlite" ||
+                              connection.type === "duckdb") &&
+                            database.name === "main"
+                              ? t(
+                                  connection.type === "duckdb"
+                                    ? "connection.duckdbMainLabel"
+                                    : "connection.sqliteMainLabel",
+                                )
+                              : database.name
+                          }
+                          isExpanded={expandedDatabases.has(dbKey)}
+                          onToggle={() => toggleDatabase(dbKey)}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setContextMenu({
+                              visible: true,
+                              x: e.clientX,
+                              y: e.clientY,
+                              connectionId: connection.id,
+                              databaseName: database.name,
+                              type: "database",
+                            });
+                          }}
+                        >
+                          {supportsSchemaNode
+                            ? database.schemas.map((schemaNode) => {
+                                const schemaKey = getSchemaNodeKey(
+                                  dbKey,
+                                  schemaNode.name,
+                                );
+                                return (
+                                  <TreeNode
+                                    key={schemaKey}
+                                    level={databaseLevel + 1}
+                                    icon={<FolderOpen className="w-4 h-4" />}
+                                    label={schemaNode.name}
+                                    isExpanded={expandedSchemas.has(schemaKey)}
+                                    onToggle={() => toggleSchema(schemaKey)}
+                                    onContextMenu={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setContextMenu({
+                                        visible: true,
+                                        x: e.clientX,
+                                        y: e.clientY,
+                                        connectionId: connection.id,
+                                        databaseName: database.name,
+                                        schemaName: schemaNode.name,
+                                        type: "schema",
+                                      });
+                                    }}
+                                  >
+                                    {schemaNode.tables.map((table) =>
+                                      renderTableNode(table, databaseLevel + 2),
+                                    )}
+                                  </TreeNode>
+                                );
+                              })
+                            : database.tables.map((table) =>
+                                renderTableNode(table, databaseLevel + 1),
+                              )}
+                        </TreeNode>
+                      );
+                    })
+                  )
+                ) : null}
               </>
             </TreeNode>
           );
@@ -2994,7 +3095,9 @@ export function ConnectionList({
                       >
                         <SelectTrigger id="create-db-charset">
                           <SelectValue
-                            placeholder={t("connection.createDbDialog.placeholders.charset")}
+                            placeholder={t(
+                              "connection.createDbDialog.placeholders.charset",
+                            )}
                           />
                         </SelectTrigger>
                         <SelectContent>
@@ -3024,7 +3127,9 @@ export function ConnectionList({
                       >
                         <SelectTrigger id="create-db-collation">
                           <SelectValue
-                            placeholder={t("connection.createDbDialog.placeholders.collation")}
+                            placeholder={t(
+                              "connection.createDbDialog.placeholders.collation",
+                            )}
                           />
                         </SelectTrigger>
                         <SelectContent>
@@ -3058,7 +3163,9 @@ export function ConnectionList({
                       >
                         <SelectTrigger id="create-db-encoding">
                           <SelectValue
-                            placeholder={t("connection.createDbDialog.placeholders.encoding")}
+                            placeholder={t(
+                              "connection.createDbDialog.placeholders.encoding",
+                            )}
                           />
                         </SelectTrigger>
                         <SelectContent>
@@ -3088,7 +3195,9 @@ export function ConnectionList({
                       >
                         <SelectTrigger id="create-db-lc-collate">
                           <SelectValue
-                            placeholder={t("connection.createDbDialog.placeholders.lcCollate")}
+                            placeholder={t(
+                              "connection.createDbDialog.placeholders.lcCollate",
+                            )}
                           />
                         </SelectTrigger>
                         <SelectContent>
@@ -3118,7 +3227,9 @@ export function ConnectionList({
                       >
                         <SelectTrigger id="create-db-lc-ctype">
                           <SelectValue
-                            placeholder={t("connection.createDbDialog.placeholders.lcCtype")}
+                            placeholder={t(
+                              "connection.createDbDialog.placeholders.lcCtype",
+                            )}
                           />
                         </SelectTrigger>
                         <SelectContent>
@@ -3151,7 +3262,9 @@ export function ConnectionList({
                     >
                       <SelectTrigger id="create-db-collation">
                         <SelectValue
-                          placeholder={t("connection.createDbDialog.placeholders.collation")}
+                          placeholder={t(
+                            "connection.createDbDialog.placeholders.collation",
+                          )}
                         />
                       </SelectTrigger>
                       <SelectContent>
@@ -3171,7 +3284,9 @@ export function ConnectionList({
             )}
             {createDbValidationMsg && (
               <Alert variant="destructive">
-                <AlertTitle>{t("connection.dialog.validationFailed")}</AlertTitle>
+                <AlertTitle>
+                  {t("connection.dialog.validationFailed")}
+                </AlertTitle>
                 <AlertDescription>{createDbValidationMsg}</AlertDescription>
               </Alert>
             )}
@@ -3212,13 +3327,17 @@ export function ConnectionList({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("connection.deleteDialog.title")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("connection.deleteDialog.title")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {t("connection.deleteDialog.description")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               disabled={isDeleting || !deleteTargetConnectionId}
               onClick={async (e) => {
@@ -3227,7 +3346,9 @@ export function ConnectionList({
                 await handleDeleteConnection(deleteTargetConnectionId);
               }}
             >
-              {isDeleting ? t("connection.deleteDialog.deleting") : t("common.delete")}
+              {isDeleting
+                ? t("connection.deleteDialog.deleting")
+                : t("common.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3243,7 +3364,9 @@ export function ConnectionList({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("connection.importDialog.title")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("connection.importDialog.title")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {t("connection.importDialog.description", {
                 database: pendingImport?.databaseName || "",

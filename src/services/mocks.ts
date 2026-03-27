@@ -398,7 +398,8 @@ const mockAiMessages: Record<number, AIConversationDetail["messages"]> = {
       id: 1,
       conversationId: 1,
       role: "user",
-      content: "List order count and total amount for each user in the last 7 days, ordered by total amount descending.",
+      content:
+        "List order count and total amount for each user in the last 7 days, ordered by total amount descending.",
       createdAt: new Date(Date.now() - 86400000).toISOString(),
     },
     {
@@ -454,7 +455,8 @@ const mockAiMessages: Record<number, AIConversationDetail["messages"]> = {
       id: 7,
       conversationId: 4,
       role: "user",
-      content: "Please show various Markdown formats, including code blocks, blockquotes, emphasis, etc.",
+      content:
+        "Please show various Markdown formats, including code blocks, blockquotes, emphasis, etc.",
       createdAt: new Date().toISOString(),
     },
     {
@@ -954,7 +956,9 @@ export async function mockExportQueryResult(
   };
 }
 
-export async function mockImportSqlFile(_params: any): Promise<ImportSqlResult> {
+export async function mockImportSqlFile(
+  _params: any,
+): Promise<ImportSqlResult> {
   await new Promise((resolve) => setTimeout(resolve, 160));
   return {
     filePath: _params?.filePath || `/tmp/dbpaw-import-${Date.now()}.sql`,

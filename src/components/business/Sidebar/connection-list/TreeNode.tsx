@@ -43,9 +43,7 @@ export function TreeNode({
     <div>
       <div
         className={`flex items-center gap-1 px-2 py-1 cursor-pointer group select-none ${
-          isSelected
-            ? "bg-accent text-accent-foreground"
-            : "hover:bg-accent"
+          isSelected ? "bg-accent text-accent-foreground" : "hover:bg-accent"
         }`}
         style={{ paddingLeft: `${level * 12 + 8}px` }}
         onClick={toggleOnRowClick ? onToggle : undefined}

@@ -716,7 +716,9 @@ export function TableView({
       });
 
       if (!insertColumns.length) {
-        throw new Error(`Row ${index + 1}: at least one column value is required`);
+        throw new Error(
+          `Row ${index + 1}: at least one column value is required`,
+        );
       }
 
       sqls.push(
@@ -1268,9 +1270,8 @@ export function TableView({
     if (!pendingFocusDraftId) return;
     const selector = `input[data-draft-id="${pendingFocusDraftId}"][data-draft-col-index="0"]`;
     requestAnimationFrame(() => {
-      const target = containerRef.current?.querySelector<HTMLInputElement>(
-        selector,
-      );
+      const target =
+        containerRef.current?.querySelector<HTMLInputElement>(selector);
       if (!target) return;
       target.scrollIntoView({
         behavior: "smooth",
@@ -1757,15 +1758,17 @@ export function TableView({
               </div>
               {tableContext &&
                 (!isEditable || hasLocalClientSort) &&
-                (primaryKeys.length === 0 || isReadOnlyDriver || hasLocalClientSort) && (
+                (primaryKeys.length === 0 ||
+                  isReadOnlyDriver ||
+                  hasLocalClientSort) && (
                   <span
                     className="text-xs text-muted-foreground italic"
                     title={
                       hasLocalClientSort
                         ? "Inline cell editing is disabled while client-side sorting is active."
                         : isReadOnlyDriver
-                        ? "ClickHouse is read-only in this version."
-                        : "This table has no primary key and does not support inline editing"
+                          ? "ClickHouse is read-only in this version."
+                          : "This table has no primary key and does not support inline editing"
                     }
                   >
                     Read-only
@@ -1775,15 +1778,17 @@ export function TableView({
           ) : (
             tableContext &&
             (!isEditable || hasLocalClientSort) &&
-            (primaryKeys.length === 0 || isReadOnlyDriver || hasLocalClientSort) && (
+            (primaryKeys.length === 0 ||
+              isReadOnlyDriver ||
+              hasLocalClientSort) && (
               <span
                 className="text-xs text-muted-foreground italic"
                 title={
                   hasLocalClientSort
                     ? "Inline cell editing is disabled while client-side sorting is active."
                     : isReadOnlyDriver
-                    ? "ClickHouse is read-only in this version."
-                    : "This table has no primary key and does not support inline editing"
+                      ? "ClickHouse is read-only in this version."
+                      : "This table has no primary key and does not support inline editing"
                 }
               >
                 Read-only
@@ -1945,7 +1950,10 @@ export function TableView({
                             }}
                             onClick={() => handleCellClick(rowIndex, column)}
                             onContextMenu={() => {
-                              if (selectedRows.size > 1 && selectedRows.has(rowIndex)) {
+                              if (
+                                selectedRows.size > 1 &&
+                                selectedRows.has(rowIndex)
+                              ) {
                                 return;
                               }
                               handleCellClick(rowIndex, column);
@@ -1972,7 +1980,7 @@ export function TableView({
                             ) : (
                               <div className="px-4 py-2 truncate">
                                 {displayValue !== null &&
-                                  displayValue !== undefined ? (
+                                displayValue !== undefined ? (
                                   <span
                                     className={
                                       modified

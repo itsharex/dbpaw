@@ -3,14 +3,13 @@ import { invokeMock } from "./mocks";
 
 describe("invokeMock service layer", () => {
   test("returns table list for metadata command", async () => {
-    const tables = await invokeMock<{ schema: string; name: string; type: string }[]>(
-      "list_tables",
-      {
-        id: 1,
-        database: "test_db",
-        schema: "public",
-      },
-    );
+    const tables = await invokeMock<
+      { schema: string; name: string; type: string }[]
+    >("list_tables", {
+      id: 1,
+      database: "test_db",
+      schema: "public",
+    });
 
     expect(tables.length).toBeGreaterThan(0);
     expect(tables[0]).toHaveProperty("schema");

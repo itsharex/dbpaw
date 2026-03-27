@@ -207,7 +207,9 @@ export function TableMetadataView({
               </div>
               {clickhouseExtra.partitionKey && (
                 <div className="border border-border rounded-md p-2">
-                  <div className="text-xs text-muted-foreground">Partition Key</div>
+                  <div className="text-xs text-muted-foreground">
+                    Partition Key
+                  </div>
                   <div className="font-mono text-sm break-words">
                     {clickhouseExtra.partitionKey}
                   </div>
@@ -215,7 +217,9 @@ export function TableMetadataView({
               )}
               {clickhouseExtra.sortingKey && (
                 <div className="border border-border rounded-md p-2">
-                  <div className="text-xs text-muted-foreground">Sorting Key</div>
+                  <div className="text-xs text-muted-foreground">
+                    Sorting Key
+                  </div>
                   <div className="font-mono text-sm break-words">
                     {clickhouseExtra.sortingKey}
                   </div>
@@ -233,7 +237,9 @@ export function TableMetadataView({
               )}
               {clickhouseExtra.samplingKey && (
                 <div className="border border-border rounded-md p-2">
-                  <div className="text-xs text-muted-foreground">Sampling Key</div>
+                  <div className="text-xs text-muted-foreground">
+                    Sampling Key
+                  </div>
                   <div className="font-mono text-sm break-words">
                     {clickhouseExtra.samplingKey}
                   </div>

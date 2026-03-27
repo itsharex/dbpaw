@@ -3,19 +3,20 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 
 // ============ Mock Test Configuration ============
 let mockEnabled = false;
-let mockScenario: 'available' | 'no_update' | 'error' | 'slow_download' = 'available';
+let mockScenario: "available" | "no_update" | "error" | "slow_download" =
+  "available";
 
 /** Enable test mode */
-export function enableMock(scenario: typeof mockScenario = 'available') {
+export function enableMock(scenario: typeof mockScenario = "available") {
   mockEnabled = true;
   mockScenario = scenario;
-  console.log('[Updater Mock] Enabled:', scenario);
+  console.log("[Updater Mock] Enabled:", scenario);
 }
 
 /** Disable test mode */
 export function disableMock() {
   mockEnabled = false;
-  console.log('[Updater Mock] Disabled');
+  console.log("[Updater Mock] Disabled");
 }
 
 /** Get current mock state */
@@ -24,7 +25,7 @@ export function isMockEnabled() {
 }
 
 function delay(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function getUpdaterAccessKey(): string | undefined {
@@ -32,7 +33,10 @@ function getUpdaterAccessKey(): string | undefined {
   return value.length > 0 ? value : undefined;
 }
 
-function getUpdaterCheckOptions(): { timeout: number; headers?: Record<string, string> } {
+function getUpdaterCheckOptions(): {
+  timeout: number;
+  headers?: Record<string, string>;
+} {
   const accessKey = getUpdaterAccessKey();
   if (!accessKey) {
     return { timeout: 5000 };
@@ -320,7 +324,7 @@ async function mockCheckForUpdates(
   await delay(800);
 
   switch (mockScenario) {
-    case 'available':
+    case "available":
       options?.onStateChange?.("available");
       return {
         state: "available",
@@ -332,7 +336,7 @@ async function mockCheckForUpdates(
         },
       };
 
-    case 'no_update':
+    case "no_update":
       options?.onStateChange?.("idle");
       return {
         state: "idle",
@@ -341,7 +345,7 @@ async function mockCheckForUpdates(
         message: "You are on the latest version.",
       };
 
-    case 'error':
+    case "error":
       options?.onStateChange?.("error");
       return {
         state: "error",
@@ -350,7 +354,7 @@ async function mockCheckForUpdates(
         message: "Mock: Network error - Unable to connect to update server",
       };
 
-    case 'slow_download':
+    case "slow_download":
       options?.onStateChange?.("available");
       return {
         state: "available",
@@ -370,7 +374,7 @@ async function mockCheckForUpdates(
 
 function createMockUpdate(options?: { slowMode?: boolean }): Update {
   const { slowMode = false } = options || {};
-  
+
   return {
     available: true,
     version: slowMode ? "9.9.9-slow" : "9.9.9-test",
@@ -378,35 +382,35 @@ function createMockUpdate(options?: { slowMode?: boolean }): Update {
     body: slowMode ? "Slow download test" : "Mock update",
     downloadAndInstall: async (eventHandler) => {
       updateTaskState("downloading");
-      
+
       const totalSteps = slowMode ? 10 : 5;
       const stepDelay = slowMode ? 2000 : 800;
-      
+
       // Simulate download progress
       for (let i = 1; i <= totalSteps; i++) {
         await delay(stepDelay);
         const progress = Math.round((i / totalSteps) * 100);
         console.log(`[Mock] Downloading... ${progress}%`);
-        
+
         // Emit progress events
         if (eventHandler) {
           eventHandler({
-            event: 'Progress',
+            event: "Progress",
             data: {
               chunkLength: 1024 * 100,
-            }
+            },
           });
         }
       }
-      
+
       // Simulate installation stage
       updateTaskState("installing");
       await delay(slowMode ? 3000 : 1500);
-      
+
       // Completed
       updateTaskState("ready_to_restart", {
-        message: slowMode 
-          ? "Slow download completed. Restart to apply changes." 
+        message: slowMode
+          ? "Slow download completed. Restart to apply changes."
           : "Mock: Update installed. Restart to apply changes.",
       });
     },

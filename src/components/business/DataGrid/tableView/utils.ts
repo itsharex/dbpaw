@@ -107,7 +107,11 @@ export function collectSearchMatches(
   currentData: any[],
   columns: string[],
   normalizedSearchKeyword: string,
-  getCellDisplayValue: (rowIndex: number, column: string, originalValue: any) => any,
+  getCellDisplayValue: (
+    rowIndex: number,
+    column: string,
+    originalValue: any,
+  ) => any,
 ): SearchMatch[] {
   if (!normalizedSearchKeyword) {
     return [];

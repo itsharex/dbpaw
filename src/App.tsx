@@ -146,7 +146,9 @@ function LazyPanelFallback({
   className?: string;
 }) {
   return (
-    <div className={`${className} flex items-center justify-center text-sm text-muted-foreground`}>
+    <div
+      className={`${className} flex items-center justify-center text-sm text-muted-foreground`}
+    >
       {label}
     </div>
   );
@@ -270,11 +272,13 @@ export default function App() {
         className="h-7 w-7 p-0"
         onClick={() => setAiVisible((v) => !v)}
         title={
-          aiVisible
-            ? t("app.window.hideAiPanel")
-            : t("app.window.showAiPanel")
+          aiVisible ? t("app.window.hideAiPanel") : t("app.window.showAiPanel")
         }
-        aria-label={aiVisible ? t("app.window.hideAiPanelAria") : t("app.window.showAiPanelAria")}
+        aria-label={
+          aiVisible
+            ? t("app.window.hideAiPanelAria")
+            : t("app.window.showAiPanelAria")
+        }
       >
         <Sparkles className="w-4 h-4" />
       </Button>
@@ -373,54 +377,53 @@ export default function App() {
     Promise.allSettled([
       fetchEditorDatabases(connectionId, initialDatabase),
       fetchEditorSchemaOverview(connectionId, initialDatabase),
-    ])
-      .then(([availableDatabasesResult, schemaOverviewResult]) => {
-        if (availableDatabasesResult.status === "rejected") {
-          console.error(
-            "Failed to load editor databases:",
-            availableDatabasesResult.reason instanceof Error
-              ? availableDatabasesResult.reason.message
-              : String(availableDatabasesResult.reason),
-          );
-        }
-        if (schemaOverviewResult.status === "rejected") {
-          console.error(
-            "Failed to load schema overview:",
-            schemaOverviewResult.reason instanceof Error
-              ? schemaOverviewResult.reason.message
-              : String(schemaOverviewResult.reason),
-          );
-        }
-
-        const availableDatabases =
-          availableDatabasesResult.status === "fulfilled"
-            ? availableDatabasesResult.value
-            : normalizeDatabaseOptions(
-                initialDatabase ? [initialDatabase] : [],
-                initialDatabase,
-              );
-        const schemaOverview =
-          schemaOverviewResult.status === "fulfilled"
-            ? schemaOverviewResult.value
-            : undefined;
-
-        setTabs((prev) =>
-          prev.map((t) =>
-            t.id === newTabId
-              ? {
-                  ...t,
-                  database: resolvePreferredDatabase({
-                    preferredDatabase: initialDatabase,
-                    connectionDatabase: initialDatabase,
-                    availableDatabases,
-                  }),
-                  availableDatabases,
-                  schemaOverview,
-                }
-              : t,
-          ),
+    ]).then(([availableDatabasesResult, schemaOverviewResult]) => {
+      if (availableDatabasesResult.status === "rejected") {
+        console.error(
+          "Failed to load editor databases:",
+          availableDatabasesResult.reason instanceof Error
+            ? availableDatabasesResult.reason.message
+            : String(availableDatabasesResult.reason),
         );
-      });
+      }
+      if (schemaOverviewResult.status === "rejected") {
+        console.error(
+          "Failed to load schema overview:",
+          schemaOverviewResult.reason instanceof Error
+            ? schemaOverviewResult.reason.message
+            : String(schemaOverviewResult.reason),
+        );
+      }
+
+      const availableDatabases =
+        availableDatabasesResult.status === "fulfilled"
+          ? availableDatabasesResult.value
+          : normalizeDatabaseOptions(
+              initialDatabase ? [initialDatabase] : [],
+              initialDatabase,
+            );
+      const schemaOverview =
+        schemaOverviewResult.status === "fulfilled"
+          ? schemaOverviewResult.value
+          : undefined;
+
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === newTabId
+            ? {
+                ...t,
+                database: resolvePreferredDatabase({
+                  preferredDatabase: initialDatabase,
+                  connectionDatabase: initialDatabase,
+                  availableDatabases,
+                }),
+                availableDatabases,
+                schemaOverview,
+              }
+            : t,
+        ),
+      );
+    });
   };
 
   const handleOpenSavedQuery = async (query: SavedQuery) => {
@@ -578,14 +581,16 @@ export default function App() {
           tab.connectionId,
           database,
         );
-        if (schemaOverviewRequestKeysRef.current.get(tabId) !== requestKey) return;
+        if (schemaOverviewRequestKeysRef.current.get(tabId) !== requestKey)
+          return;
         setTabs((prev) =>
           prev.map((item) =>
             item.id === tabId ? { ...item, schemaOverview } : item,
           ),
         );
       } catch (e) {
-        if (schemaOverviewRequestKeysRef.current.get(tabId) !== requestKey) return;
+        if (schemaOverviewRequestKeysRef.current.get(tabId) !== requestKey)
+          return;
         const errorMessage = e instanceof Error ? e.message : String(e);
         console.error("Failed to switch editor database", errorMessage);
         toast.error(t("app.error.loadSchemaOverview"), {
@@ -623,7 +628,9 @@ export default function App() {
       .slice(2, 8)}`;
     setTabs((prev) =>
       prev.map((t) =>
-        t.id === tabId ? { ...t, activeQueryId: queryId, lastQueryId: queryId } : t,
+        t.id === tabId
+          ? { ...t, activeQueryId: queryId, lastQueryId: queryId }
+          : t,
       ),
     );
     try {
@@ -762,9 +769,12 @@ export default function App() {
         scope: "full_table",
         filePath,
       });
-      toast.success(t("app.success.exportCompleted", { count: result.rowCount }), {
-        description: result.filePath,
-      });
+      toast.success(
+        t("app.success.exportCompleted", { count: result.rowCount }),
+        {
+          description: result.filePath,
+        },
+      );
     } catch (e) {
       toast.error(t("app.error.exportFailed"), {
         description: e instanceof Error ? e.message : String(e),
@@ -1447,67 +1457,72 @@ export default function App() {
                               : tab.title;
                           return (
                             <SortableTab key={tab.id} id={tab.id}>
-                            <ContextMenu>
-                              <ContextMenuTrigger asChild>
-                                {/* Wrapper avoids data-state conflict: ContextMenu and Tabs both set it; only the trigger must get Tabs' data-state=active for the indicator bar */}
-                                <span className="contents">
-                                  <TabsTrigger
-                                    value={tab.id}
-                                    className={TAB_TRIGGER_CLASS}
-                                    asChild
-                                    onMouseDown={(e) => {
-                                      if (e.button === 1) {
-                                        e.preventDefault();
-                                        handleCloseTab(tab.id);
-                                      }
-                                    }}
-                                  >
-                                    <div className="relative inline-flex items-center gap-2 min-w-0">
-                                      {tab.type === "table" ? (
-                                        <Table className="w-4 h-4 text-accent" />
-                                      ) : (
-                                        <FileCode className="w-4 h-4 text-accent" />
-                                      )}
-                                      <span className="max-w-[120px] flex items-center">
-                                        <span className="truncate">
-                                          {title}
-                                        </span>
-                                        {tab.type === "editor" && tab.isDirty && (
-                                          <span
-                                            className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ml-1 shrink-0"
-                                            aria-label={t("app.tab.unsavedChanges")}
-                                          />
-                                        )}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        aria-label={t("app.tab.closeAria", { title })}
-                                        className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded-sm cursor-pointer transition-opacity"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
+                              <ContextMenu>
+                                <ContextMenuTrigger asChild>
+                                  {/* Wrapper avoids data-state conflict: ContextMenu and Tabs both set it; only the trigger must get Tabs' data-state=active for the indicator bar */}
+                                  <span className="contents">
+                                    <TabsTrigger
+                                      value={tab.id}
+                                      className={TAB_TRIGGER_CLASS}
+                                      asChild
+                                      onMouseDown={(e) => {
+                                        if (e.button === 1) {
+                                          e.preventDefault();
                                           handleCloseTab(tab.id);
-                                        }}
-                                      >
-                                        <X className="w-3 h-3 text-muted-foreground" />
-                                      </button>
-                                    </div>
-                                  </TabsTrigger>
-                                </span>
-                              </ContextMenuTrigger>
-                              <ContextMenuContent>
-                                <ContextMenuItem
-                                  onClick={() => handleCloseTab(tab.id)}
-                                >
-                                  {t("app.tab.closeTab")}
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onClick={() => handleCloseOtherTabs(tab.id)}
-                                >
-                                  {t("app.tab.closeOtherTabs")}
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
-                          </SortableTab>
+                                        }
+                                      }}
+                                    >
+                                      <div className="relative inline-flex items-center gap-2 min-w-0">
+                                        {tab.type === "table" ? (
+                                          <Table className="w-4 h-4 text-accent" />
+                                        ) : (
+                                          <FileCode className="w-4 h-4 text-accent" />
+                                        )}
+                                        <span className="max-w-[120px] flex items-center">
+                                          <span className="truncate">
+                                            {title}
+                                          </span>
+                                          {tab.type === "editor" &&
+                                            tab.isDirty && (
+                                              <span
+                                                className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 ml-1 shrink-0"
+                                                aria-label={t(
+                                                  "app.tab.unsavedChanges",
+                                                )}
+                                              />
+                                            )}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          aria-label={t("app.tab.closeAria", {
+                                            title,
+                                          })}
+                                          className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded-sm cursor-pointer transition-opacity"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleCloseTab(tab.id);
+                                          }}
+                                        >
+                                          <X className="w-3 h-3 text-muted-foreground" />
+                                        </button>
+                                      </div>
+                                    </TabsTrigger>
+                                  </span>
+                                </ContextMenuTrigger>
+                                <ContextMenuContent>
+                                  <ContextMenuItem
+                                    onClick={() => handleCloseTab(tab.id)}
+                                  >
+                                    {t("app.tab.closeTab")}
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onClick={() => handleCloseOtherTabs(tab.id)}
+                                  >
+                                    {t("app.tab.closeOtherTabs")}
+                                  </ContextMenuItem>
+                                </ContextMenuContent>
+                              </ContextMenu>
+                            </SortableTab>
                           );
                         })}
                       </SortableContext>
@@ -1529,9 +1544,7 @@ export default function App() {
                   <div className="h-full flex items-center justify-center text-muted-foreground">
                     <div className="text-center">
                       <FileCode className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                      <p>
-                        {t("app.empty.hint")}
-                      </p>
+                      <p>{t("app.empty.hint")}</p>
                     </div>
                   </div>
                 ) : (
@@ -1544,9 +1557,7 @@ export default function App() {
                       {tab.type === "editor" ? (
                         <Suspense
                           fallback={
-                            <LazyPanelFallback
-                              label={t("common.loading")}
-                            />
+                            <LazyPanelFallback label={t("common.loading")} />
                           }
                         >
                           <SqlEditor
@@ -1642,7 +1653,7 @@ export default function App() {
                                         ? "dbo"
                                         : tab.driver === "duckdb"
                                           ? "main"
-                                        : "public",
+                                          : "public",
                                   table: tab.tableName,
                                   driver: tab.driver,
                                 }
@@ -1679,11 +1690,7 @@ export default function App() {
               maxSize={40}
             >
               <Suspense
-                fallback={
-                  <LazyPanelFallback
-                    label={t("common.loading")}
-                  />
-                }
+                fallback={<LazyPanelFallback label={t("common.loading")} />}
               >
                 <AISidebar
                   connectionId={activeTabItem?.connectionId}

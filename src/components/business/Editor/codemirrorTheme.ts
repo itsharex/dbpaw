@@ -32,7 +32,7 @@ const baseThemeSpec: Parameters<typeof EditorView.theme>[0] = {
   },
   ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, .cm-content ::selection, &.cm-focused .cm-content ::selection":
     {
-    backgroundColor: "var(--editor-selection-bg) !important",
+      backgroundColor: "var(--editor-selection-bg) !important",
     },
   ".cm-tooltip": {
     backgroundColor: "var(--popover)",

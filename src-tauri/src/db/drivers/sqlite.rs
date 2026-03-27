@@ -146,9 +146,12 @@ fn sqlite_cell_to_json(
     let temporal_kind = sqlite_temporal_decl_kind(declared_type);
     let declared_bool = sqlite_declared_bool(declared_type);
 
-    let raw = row
-        .try_get_raw(column_name)
-        .map_err(|e| format!("[QUERY_ERROR] Failed to read SQLite column '{}': {}", column_name, e))?;
+    let raw = row.try_get_raw(column_name).map_err(|e| {
+        format!(
+            "[QUERY_ERROR] Failed to read SQLite column '{}': {}",
+            column_name, e
+        )
+    })?;
     if raw.is_null() {
         return Ok(serde_json::Value::Null);
     }
@@ -170,13 +173,11 @@ fn sqlite_cell_to_json(
                         let maybe_date = if (-200_000..=200_000).contains(&v) {
                             sqlite_format_date_from_days(v)
                         } else {
-                            sqlite_format_datetime_from_unix_seconds_f64(v as f64).and_then(
-                                |s| {
-                                    NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S%.f")
-                                        .ok()
-                                        .map(|dt| dt.date().format("%F").to_string())
-                                },
-                            )
+                            sqlite_format_datetime_from_unix_seconds_f64(v as f64).and_then(|s| {
+                                NaiveDateTime::parse_from_str(&s, "%Y-%m-%d %H:%M:%S%.f")
+                                    .ok()
+                                    .map(|dt| dt.date().format("%F").to_string())
+                            })
                         };
                         maybe_date
                             .map(serde_json::Value::String)
@@ -642,10 +643,7 @@ impl DatabaseDriver for SqliteDriver {
                     .map(|s| s.as_str())
                     .or(Some(col.type_info().name()));
                 let value = sqlite_cell_to_json(row, name, declared_type)?;
-                obj.insert(
-                    name.to_string(),
-                    value,
-                );
+                obj.insert(name.to_string(), value);
             }
             data.push(serde_json::Value::Object(obj));
         }
@@ -718,10 +716,7 @@ impl DatabaseDriver for SqliteDriver {
                 for col in row.columns() {
                     let name = col.name();
                     let value = sqlite_cell_to_json(row, name, Some(col.type_info().name()))?;
-                    obj.insert(
-                        name.to_string(),
-                        value,
-                    );
+                    obj.insert(name.to_string(), value);
                 }
                 data.push(serde_json::Value::Object(obj));
             }

@@ -438,7 +438,10 @@ mod tests {
         });
         let hp = HashSet::from(["ID".to_string(), "amount".to_string()]);
         super::normalize_mssql_row_json(&mut row, &hp).unwrap();
-        assert_eq!(row.get("id").and_then(|v| v.as_str()), Some("9223372036854775807"));
+        assert_eq!(
+            row.get("id").and_then(|v| v.as_str()),
+            Some("9223372036854775807")
+        );
         assert_eq!(row.get("amount").and_then(|v| v.as_str()), Some("1234.56"));
         assert_eq!(row.get("name").and_then(|v| v.as_str()), Some("x"));
     }
@@ -750,7 +753,9 @@ impl DatabaseDriver for MssqlDriver {
             qualified, where_clause, order_clause, offset, safe_limit
         );
         let json_sql = Self::build_for_json_query(&sql);
-        let data = self.fetch_json_rows(&json_sql, &high_precision_cols).await?;
+        let data = self
+            .fetch_json_rows(&json_sql, &high_precision_cols)
+            .await?;
 
         Ok(TableDataResponse {
             data,
@@ -801,7 +806,9 @@ impl DatabaseDriver for MssqlDriver {
                 .map(|col| col.name.clone())
                 .collect();
             let json_sql = Self::build_for_json_query(&sql);
-            let data = self.fetch_json_rows(&json_sql, &high_precision_cols).await?;
+            let data = self
+                .fetch_json_rows(&json_sql, &high_precision_cols)
+                .await?;
 
             return Ok(QueryResult {
                 row_count: data.len() as i64,

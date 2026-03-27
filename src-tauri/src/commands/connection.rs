@@ -345,8 +345,6 @@ pub async fn delete_connection(state: State<'_, AppState>, id: i64) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    use crate::connection_input::normalize_connection_form;
-    use crate::models::ConnectionForm;
     use super::{
         build_mssql_create_database_sql, build_mysql_create_database_sql,
         build_postgres_create_database_sql, validate_database_name, CreateDatabasePayload,
@@ -355,6 +353,8 @@ mod tests {
         normalize_create_database_error, normalize_option_token, quote_mssql_ident,
         quote_mysql_ident, quote_pg_ident,
     };
+    use crate::connection_input::normalize_connection_form;
+    use crate::models::ConnectionForm;
 
     #[test]
     fn validate_database_name_rejects_empty_and_null() {
@@ -395,10 +395,8 @@ mod tests {
         );
         assert!(already.contains("[ALREADY_EXISTS]"));
 
-        let postgres = normalize_create_database_error(
-            "ERROR: 42P04 duplicate_database".to_string(),
-            "app",
-        );
+        let postgres =
+            normalize_create_database_error("ERROR: 42P04 duplicate_database".to_string(), "app");
         assert!(postgres.contains("[ALREADY_EXISTS]"));
 
         let perm = normalize_create_database_error(

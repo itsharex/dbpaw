@@ -1054,9 +1054,8 @@ mod tests {
 
     #[test]
     fn collect_top_level_keywords_skips_subqueries_and_strings() {
-        let tokens = collect_top_level_keywords(
-            "WITH cte AS (SELECT 'from' AS v) SELECT * FROM cte",
-        );
+        let tokens =
+            collect_top_level_keywords("WITH cte AS (SELECT 'from' AS v) SELECT * FROM cte");
         assert_eq!(tokens.first().map(String::as_str), Some("with"));
         assert!(tokens.contains(&"select".to_string()));
         assert!(tokens.contains(&"from".to_string()));

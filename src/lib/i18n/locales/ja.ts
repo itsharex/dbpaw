@@ -333,8 +333,7 @@ export const ja: Translations = {
     },
     deleteDialog: {
       title: "接続を削除",
-      description:
-        "この操作は元に戻せません。選択した接続設定は削除されます。",
+      description: "この操作は元に戻せません。選択した接続設定は削除されます。",
       deleting: "削除中...",
     },
     toast: {
@@ -375,8 +374,7 @@ export const ja: Translations = {
     errors: {
       loadConversation: "会話の読み込みに失敗しました",
       requestFailed: "AI リクエストに失敗しました",
-      providerMissing:
-        "設定画面で AI プロバイダーを設定して選択してください。",
+      providerMissing: "設定画面で AI プロバイダーを設定して選択してください。",
       sendFailed: "AI メッセージの送信に失敗しました",
       deleteConversation: "会話の削除に失敗しました",
     },

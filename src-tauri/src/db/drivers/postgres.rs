@@ -255,10 +255,7 @@ fn is_high_precision_pg_type(data_type: &str, udt_name: &str) -> bool {
     matches!(
         data_type.as_str(),
         "bigint" | "numeric" | "decimal" | "money"
-    ) || matches!(
-        udt_name.as_str(),
-        "int8" | "numeric" | "decimal" | "money"
-    )
+    ) || matches!(udt_name.as_str(), "int8" | "numeric" | "decimal" | "money")
 }
 
 fn normalize_postgres_row_json(
@@ -469,9 +466,7 @@ fn first_sql_keyword(sql: &str) -> Option<String> {
         return None;
     }
     let mut end = start;
-    while end < bytes.len()
-        && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_')
-    {
+    while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
         end += 1;
     }
     if end == start {
@@ -1330,10 +1325,7 @@ mod tests {
         let sql = "CREATE TYPE mood_enum AS ENUM ('sad', 'ok'); CREATE TYPE address_type AS (street VARCHAR(100));";
         let statements = split_sql_statements(sql);
         assert_eq!(statements.len(), 2);
-        assert_eq!(
-            statements[0],
-            "CREATE TYPE mood_enum AS ENUM ('sad', 'ok')"
-        );
+        assert_eq!(statements[0], "CREATE TYPE mood_enum AS ENUM ('sad', 'ok')");
         assert_eq!(
             statements[1],
             "CREATE TYPE address_type AS (street VARCHAR(100))"
@@ -1391,7 +1383,10 @@ CREATE TABLE pg_data_type_test (
             row.get("col_bigint").and_then(|v| v.as_str()),
             Some("9007199254740993")
         );
-        assert_eq!(row.get("col_numeric").and_then(|v| v.as_str()), Some("1234.56"));
+        assert_eq!(
+            row.get("col_numeric").and_then(|v| v.as_str()),
+            Some("1234.56")
+        );
         assert_eq!(row.get("col_text").and_then(|v| v.as_str()), Some("hello"));
         assert!(row.get("col_null").unwrap().is_null());
     }
@@ -1406,7 +1401,9 @@ CREATE TABLE pg_data_type_test (
     #[test]
     fn test_is_json_projectable_statement() {
         assert!(is_json_projectable_statement("SELECT 1"));
-        assert!(is_json_projectable_statement("  -- a\nWITH t AS (SELECT 1) SELECT * FROM t"));
+        assert!(is_json_projectable_statement(
+            "  -- a\nWITH t AS (SELECT 1) SELECT * FROM t"
+        ));
         assert!(is_json_projectable_statement("VALUES (1), (2)"));
         assert!(is_json_projectable_statement("TABLE my_table"));
         assert!(!is_json_projectable_statement("INSERT INTO t VALUES (1)"));

@@ -1,5 +1,12 @@
 import type { ReactNode } from "react";
-import { Database, Server, CircleDot, CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import {
+  Database,
+  Server,
+  CircleDot,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+} from "lucide-react";
 import {
   siMysql,
   siPostgresql,

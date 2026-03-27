@@ -24,7 +24,10 @@ export function LanguageSelector() {
           {t("settings.language.description")}
         </p>
       </div>
-      <Select value={getCurrentLanguage()} onValueChange={(value) => void changeLanguage(value)}>
+      <Select
+        value={getCurrentLanguage()}
+        onValueChange={(value) => void changeLanguage(value)}
+      >
         <SelectTrigger>
           <SelectValue />
         </SelectTrigger>

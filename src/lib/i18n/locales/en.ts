@@ -100,7 +100,6 @@ export const en = {
       fontSizeTitle: "Font Size",
       fontSizeDescription:
         "Adjust global text size across the app (Range: {{min}}-{{max}}px)",
-
     },
     layout: {
       title: "Layout",
@@ -131,7 +130,8 @@ export const en = {
         "Background update started. You can continue using the app.",
       inBackgroundProgress: "Update is already running in background.",
       restartPromptTitle: "Update Installed",
-      restartPromptDescription: "Update is installed. Restart now to apply changes?",
+      restartPromptDescription:
+        "Update is installed. Restart now to apply changes?",
       restartNow: "Restart Now",
       restartLater: "Remind Me Later",
       failedCheck: "Failed to check for updates",
@@ -164,7 +164,8 @@ export const en = {
     },
     shortcuts: {
       title: "Shortcuts",
-      readonlyHint: "Read-only in this version. Shortcut editing is not supported yet.",
+      readonlyHint:
+        "Read-only in this version. Shortcut editing is not supported yet.",
       action: "Action",
       keys: "Keys",
       scope: "Scope",
@@ -274,7 +275,8 @@ export const en = {
         sshHostRequired: "SSH is enabled. SSH host is required.",
         sshUsernameRequired: "SSH is enabled. SSH username is required.",
         sshPortRange: "SSH port must be an integer between 1 and 65535.",
-        sshAuthRequired: "SSH is enabled. Provide SSH password or SSH key path.",
+        sshAuthRequired:
+          "SSH is enabled. Provide SSH password or SSH key path.",
       },
     },
     menu: {
@@ -334,7 +336,8 @@ export const en = {
     },
     toast: {
       loadDatabasesFailed: "Failed to load databases",
-      newQueryNoDatabase: "Cannot create query: no available database for this connection.",
+      newQueryNoDatabase:
+        "Cannot create query: no available database for this connection.",
       duplicateSuccess: "Connection duplicated successfully",
       duplicateFailed: "Failed to duplicate connection",
       createDatabaseSuccess: "Database created successfully",
@@ -345,7 +348,8 @@ export const en = {
       selectImportSqlFile: "Select SQL File to Import",
       importSuccess: "Import completed ({{count}} statements)",
       importFailed: "Import failed",
-      exportDesktopOnly: "Export dialog is only available in Tauri desktop mode.",
+      exportDesktopOnly:
+        "Export dialog is only available in Tauri desktop mode.",
       saveExportFile: "Save Export File",
       openSaveDialogFailed: "Failed to open save dialog",
       fileBrowserDesktopOnly: "File browser is only available in desktop app",
@@ -366,7 +370,8 @@ export const en = {
     errors: {
       loadConversation: "Failed to load conversation",
       requestFailed: "AI request failed",
-      providerMissing: "Please configure and select an AI provider in Settings.",
+      providerMissing:
+        "Please configure and select an AI provider in Settings.",
       sendFailed: "Failed to send AI message",
       deleteConversation: "Failed to delete conversation",
     },
@@ -424,10 +429,10 @@ export const en = {
 
 type DeepStringify<T> = {
   [K in keyof T]: T[K] extends string
-  ? string
-  : T[K] extends object
-  ? DeepStringify<T[K]>
-  : T[K];
+    ? string
+    : T[K] extends object
+      ? DeepStringify<T[K]>
+      : T[K];
 };
 
 export type Translations = DeepStringify<typeof en>;

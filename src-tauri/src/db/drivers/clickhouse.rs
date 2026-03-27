@@ -231,9 +231,12 @@ fn required_i64_from_json_row(
     key: &str,
     context_sql: &str,
 ) -> Result<i64, String> {
-    let value = row
-        .and_then(|v| v.get(key))
-        .ok_or_else(|| format!("[PARSE_ERROR] Missing '{}' in response for SQL: {}", key, context_sql))?;
+    let value = row.and_then(|v| v.get(key)).ok_or_else(|| {
+        format!(
+            "[PARSE_ERROR] Missing '{}' in response for SQL: {}",
+            key, context_sql
+        )
+    })?;
     value_to_i64(value).ok_or_else(|| {
         format!(
             "[PARSE_ERROR] Invalid '{}' value {:?} for SQL: {}",

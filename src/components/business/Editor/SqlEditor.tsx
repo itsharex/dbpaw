@@ -479,9 +479,12 @@ export function SqlEditor({
           format,
           filePath,
         });
-        toast.success(t("sqlEditor.export.completed", { count: result.rowCount }), {
-          description: result.filePath,
-        });
+        toast.success(
+          t("sqlEditor.export.completed", { count: result.rowCount }),
+          {
+            description: result.filePath,
+          },
+        );
       } catch (e) {
         toast.error(t("sqlEditor.export.failed"), {
           description: e instanceof Error ? e.message : String(e),
@@ -494,7 +497,10 @@ export function SqlEditor({
   const triggerSave = useCallback(() => {
     const currentId = savedQueryIdRef.current;
     if (currentId) {
-      executeSave(initialName || t("sqlEditor.untitled"), initialDescription || "");
+      executeSave(
+        initialName || t("sqlEditor.untitled"),
+        initialDescription || "",
+      );
     } else {
       setIsSaveDialogOpen(true);
     }
@@ -603,7 +609,10 @@ export function SqlEditor({
         .filter((item): item is CompletionResult => !!item);
       if (!results.length) return null;
 
-      const from = results.reduce((min, curr) => Math.min(min, curr.from), results[0].from);
+      const from = results.reduce(
+        (min, curr) => Math.min(min, curr.from),
+        results[0].from,
+      );
       const options: NonNullable<CompletionResult["options"]>[number][] = [];
       const seen = new Set<string>();
       for (const result of results) {
@@ -691,16 +700,13 @@ export function SqlEditor({
     <div className="h-full flex flex-col bg-background">
       <div className="flex items-center justify-between px-4 py-2 border-b border-border">
         <div className="flex items-center gap-2">
-          {databaseName && (
-            canSwitchDatabase ? (
+          {databaseName &&
+            (canSwitchDatabase ? (
               <div className="flex items-center gap-2">
                 <Database
                   className={`w-3 h-3 ${schemaOverview ? "text-green-500" : "text-muted-foreground"}`}
                 />
-                <Select
-                  value={databaseName}
-                  onValueChange={onDatabaseChange}
-                >
+                <Select value={databaseName} onValueChange={onDatabaseChange}>
                   <SelectTrigger
                     size="sm"
                     className="h-8 min-w-[180px] bg-muted/50 text-xs"
@@ -736,8 +742,7 @@ export function SqlEditor({
                   </span>
                 )}
               </div>
-            )
-          )}
+            ))}
 
           <div className="w-px h-4 bg-border mx-2" />
 

@@ -56,7 +56,11 @@ describe("formatInsertSQLValue", () => {
 
   test("formats boolean values", () => {
     expect(
-      formatInsertSQLValue("true", { name: "enabled", type: "boolean" }, "postgres"),
+      formatInsertSQLValue(
+        "true",
+        { name: "enabled", type: "boolean" },
+        "postgres",
+      ),
     ).toBe("TRUE");
     expect(
       formatInsertSQLValue("0", { name: "enabled", type: "boolean" }, "mssql"),
@@ -65,7 +69,11 @@ describe("formatInsertSQLValue", () => {
 
   test("throws for invalid boolean values", () => {
     expect(() =>
-      formatInsertSQLValue("yes", { name: "enabled", type: "boolean" }, "postgres"),
+      formatInsertSQLValue(
+        "yes",
+        { name: "enabled", type: "boolean" },
+        "postgres",
+      ),
     ).toThrow('Invalid boolean value for column "enabled": "yes"');
   });
 
@@ -84,9 +92,9 @@ describe("isInsertColumnRequired", () => {
   });
 
   test("returns false when nullable", () => {
-    expect(
-      isInsertColumnRequired({ nullable: true, defaultValue: null }),
-    ).toBe(false);
+    expect(isInsertColumnRequired({ nullable: true, defaultValue: null })).toBe(
+      false,
+    );
   });
 
   test("returns false when default value exists", () => {
@@ -101,7 +109,9 @@ describe("isInsertColumnRequired", () => {
 
 describe("getQualifiedTableName", () => {
   test("uses unqualified table with backticks for tidb", () => {
-    expect(getQualifiedTableName("tidb", "analytics", "events")).toBe("`events`");
+    expect(getQualifiedTableName("tidb", "analytics", "events")).toBe(
+      "`events`",
+    );
   });
 
   test("uses unqualified table with backticks for mariadb", () => {
@@ -111,20 +121,20 @@ describe("getQualifiedTableName", () => {
   });
 
   test("does not qualify sqlite main/public schema", () => {
-    expect(getQualifiedTableName("sqlite", "main", "users")).toBe("\"users\"");
-    expect(getQualifiedTableName("sqlite", "public", "users")).toBe("\"users\"");
-    expect(getQualifiedTableName("sqlite", "", "users")).toBe("\"users\"");
+    expect(getQualifiedTableName("sqlite", "main", "users")).toBe('"users"');
+    expect(getQualifiedTableName("sqlite", "public", "users")).toBe('"users"');
+    expect(getQualifiedTableName("sqlite", "", "users")).toBe('"users"');
   });
 
   test("keeps non-main sqlite schema qualification", () => {
     expect(getQualifiedTableName("sqlite", "analytics", "events")).toBe(
-      "\"analytics\".\"events\"",
+      '"analytics"."events"',
     );
   });
 
   test("does not qualify duckdb main/public schema", () => {
-    expect(getQualifiedTableName("duckdb", "main", "users")).toBe("\"users\"");
-    expect(getQualifiedTableName("duckdb", "public", "users")).toBe("\"users\"");
-    expect(getQualifiedTableName("duckdb", "", "users")).toBe("\"users\"");
+    expect(getQualifiedTableName("duckdb", "main", "users")).toBe('"users"');
+    expect(getQualifiedTableName("duckdb", "public", "users")).toBe('"users"');
+    expect(getQualifiedTableName("duckdb", "", "users")).toBe('"users"');
   });
 });

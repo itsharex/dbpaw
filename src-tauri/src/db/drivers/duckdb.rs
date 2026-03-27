@@ -859,7 +859,10 @@ mod tests {
             .unwrap();
         assert_eq!(returning_result.row_count, 1);
         assert_eq!(returning_result.columns.len(), 2);
-        assert_eq!(returning_result.data[0]["id"], serde_json::Value::String("3".to_string()));
+        assert_eq!(
+            returning_result.data[0]["id"],
+            serde_json::Value::String("3".to_string())
+        );
         assert_eq!(
             returning_result.data[0]["name"],
             serde_json::Value::String("c".to_string())
@@ -871,7 +874,10 @@ mod tests {
 
     #[test]
     fn test_number_from_f64_nan_and_inf_are_stringified() {
-        assert_eq!(number_from_f64(f64::NAN), serde_json::Value::String("NaN".to_string()));
+        assert_eq!(
+            number_from_f64(f64::NAN),
+            serde_json::Value::String("NaN".to_string())
+        );
         assert_eq!(
             number_from_f64(f64::INFINITY),
             serde_json::Value::String("inf".to_string())
