@@ -402,13 +402,12 @@ pub async fn delete_connection(state: State<'_, AppState>, id: i64) -> Result<()
 mod tests {
     use super::{
         build_clickhouse_create_database_sql, build_mssql_create_database_sql,
-        build_mysql_create_database_sql,
-        build_postgres_create_database_sql, validate_database_name, CreateDatabasePayload,
+        build_mysql_create_database_sql, build_postgres_create_database_sql,
+        validate_database_name, CreateDatabasePayload,
     };
     use super::{
         normalize_create_database_error, normalize_option_token, quote_clickhouse_ident,
-        quote_mssql_ident,
-        quote_mysql_ident, quote_pg_ident,
+        quote_mssql_ident, quote_mysql_ident, quote_pg_ident,
     };
     use crate::connection_input::normalize_connection_form;
     use crate::models::ConnectionForm;
@@ -479,7 +478,7 @@ mod tests {
         let dsn = crate::db::drivers::mysql::build_test_dsn(&normalized).unwrap();
 
         assert_eq!(normalized.password, Some(String::new()));
-        assert_eq!(dsn, "mysql://root:@localhost:3306/app");
+        assert_eq!(dsn, "mysql://root:@localhost:3306/app?ssl-mode=DISABLED");
     }
 
     #[test]
