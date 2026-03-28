@@ -37,15 +37,27 @@ case "${it_db}" in
   mysql)
     run_integration_test "mysql_integration"
     ;;
+  mariadb)
+    run_integration_test "mariadb_integration"
+    ;;
   postgres)
     run_integration_test "postgres_integration"
     ;;
+  mssql)
+    run_integration_test "mssql_integration"
+    ;;
+  sqlite)
+    run_integration_test "sqlite_integration"
+    ;;
   all)
     run_integration_test "mysql_integration"
+    run_integration_test "mariadb_integration"
     run_integration_test "postgres_integration"
+    run_integration_test "mssql_integration"
+    run_integration_test "sqlite_integration"
     ;;
   *)
-    echo "[error] Invalid IT_DB='${it_db}'. Expected one of: mysql|postgres|all"
+    echo "[error] Invalid IT_DB='${it_db}'. Expected one of: mysql|mariadb|postgres|mssql|sqlite|all"
     exit 1
     ;;
 esac

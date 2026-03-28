@@ -51,13 +51,15 @@ bun run test:rust:unit
 bun run test:integration
 ```
 
-### 集成测试自动化（MySQL + Postgres）
+### 集成测试自动化（MySQL + MariaDB + Postgres + SQL Server）
 
-- 默认执行 `bun run test:integration` 会自动启动/销毁 MySQL 与 Postgres 容器（无需手动起库）。
+- 默认执行 `bun run test:integration` 会自动启动/销毁 MySQL、MariaDB、Postgres 与 SQL Server 容器（无需手动起库）。
 - 可通过 `IT_DB` 指定目标数据库：
   ```bash
   IT_DB=mysql bun run test:integration
+  IT_DB=mariadb bun run test:integration
   IT_DB=postgres bun run test:integration
+  IT_DB=mssql bun run test:integration
   IT_DB=all bun run test:integration
   ```
 - 如需复用你本地已经启动的数据库（兼容旧流程），可设置：
@@ -68,12 +70,14 @@ bun run test:integration
 ### 集成测试常见环境变量（可选覆盖）
 
 - MySQL: `MYSQL_HOST` `MYSQL_PORT` `MYSQL_USER` `MYSQL_PASSWORD` `MYSQL_DB`
+- MariaDB: `MARIADB_HOST` `MARIADB_PORT` `MARIADB_USER` `MARIADB_PASSWORD` `MARIADB_DB`
 - Postgres: `POSTGRES_HOST` `POSTGRES_PORT` `POSTGRES_USER` `POSTGRES_PASSWORD` `POSTGRES_DB`
+- SQL Server: `MSSQL_HOST` `MSSQL_PORT` `MSSQL_USER` `MSSQL_PASSWORD` `MSSQL_DB`
 - 兼容 Postgres 常见别名: `PG_HOST` `PG_PORT` `PGUSER` `PGPASSWORD` `PGDATABASE`
 
 ### 排障建议
 
-- 镜像拉取慢：先手动执行 `docker pull mysql:8.0` 和 `docker pull postgres:16-alpine` 预热。
+- 镜像拉取慢：先手动执行 `docker pull mysql:8.0`、`docker pull mariadb:11`、`docker pull postgres:16-alpine` 和 `docker pull mcr.microsoft.com/mssql/server:2022-latest` 预热。
 - 端口冲突：集成测试默认使用 Docker 动态映射端口，通常不会冲突；如本地复用模式冲突，请调整 `*_PORT`。
 - Apple 芯片兼容：若首次拉取较慢，建议预先拉取镜像并等待 Docker Desktop 完成架构层初始化。
 
@@ -103,7 +107,9 @@ bun run test:integration
 - 或按需只跑单库：
   ```bash
   IT_DB=mysql bun run test:integration
+  IT_DB=mariadb bun run test:integration
   IT_DB=postgres bun run test:integration
+  IT_DB=mssql bun run test:integration
   ```
 - 适用：连接参数、驱动逻辑、执行 SQL、表/库元数据、DDL/DML、类型映射相关改动。
 

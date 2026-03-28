@@ -337,3 +337,339 @@ async fn test_mysql_list_tables_with_unicode_table_name() {
         .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
         .await;
 }
+
+#[tokio::test]
+#[ignore]
+async fn test_mysql_get_table_data_supports_pagination_sort_filter_and_order_by() {
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
+    let database = form
+        .database
+        .clone()
+        .expect("MYSQL_DB or container default database should be present");
+    let driver: MysqlDriver =
+        mysql_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
+
+    let table_name = "dbpaw_grid_probe";
+    let qualified = format!("`{}`.`{}`", database, table_name);
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+    driver
+        .execute_query(format!(
+            "CREATE TABLE {} (id INT PRIMARY KEY, name VARCHAR(20), score INT)",
+            qualified
+        ))
+        .await
+        .expect("create grid probe table failed");
+    driver
+        .execute_query(format!(
+            "INSERT INTO {} (id, name, score) VALUES \
+             (1, 'alpha', 10), (2, 'beta', 20), (3, 'gamma', 30), (4, 'delta', 40)",
+            qualified
+        ))
+        .await
+        .expect("insert grid probe rows failed");
+
+    let page1 = driver
+        .get_table_data(
+            database.clone(),
+            table_name.to_string(),
+            1,
+            2,
+            Some("score".to_string()),
+            Some("desc".to_string()),
+            None,
+            None,
+        )
+        .await
+        .expect("get_table_data for page1 failed");
+    assert_eq!(page1.total, 4);
+    assert_eq!(page1.data.len(), 2);
+    assert_eq!(
+        page1.data[0]["name"],
+        serde_json::Value::String("delta".to_string())
+    );
+
+    let filtered = driver
+        .get_table_data(
+            database.clone(),
+            table_name.to_string(),
+            1,
+            10,
+            None,
+            None,
+            Some("score >= 20".to_string()),
+            None,
+        )
+        .await
+        .expect("get_table_data with filter failed");
+    assert_eq!(filtered.total, 3);
+
+    let ordered = driver
+        .get_table_data(
+            database.clone(),
+            table_name.to_string(),
+            1,
+            1,
+            Some("id".to_string()),
+            Some("asc".to_string()),
+            None,
+            Some("name DESC".to_string()),
+        )
+        .await
+        .expect("get_table_data with order_by priority failed");
+    assert_eq!(ordered.total, 4);
+    assert_eq!(ordered.data.len(), 1);
+    assert_eq!(
+        ordered.data[0]["name"],
+        serde_json::Value::String("gamma".to_string())
+    );
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_mysql_get_table_data_rejects_invalid_sort_column() {
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
+    let database = form
+        .database
+        .clone()
+        .expect("MYSQL_DB or container default database should be present");
+    let driver: MysqlDriver =
+        mysql_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
+
+    let table_name = "dbpaw_invalid_sort_probe";
+    let qualified = format!("`{}`.`{}`", database, table_name);
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+    driver
+        .execute_query(format!(
+            "CREATE TABLE {} (id INT PRIMARY KEY, name VARCHAR(20))",
+            qualified
+        ))
+        .await
+        .expect("create invalid sort probe table failed");
+
+    let result = driver
+        .get_table_data(
+            database.clone(),
+            table_name.to_string(),
+            1,
+            10,
+            Some("id desc".to_string()),
+            Some("desc".to_string()),
+            None,
+            None,
+        )
+        .await;
+    let err = result.expect_err("invalid sort column should return an error");
+    assert!(
+        err.contains("[VALIDATION_ERROR] Invalid sort column name"),
+        "unexpected error: {}",
+        err
+    );
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_mysql_table_structure_and_schema_overview() {
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
+    let database = form
+        .database
+        .clone()
+        .expect("MYSQL_DB or container default database should be present");
+    let driver: MysqlDriver =
+        mysql_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
+
+    let table_name = "dbpaw_overview_probe";
+    let qualified = format!("`{}`.`{}`", database, table_name);
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+    driver
+        .execute_query(format!(
+            "CREATE TABLE {} (id INT PRIMARY KEY, label VARCHAR(30) NOT NULL)",
+            qualified
+        ))
+        .await
+        .expect("create overview probe table failed");
+
+    let structure = driver
+        .get_table_structure(database.clone(), table_name.to_string())
+        .await
+        .expect("get_table_structure failed");
+    assert!(
+        structure.columns.iter().any(|c| c.name == "id" && c.primary_key),
+        "table structure should include primary key id"
+    );
+    assert!(
+        structure.columns.iter().any(|c| c.name == "label"),
+        "table structure should include label column"
+    );
+
+    let overview = driver
+        .get_schema_overview(Some(database.clone()))
+        .await
+        .expect("get_schema_overview failed");
+    assert!(
+        overview
+            .tables
+            .iter()
+            .any(|t| t.schema == database && t.name == table_name),
+        "schema overview should include {}.{}",
+        database,
+        table_name
+    );
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_mysql_metadata_includes_indexes_and_foreign_keys() {
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
+    let database = form
+        .database
+        .clone()
+        .expect("MYSQL_DB or container default database should be present");
+    let driver: MysqlDriver =
+        mysql_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
+
+    let parent = "dbpaw_parent_meta_probe";
+    let child = "dbpaw_child_meta_probe";
+    let parent_qualified = format!("`{}`.`{}`", database, parent);
+    let child_qualified = format!("`{}`.`{}`", database, child);
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", child_qualified))
+        .await;
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", parent_qualified))
+        .await;
+
+    driver
+        .execute_query(format!("CREATE TABLE {} (id INT PRIMARY KEY)", parent_qualified))
+        .await
+        .expect("create parent table failed");
+    driver
+        .execute_query(format!(
+            "CREATE TABLE {} (\
+                id INT PRIMARY KEY, \
+                parent_id INT NOT NULL, \
+                name VARCHAR(30), \
+                INDEX idx_child_name (name), \
+                CONSTRAINT fk_child_parent FOREIGN KEY (parent_id) REFERENCES {}(id)\
+            )",
+            child_qualified, parent_qualified
+        ))
+        .await
+        .expect("create child table with fk/index failed");
+
+    let metadata = driver
+        .get_table_metadata(database.clone(), child.to_string())
+        .await
+        .expect("get_table_metadata for child failed");
+    assert!(
+        metadata
+            .indexes
+            .iter()
+            .any(|i| i.name == "idx_child_name" && i.columns.contains(&"name".to_string())),
+        "metadata should include idx_child_name index"
+    );
+    assert!(
+        metadata.foreign_keys.iter().any(|fk| {
+            fk.name == "fk_child_parent"
+                && fk.column == "parent_id"
+                && fk.referenced_table == parent
+                && fk.referenced_column == "id"
+        }),
+        "metadata should include fk_child_parent"
+    );
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", child_qualified))
+        .await;
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", parent_qualified))
+        .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_mysql_boolean_and_json_type_mapping_regression() {
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
+    let database = form
+        .database
+        .clone()
+        .expect("MYSQL_DB or container default database should be present");
+    let driver: MysqlDriver =
+        mysql_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
+
+    let table_name = "dbpaw_bool_json_probe";
+    let qualified = format!("`{}`.`{}`", database, table_name);
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+    driver
+        .execute_query(format!(
+            "CREATE TABLE {} (id INT PRIMARY KEY, flag BOOLEAN, meta JSON)",
+            qualified
+        ))
+        .await
+        .expect("create bool/json probe table failed");
+    driver
+        .execute_query(format!(
+            "INSERT INTO {} (id, flag, meta) VALUES (1, 1, '{{\"tier\": \"gold\"}}')",
+            qualified
+        ))
+        .await
+        .expect("insert bool/json probe row failed");
+
+    let query_result = driver
+        .execute_query(format!("SELECT flag, meta FROM {} WHERE id = 1", qualified))
+        .await
+        .expect("select bool/json row failed");
+    assert_eq!(query_result.row_count, 1);
+    let query_row = query_result.data.first().expect("query row should exist");
+    assert!(query_row.get("flag").is_some(), "flag should exist");
+    assert!(query_row.get("meta").is_some(), "meta should exist");
+
+    let table_data = driver
+        .get_table_data(
+            database.clone(),
+            table_name.to_string(),
+            1,
+            10,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("get_table_data for bool/json table failed");
+    assert_eq!(table_data.total, 1);
+    let grid_row = table_data.data.first().expect("table data row should exist");
+    assert!(grid_row.get("flag").is_some(), "flag should exist in table_data");
+    assert!(grid_row.get("meta").is_some(), "meta should exist in table_data");
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+}
