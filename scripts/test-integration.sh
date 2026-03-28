@@ -43,8 +43,14 @@ case "${it_db}" in
   postgres)
     run_integration_test "postgres_integration"
     ;;
+  clickhouse)
+    run_integration_test "clickhouse_integration"
+    ;;
   mssql)
     run_integration_test "mssql_integration"
+    ;;
+  duckdb)
+    run_integration_test "duckdb_integration"
     ;;
   sqlite)
     run_integration_test "sqlite_integration"
@@ -53,11 +59,13 @@ case "${it_db}" in
     run_integration_test "mysql_integration"
     run_integration_test "mariadb_integration"
     run_integration_test "postgres_integration"
+    run_integration_test "clickhouse_integration"
     run_integration_test "mssql_integration"
+    run_integration_test "duckdb_integration"
     run_integration_test "sqlite_integration"
     ;;
   *)
-    echo "[error] Invalid IT_DB='${it_db}'. Expected one of: mysql|mariadb|postgres|mssql|sqlite|all"
+    echo "[error] Invalid IT_DB='${it_db}'. Expected one of: mysql|mariadb|postgres|clickhouse|mssql|duckdb|sqlite|all"
     exit 1
     ;;
 esac
