@@ -1,42 +1,17 @@
+#[path = "common/postgres_context.rs"]
+mod postgres_context;
+
 use dbpaw_lib::db::drivers::postgres::PostgresDriver;
 use dbpaw_lib::db::drivers::DatabaseDriver;
-use dbpaw_lib::models::ConnectionForm;
-use std::env;
+use testcontainers::clients::Cli;
 
 #[tokio::test]
 #[ignore]
 async fn test_postgres_integration_flow() {
-    let host = env::var("POSTGRES_HOST")
-        .or_else(|_| env::var("PG_HOST"))
-        .unwrap_or_else(|_| "localhost".to_string());
-    let port = env::var("POSTGRES_PORT")
-        .or_else(|_| env::var("PG_PORT"))
-        .unwrap_or_else(|_| "5432".to_string())
-        .parse()
-        .expect("POSTGRES_PORT should be a number");
-    let username = env::var("POSTGRES_USER")
-        .or_else(|_| env::var("PGUSER"))
-        .unwrap_or_else(|_| "postgres".to_string());
-    let password = env::var("POSTGRES_PASSWORD")
-        .or_else(|_| env::var("PGPASSWORD"))
-        .unwrap_or_else(|_| "postgres".to_string());
-    let database = env::var("POSTGRES_DB")
-        .or_else(|_| env::var("PGDATABASE"))
-        .unwrap_or_else(|_| "postgres".to_string());
+    let docker = (!postgres_context::should_reuse_local_db()).then(Cli::default);
+    let (_container, form) = postgres_context::postgres_form_from_test_context(docker.as_ref());
 
-    let form = ConnectionForm {
-        driver: "postgres".to_string(),
-        host: Some(host),
-        port: Some(port),
-        username: Some(username),
-        password: Some(password),
-        database: Some(database.clone()),
-        ..Default::default()
-    };
-
-    let driver = PostgresDriver::connect(&form)
-        .await
-        .expect("Failed to connect to Postgres");
+    let driver = postgres_context::connect_with_retry(|| PostgresDriver::connect(&form)).await;
 
     driver
         .test_connection()

@@ -1,39 +1,25 @@
+#[path = "common/mysql_context.rs"]
+mod mysql_context;
+
 use dbpaw_lib::db::drivers::mysql::MysqlDriver;
 use dbpaw_lib::db::drivers::DatabaseDriver;
-use dbpaw_lib::models::ConnectionForm;
-use std::env;
+use testcontainers::clients::Cli;
 
 #[tokio::test]
 #[ignore]
 async fn test_mysql_integration_flow() {
-    // Retrieve connection info from environment variables
-    // Defaults are set for a local MySQL instance often used in development
-    let host = env::var("MYSQL_HOST").unwrap_or_else(|_| "localhost".to_string());
-    let port = env::var("MYSQL_PORT")
-        .unwrap_or_else(|_| "3306".to_string())
-        .parse()
-        .unwrap();
-    let username = env::var("MYSQL_USER").unwrap_or_else(|_| "root".to_string());
-    let password = env::var("MYSQL_PASSWORD").unwrap_or_else(|_| "123456".to_string());
-    // Use a specific test database if provided, otherwise default to None (which might fail list_tables if implementation depends on it)
-    // Looking at mysql.rs, list_tables uses self.form.database as default schema.
-    let database = env::var("MYSQL_DB").ok();
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
+    let database = form.database.clone();
 
-    println!("Testing MySQL connection to {}:{}", host, port);
+    println!(
+        "Testing MySQL connection to {}:{}",
+        form.host.as_deref().unwrap_or("localhost"),
+        form.port.unwrap_or(3306)
+    );
 
-    let form = ConnectionForm {
-        driver: "mysql".to_string(),
-        host: Some(host),
-        port: Some(port),
-        username: Some(username),
-        password: Some(password),
-        database: database.clone(),
-        ..Default::default()
-    };
-
-    let driver: MysqlDriver = MysqlDriver::connect(&form)
-        .await
-        .expect("Failed to connect");
+    let driver: MysqlDriver =
+        mysql_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
 
     // 1. Test Connection
     // This just runs "SELECT 1"
@@ -110,28 +96,15 @@ async fn test_mysql_integration_flow() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_metadata_and_type_mapping_flow() {
-    let host = env::var("MYSQL_HOST").unwrap_or_else(|_| "localhost".to_string());
-    let port = env::var("MYSQL_PORT")
-        .unwrap_or_else(|_| "3306".to_string())
-        .parse()
-        .unwrap();
-    let username = env::var("MYSQL_USER").unwrap_or_else(|_| "root".to_string());
-    let password = env::var("MYSQL_PASSWORD").unwrap_or_else(|_| "123456".to_string());
-    let database = env::var("MYSQL_DB").unwrap_or_else(|_| "test_db".to_string());
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
+    let database = form
+        .database
+        .clone()
+        .expect("MYSQL_DB or container default database should be present");
 
-    let form = ConnectionForm {
-        driver: "mysql".to_string(),
-        host: Some(host),
-        port: Some(port),
-        username: Some(username),
-        password: Some(password),
-        database: Some(database.clone()),
-        ..Default::default()
-    };
-
-    let driver: MysqlDriver = MysqlDriver::connect(&form)
-        .await
-        .expect("Failed to connect");
+    let driver: MysqlDriver =
+        mysql_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
 
     let table_name = "dbpaw_type_probe";
     let qualified = format!("`{}`.`{}`", database, table_name);
@@ -271,28 +244,11 @@ async fn test_mysql_metadata_and_type_mapping_flow() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_list_databases_and_tables_with_binary_collation_database() {
-    let host = env::var("MYSQL_HOST").unwrap_or_else(|_| "localhost".to_string());
-    let port = env::var("MYSQL_PORT")
-        .unwrap_or_else(|_| "3306".to_string())
-        .parse()
-        .unwrap();
-    let username = env::var("MYSQL_USER").unwrap_or_else(|_| "root".to_string());
-    let password = env::var("MYSQL_PASSWORD").unwrap_or_else(|_| "123456".to_string());
-    let database = env::var("MYSQL_DB").unwrap_or_else(|_| "test_db".to_string());
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
 
-    let form = ConnectionForm {
-        driver: "mysql".to_string(),
-        host: Some(host),
-        port: Some(port),
-        username: Some(username),
-        password: Some(password),
-        database: Some(database),
-        ..Default::default()
-    };
-
-    let driver: MysqlDriver = MysqlDriver::connect(&form)
-        .await
-        .expect("Failed to connect");
+    let driver: MysqlDriver =
+        mysql_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
 
     let probe_db = "dbpaw_bin_probe";
     let probe_table = "probe_tbl";
@@ -342,28 +298,15 @@ async fn test_mysql_list_databases_and_tables_with_binary_collation_database() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_list_tables_with_unicode_table_name() {
-    let host = env::var("MYSQL_HOST").unwrap_or_else(|_| "localhost".to_string());
-    let port = env::var("MYSQL_PORT")
-        .unwrap_or_else(|_| "3306".to_string())
-        .parse()
-        .unwrap();
-    let username = env::var("MYSQL_USER").unwrap_or_else(|_| "root".to_string());
-    let password = env::var("MYSQL_PASSWORD").unwrap_or_else(|_| "123456".to_string());
-    let database = env::var("MYSQL_DB").unwrap_or_else(|_| "test_db".to_string());
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
+    let database = form
+        .database
+        .clone()
+        .expect("MYSQL_DB or container default database should be present");
 
-    let form = ConnectionForm {
-        driver: "mysql".to_string(),
-        host: Some(host),
-        port: Some(port),
-        username: Some(username),
-        password: Some(password),
-        database: Some(database.clone()),
-        ..Default::default()
-    };
-
-    let driver: MysqlDriver = MysqlDriver::connect(&form)
-        .await
-        .expect("Failed to connect");
+    let driver: MysqlDriver =
+        mysql_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
 
     let table_name = "dbpaw_中文_probe";
     let qualified = format!("`{}`.`{}`", database, table_name);

@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> src-tauri/target
+
+      - name: Run unit tests
+        run: bun run test:unit
+
+      - name: Run service tests
+        run: bun run test:service
+
+      - name: Run rust unit tests
+        run: bun run test:rust:unit
+
+      - name: Run integration tests (MySQL + Postgres with testcontainers)
+        run: IT_DB=all bun run test:integration
+
+      - name: Docker diagnostics on failure
+        if: failure()
+        run: |
+          echo "==== docker ps -a ===="
+          docker ps -a || true
+          echo "==== recent mysql/postgres logs ===="
+          for image in mysql:8.0 postgres:16-alpine; do
+            for id in $(docker ps -aq --filter "ancestor=${image}"); do
+              echo "--- logs for $id (${image}) ---"
+              docker logs "$id" || true
+            done
+          done

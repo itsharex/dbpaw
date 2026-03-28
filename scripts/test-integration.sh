@@ -1,26 +1,51 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-run_integration_test() {
-  local db_name="$1"
-  local test_name="$2"
-  local run_flag="$3"
+it_db="${IT_DB:-all}"
+it_reuse_local_db="${IT_REUSE_LOCAL_DB:-0}"
+it_container_prefix="${IT_CONTAINER_PREFIX:-dbpaw-it-$$-}"
+export IT_CONTAINER_PREFIX="${it_container_prefix}"
 
-  if [[ "${run_flag}" != "1" ]]; then
-    echo "[skip] ${db_name} integration test (set ${db_name}=1 to enable)"
+cleanup_it_containers() {
+  if [[ "${it_reuse_local_db}" == "1" ]]; then
+    return 0
+  fi
+  if ! command -v docker >/dev/null 2>&1; then
     return 0
   fi
 
-  echo "[run] ${db_name} integration test: ${test_name}"
-  cargo test \
-    --manifest-path src-tauri/Cargo.toml \
-    --test "${test_name}" \
-    -- --ignored --nocapture
+  local ids
+  ids="$(docker ps -aq --filter "name=${it_container_prefix}" || true)"
+  if [[ -n "${ids}" ]]; then
+    echo "[cleanup] removing leftover integration containers: ${it_container_prefix}*"
+    docker rm -f ${ids} >/dev/null 2>&1 || true
+  fi
 }
 
-run_integration_test "RUN_MYSQL_IT" "mysql_integration" "${RUN_MYSQL_IT:-0}"
-run_integration_test "RUN_MARIADB_IT" "mariadb_integration" "${RUN_MARIADB_IT:-0}"
-run_integration_test "RUN_POSTGRES_IT" "postgres_integration" "${RUN_POSTGRES_IT:-0}"
-run_integration_test "RUN_SQLITE_IT" "sqlite_integration" "${RUN_SQLITE_IT:-0}"
-run_integration_test "RUN_MSSQL_IT" "mssql_integration" "${RUN_MSSQL_IT:-0}"
-run_integration_test "RUN_CLICKHOUSE_IT" "clickhouse_integration" "${RUN_CLICKHOUSE_IT:-0}"
+cleanup_it_containers
+trap cleanup_it_containers EXIT
+
+run_integration_test() {
+  local test_name="$1"
+  echo "[run] integration test: ${test_name} (IT_REUSE_LOCAL_DB=${it_reuse_local_db})"
+  cargo test \
+    --manifest-path src-tauri/Cargo.toml \
+    --test "${test_name}" -- --ignored --nocapture --test-threads=1
+}
+
+case "${it_db}" in
+  mysql)
+    run_integration_test "mysql_integration"
+    ;;
+  postgres)
+    run_integration_test "postgres_integration"
+    ;;
+  all)
+    run_integration_test "mysql_integration"
+    run_integration_test "postgres_integration"
+    ;;
+  *)
+    echo "[error] Invalid IT_DB='${it_db}'. Expected one of: mysql|postgres|all"
+    exit 1
+    ;;
+esac
