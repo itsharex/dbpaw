@@ -457,6 +457,13 @@ fn is_json_projectable_statement(sql: &str) -> bool {
     matches!(first_sql_keyword(sql).as_deref(), Some("SELECT" | "WITH"))
 }
 
+fn is_affected_rows_statement(sql: &str) -> bool {
+    matches!(
+        first_sql_keyword(sql).as_deref(),
+        Some("INSERT" | "UPDATE" | "DELETE" | "REPLACE")
+    )
+}
+
 #[async_trait]
 impl DatabaseDriver for MysqlDriver {
     async fn close(&self) {
@@ -861,6 +868,12 @@ impl DatabaseDriver for MysqlDriver {
                 .await?;
             let row_count = data.len() as i64;
             (columns, data, row_count)
+        } else if is_affected_rows_statement(&sql) {
+            let result = sqlx::query(&sql)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+            (Vec::new(), Vec::new(), result.rows_affected() as i64)
         } else {
             let mut executed_with_raw_sql = false;
             let rows = match sqlx::query(&sql).fetch_all(&self.pool).await {
