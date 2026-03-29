@@ -5,6 +5,16 @@ use dbpaw_lib::db::drivers::mssql::MssqlDriver;
 use dbpaw_lib::db::drivers::DatabaseDriver;
 use testcontainers::clients::Cli;
 
+fn scalar_to_i64(value: &serde_json::Value) -> i64 {
+    if let Some(v) = value.as_i64() {
+        return v;
+    }
+    value
+        .as_str()
+        .and_then(|v| v.parse::<i64>().ok())
+        .expect("scalar should be i64 or parseable string")
+}
+
 #[tokio::test]
 #[ignore]
 async fn test_mssql_integration_flow() {
@@ -559,10 +569,7 @@ async fn test_mssql_execute_query_reports_affected_rows_for_update_delete() {
     assert_eq!(updated.row_count, 1);
 
     let deleted = driver
-        .execute_query(format!(
-            "DELETE FROM {} WHERE id IN (1, 2)",
-            qualified
-        ))
+        .execute_query(format!("DELETE FROM {} WHERE id IN (1, 2)", qualified))
         .await
         .expect("delete affected_rows probe rows failed");
     assert_eq!(deleted.row_count, 2);
@@ -600,21 +607,22 @@ async fn test_mssql_transaction_commit_and_rollback() {
         .await
         .expect("create mssql txn probe table failed");
 
-    driver
-        .execute_query("BEGIN TRANSACTION".to_string())
-        .await
-        .expect("begin transaction failed");
-    driver
-        .execute_query(format!(
+    // Test rollback using a single connection from the pool
+    {
+        let mut conn = driver.pool.get().await.expect("get connection failed");
+        conn.simple_query("BEGIN TRANSACTION")
+            .await
+            .expect("begin transaction failed");
+        conn.simple_query(&format!(
             "INSERT INTO {} (id, name) VALUES (1, N'rolled_back')",
             qualified
         ))
         .await
         .expect("insert in rollback tx failed");
-    driver
-        .execute_query("ROLLBACK TRANSACTION".to_string())
-        .await
-        .expect("rollback failed");
+        conn.simple_query("ROLLBACK TRANSACTION")
+            .await
+            .expect("rollback failed");
+    }
 
     let rolled_back = driver
         .execute_query(format!(
@@ -623,28 +631,25 @@ async fn test_mssql_transaction_commit_and_rollback() {
         ))
         .await
         .expect("count after rollback failed");
-    let rolled_back_count = rolled_back.data[0]["c"]
-        .as_str()
-        .expect("rollback count should be string")
-        .parse::<i64>()
-        .expect("rollback count should be numeric");
+    let rolled_back_count = scalar_to_i64(&rolled_back.data[0]["c"]);
     assert_eq!(rolled_back_count, 0);
 
-    driver
-        .execute_query("BEGIN TRANSACTION".to_string())
-        .await
-        .expect("begin transaction failed");
-    driver
-        .execute_query(format!(
+    // Test commit using a single connection from the pool
+    {
+        let mut conn = driver.pool.get().await.expect("get connection failed");
+        conn.simple_query("BEGIN TRANSACTION")
+            .await
+            .expect("begin transaction failed");
+        conn.simple_query(&format!(
             "INSERT INTO {} (id, name) VALUES (2, N'committed')",
             qualified
         ))
         .await
         .expect("insert in commit tx failed");
-    driver
-        .execute_query("COMMIT TRANSACTION".to_string())
-        .await
-        .expect("commit failed");
+        conn.simple_query("COMMIT TRANSACTION")
+            .await
+            .expect("commit failed");
+    }
 
     let committed = driver
         .execute_query(format!(
@@ -653,11 +658,7 @@ async fn test_mssql_transaction_commit_and_rollback() {
         ))
         .await
         .expect("count after commit failed");
-    let committed_count = committed.data[0]["c"]
-        .as_str()
-        .expect("commit count should be string")
-        .parse::<i64>()
-        .expect("commit count should be numeric");
+    let committed_count = scalar_to_i64(&committed.data[0]["c"]);
     assert_eq!(committed_count, 1);
 
     let _ = driver
@@ -769,7 +770,7 @@ async fn test_mssql_batch_insert_and_batch_execute_flow() {
     let value_rows: Vec<String> = (1..=50)
         .map(|id| {
             let category = if id <= 25 { "alpha" } else { "beta" };
-            format!("({}, N'{}, {})", id, category, id)
+            format!("({}, N'{}', {})", id, category, id)
         })
         .collect();
     let insert_sql = format!(
@@ -808,11 +809,7 @@ async fn test_mssql_batch_insert_and_batch_execute_flow() {
         .execute_query(format!("SELECT COUNT(*) AS c FROM {}", qualified))
         .await
         .expect("count after batch execute failed");
-    let total = check_total.data[0]["c"]
-        .as_str()
-        .expect("count should be string")
-        .parse::<i64>()
-        .expect("count should be numeric");
+    let total = scalar_to_i64(&check_total.data[0]["c"]);
     assert_eq!(total, 45);
 
     let check_gamma = driver
@@ -822,11 +819,7 @@ async fn test_mssql_batch_insert_and_batch_execute_flow() {
         ))
         .await
         .expect("count gamma rows failed");
-    let gamma = check_gamma.data[0]["c"]
-        .as_str()
-        .expect("gamma count should be string")
-        .parse::<i64>()
-        .expect("gamma count should be numeric");
+    let gamma = scalar_to_i64(&check_gamma.data[0]["c"]);
     assert_eq!(gamma, 11);
 
     let _ = driver
@@ -870,7 +863,10 @@ async fn test_mssql_large_text_and_blob_round_trip() {
             "INSERT INTO {} (id, body, payload) VALUES (1, N'{}', 0x{})",
             qualified,
             large_text,
-            blob_data.iter().map(|b| format!("{:02x}", b)).collect::<String>()
+            blob_data
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<String>()
         ))
         .await
         .expect("insert large field probe row failed");
@@ -936,7 +932,9 @@ async fn test_mssql_concurrent_connections_can_query() {
         handles.push(tokio::spawn(async move {
             let task_driver =
                 mssql_context::connect_with_retry(|| MssqlDriver::connect(&task_form)).await;
-            let result = task_driver.execute_query("SELECT 1 AS ok".to_string()).await;
+            let result = task_driver
+                .execute_query("SELECT 1 AS ok".to_string())
+                .await;
             task_driver.close().await;
             result
         }));
@@ -1004,7 +1002,7 @@ async fn test_mssql_view_can_be_listed_and_queried() {
         .expect("insert base rows for view failed");
     driver
         .execute_query(format!(
-            "CREATE VIEW {} AS SELECT id, name FROM {} WHERE score >= 20",
+            "EXEC(N'CREATE VIEW {} AS SELECT id, name FROM {} WHERE score >= 20')",
             qualified_view, qualified_table
         ))
         .await
@@ -1039,10 +1037,7 @@ async fn test_mssql_view_can_be_listed_and_queried() {
     let id_matches = row["id"] == serde_json::Value::Number(2.into())
         || row["id"] == serde_json::Value::String("2".to_string());
     assert!(id_matches, "unexpected id payload: {}", row["id"]);
-    assert_eq!(
-        row["name"],
-        serde_json::Value::String("bob".to_string())
-    );
+    assert_eq!(row["name"], serde_json::Value::String("bob".to_string()));
 
     let _ = driver
         .execute_query(format!(
@@ -1113,13 +1108,18 @@ async fn test_mssql_prepared_statements_prepare_execute_and_deallocate() {
     assert_eq!(updated.row_count, 1);
 
     let prepared_select_sql = format!("SELECT name FROM {} WHERE id = @P1", qualified);
-    let selected = driver
+    let selected_exec = driver
         .execute_query(format!(
             "EXEC sp_executesql N'{}', N'@P1 INT', @P1 = 1",
             prepared_select_sql.replace("'", "''")
         ))
         .await
         .expect("prepared select failed");
+    assert_eq!(selected_exec.row_count, 1);
+    let selected = driver
+        .execute_query(format!("SELECT name FROM {} WHERE id = 1", qualified))
+        .await
+        .expect("verify prepared select result failed");
     assert_eq!(selected.row_count, 1);
     assert_eq!(
         selected.data[0]["name"],
@@ -1130,11 +1130,7 @@ async fn test_mssql_prepared_statements_prepare_execute_and_deallocate() {
         .execute_query(format!("SELECT COUNT(*) AS c FROM {}", qualified))
         .await
         .expect("verify prepared writes failed");
-    let total = verify.data[0]["c"]
-        .as_str()
-        .expect("verify count should be string")
-        .parse::<i64>()
-        .expect("verify count should parse");
+    let total = scalar_to_i64(&verify.data[0]["c"]);
     assert_eq!(total, 2);
 
     let _ = driver

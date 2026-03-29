@@ -518,24 +518,17 @@ async fn test_duckdb_transaction_commit_and_rollback() {
         .expect("create duckdb txn probe table failed");
 
     driver
-        .execute_query("BEGIN TRANSACTION".to_string())
-        .await
-        .expect("begin transaction failed");
-    driver
         .execute_query(
-            "INSERT INTO dbpaw_duckdb_txn_probe (id, name) VALUES (1, 'rolled_back')".to_string(),
+            "BEGIN TRANSACTION; \
+             INSERT INTO dbpaw_duckdb_txn_probe (id, name) VALUES (1, 'rolled_back'); \
+             ROLLBACK;"
+                .to_string(),
         )
         .await
-        .expect("insert in rollback tx failed");
-    driver
-        .execute_query("ROLLBACK".to_string())
-        .await
-        .expect("rollback failed");
+        .expect("rollback flow failed");
 
     let rolled_back = driver
-        .execute_query(
-            "SELECT COUNT(*) AS c FROM dbpaw_duckdb_txn_probe WHERE id = 1".to_string(),
-        )
+        .execute_query("SELECT COUNT(*) AS c FROM dbpaw_duckdb_txn_probe WHERE id = 1".to_string())
         .await
         .expect("count after rollback failed");
     let rolled_back_count = rolled_back.data[0]["c"]
@@ -546,24 +539,17 @@ async fn test_duckdb_transaction_commit_and_rollback() {
     assert_eq!(rolled_back_count, 0);
 
     driver
-        .execute_query("BEGIN TRANSACTION".to_string())
-        .await
-        .expect("begin transaction failed");
-    driver
         .execute_query(
-            "INSERT INTO dbpaw_duckdb_txn_probe (id, name) VALUES (2, 'committed')".to_string(),
+            "BEGIN TRANSACTION; \
+             INSERT INTO dbpaw_duckdb_txn_probe (id, name) VALUES (2, 'committed'); \
+             COMMIT;"
+                .to_string(),
         )
         .await
-        .expect("insert in commit tx failed");
-    driver
-        .execute_query("COMMIT".to_string())
-        .await
-        .expect("commit failed");
+        .expect("commit flow failed");
 
     let committed = driver
-        .execute_query(
-            "SELECT COUNT(*) AS c FROM dbpaw_duckdb_txn_probe WHERE id = 2".to_string(),
-        )
+        .execute_query("SELECT COUNT(*) AS c FROM dbpaw_duckdb_txn_probe WHERE id = 2".to_string())
         .await
         .expect("count after commit failed");
     let committed_count = committed.data[0]["c"]
@@ -612,7 +598,7 @@ async fn test_duckdb_connection_failure_with_invalid_path() {
     };
 
     let err = match DuckdbDriver::connect(&form).await {
-        Ok(_) => panic("invalid path should fail"),
+        Ok(_) => panic!("invalid path should fail"),
         Err(err) => err,
     };
     assert!(
@@ -703,9 +689,7 @@ async fn test_duckdb_batch_insert_and_batch_execute_flow() {
     assert_eq!(affected, vec![10, 11, 5]);
 
     let check_total = driver
-        .execute_query(
-            "SELECT COUNT(*) AS c FROM dbpaw_duckdb_batch_probe".to_string(),
-        )
+        .execute_query("SELECT COUNT(*) AS c FROM dbpaw_duckdb_batch_probe".to_string())
         .await
         .expect("count after batch execute failed");
     let total = check_total.data[0]["c"]
@@ -808,9 +792,7 @@ async fn test_duckdb_concurrent_connections_can_query() {
         .await
         .expect("create concurrent probe table failed");
     driver
-        .execute_query(
-            "INSERT INTO dbpaw_duckdb_concurrent_probe VALUES (1, 'test')".to_string(),
-        )
+        .execute_query("INSERT INTO dbpaw_duckdb_concurrent_probe VALUES (1, 'test')".to_string())
         .await
         .expect("insert concurrent probe row failed");
     driver.close().await;
@@ -919,15 +901,14 @@ async fn test_duckdb_view_can_be_listed_and_queried() {
         "list_tables should include base table"
     );
     assert!(
-        tables.iter().any(|t| t.name == view_name && t.r#type == "view"),
+        tables
+            .iter()
+            .any(|t| t.name == view_name && t.r#type == "view"),
         "list_tables should include view with type=view"
     );
 
     let view_rows = driver
-        .execute_query(
-            format!("SELECT id, name FROM {} ORDER BY id", view_name)
-                .to_string(),
-        )
+        .execute_query(format!("SELECT id, name FROM {} ORDER BY id", view_name).to_string())
         .await
         .expect("select from view failed");
     assert_eq!(view_rows.row_count, 1);
@@ -935,10 +916,7 @@ async fn test_duckdb_view_can_be_listed_and_queried() {
     let id_matches = row["id"] == serde_json::Value::Number(2.into())
         || row["id"] == serde_json::Value::String("2".to_string());
     assert!(id_matches, "unexpected id payload: {}", row["id"]);
-    assert_eq!(
-        row["name"],
-        serde_json::Value::String("bob".to_string())
-    );
+    assert_eq!(row["name"], serde_json::Value::String("bob".to_string()));
 
     let _ = driver
         .execute_query(format!("DROP VIEW IF EXISTS {}", view_name))

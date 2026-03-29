@@ -4,6 +4,7 @@ use crate::models::{
     SchemaOverview, TableDataResponse, TableInfo, TableMetadata, TableSchema, TableStructure,
 };
 use async_trait::async_trait;
+use bb8::{Pool, RunError};
 use futures_util::TryStreamExt;
 use std::collections::{HashMap, HashSet};
 use tiberius::{AuthMethod, Client, Config, EncryptionLevel, QueryItem, Row};
@@ -13,10 +14,15 @@ use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 use crate::ssh::SshTunnel;
 
 pub struct MssqlDriver {
-    config: MssqlConfig,
+    pub pool: Pool<MssqlConnectionManager>,
     pub ssh_tunnel: Option<SshTunnel>,
 }
 
+pub struct MssqlConnectionManager {
+    config: MssqlConfig,
+}
+
+#[derive(Clone)]
 struct MssqlConfig {
     host: String,
     port: u16,
@@ -63,6 +69,13 @@ fn build_config(form: &ConnectionForm) -> Result<MssqlConfig, String> {
 
 fn escape_literal(value: &str) -> String {
     value.replace('\'', "''")
+}
+
+fn map_pool_error(err: RunError<String>) -> String {
+    match err {
+        RunError::User(inner) => inner,
+        RunError::TimedOut => "[CONN_FAILED] Timed out acquiring MSSQL connection".to_string(),
+    }
 }
 
 fn quote_ident(ident: &str) -> Result<String, String> {
@@ -128,7 +141,11 @@ fn first_sql_keyword(sql: &str) -> Option<String> {
     Some(sql[start..i].to_ascii_lowercase())
 }
 
-impl MssqlDriver {
+impl MssqlConnectionManager {
+    fn new(config: MssqlConfig) -> Self {
+        Self { config }
+    }
+
     fn build_tiberius_config(&self, encryption: EncryptionLevel, trust_cert: bool) -> Config {
         let mut config = Config::new();
         config.host(&self.config.host);
@@ -150,36 +167,7 @@ impl MssqlDriver {
         config
     }
 
-    async fn connect_with_config(config: Config) -> Result<Client<Compat<TcpStream>>, String> {
-        let tcp = TcpStream::connect(config.get_addr())
-            .await
-            .map_err(|e| format!("[CONN_FAILED] {}", e))?;
-        tcp.set_nodelay(true)
-            .map_err(|e| format!("[CONN_FAILED] {}", e))?;
-
-        Client::connect(config, tcp.compat_write())
-            .await
-            .map_err(|e| format!("[CONN_FAILED] {}", e))
-    }
-
-    pub async fn connect(form: &ConnectionForm) -> Result<Self, String> {
-        let mut cfg_form = form.clone();
-        let mut ssh_tunnel = None;
-
-        if let Some(true) = form.ssh_enabled {
-            let tunnel = crate::ssh::start_ssh_tunnel(form)?;
-            cfg_form.host = Some("127.0.0.1".to_string());
-            cfg_form.port = Some(tunnel.local_port as i64);
-            ssh_tunnel = Some(tunnel);
-        }
-
-        let config = build_config(&cfg_form)?;
-        let driver = Self { config, ssh_tunnel };
-        driver.test_connection().await?;
-        Ok(driver)
-    }
-
-    async fn connect_client(&self) -> Result<Client<Compat<TcpStream>>, String> {
+    async fn connect_single(&self) -> Result<Client<Compat<TcpStream>>, String> {
         let attempts = if self.config.ssl {
             vec![
                 (
@@ -221,6 +209,72 @@ impl MssqlDriver {
         ))
     }
 
+    async fn connect_with_config(config: Config) -> Result<Client<Compat<TcpStream>>, String> {
+        let connect_future = async {
+            let tcp = TcpStream::connect(config.get_addr())
+                .await
+                .map_err(|e| format!("{}", e))?;
+            tcp.set_nodelay(true).map_err(|e| format!("{}", e))?;
+            Ok::<TcpStream, String>(tcp)
+        };
+
+        let tcp = tokio::time::timeout(std::time::Duration::from_secs(10), connect_future)
+            .await
+            .map_err(|_| "Connection timed out".to_string())?
+            .map_err(|e| format!("{}", e))?;
+
+        Client::connect(config, tcp.compat_write())
+            .await
+            .map_err(|e| format!("{}", e))
+    }
+}
+
+#[async_trait]
+impl bb8::ManageConnection for MssqlConnectionManager {
+    type Connection = Client<Compat<TcpStream>>;
+    type Error = String;
+
+    async fn connect(&self) -> Result<Self::Connection, Self::Error> {
+        self.connect_single().await
+    }
+
+    async fn is_valid(&self, conn: &mut Self::Connection) -> Result<(), Self::Error> {
+        conn.simple_query("SELECT 1")
+            .await
+            .map_err(|e| format!("{}", e))?;
+        Ok(())
+    }
+
+    fn has_broken(&self, _conn: &mut Self::Connection) -> bool {
+        false
+    }
+}
+
+impl MssqlDriver {
+    pub async fn connect(form: &ConnectionForm) -> Result<Self, String> {
+        let mut cfg_form = form.clone();
+        let mut ssh_tunnel = None;
+
+        if let Some(true) = form.ssh_enabled {
+            let tunnel = crate::ssh::start_ssh_tunnel(form)?;
+            cfg_form.host = Some("127.0.0.1".to_string());
+            cfg_form.port = Some(tunnel.local_port as i64);
+            ssh_tunnel = Some(tunnel);
+        }
+
+        let config = build_config(&cfg_form)?;
+        let manager = MssqlConnectionManager::new(config);
+        let pool = Pool::builder()
+            .max_size(10)
+            .build(manager)
+            .await
+            .map_err(|e| format!("[CONN_FAILED] Failed to create connection pool: {}", e))?;
+
+        let driver = Self { pool, ssh_tunnel };
+        driver.test_connection().await?;
+        Ok(driver)
+    }
+
     async fn fetch_rows(&self, sql: &str) -> Result<Vec<Row>, String> {
         Ok(self.fetch_rows_with_columns(sql).await?.0)
     }
@@ -229,7 +283,7 @@ impl MssqlDriver {
         &self,
         sql: &str,
     ) -> Result<(Vec<Row>, Vec<QueryColumn>), String> {
-        let mut client = self.connect_client().await?;
+        let mut client = self.pool.get().await.map_err(map_pool_error)?;
         let mut stream = client
             .simple_query(sql)
             .await
@@ -820,7 +874,7 @@ impl DatabaseDriver for MssqlDriver {
             });
         }
 
-        let mut client = self.connect_client().await?;
+        let mut client = self.pool.get().await.map_err(map_pool_error)?;
         let result = client
             .execute(&sql, &[])
             .await

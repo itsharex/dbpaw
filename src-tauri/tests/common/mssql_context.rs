@@ -2,6 +2,9 @@ mod shared;
 
 use dbpaw_lib::models::ConnectionForm;
 use std::env;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::time::Duration;
 use testcontainers::clients::Cli;
 use testcontainers::core::WaitFor;
@@ -9,39 +12,74 @@ use testcontainers::{Container, GenericImage, RunnableImage};
 
 pub use shared::{connect_with_retry, should_reuse_local_db};
 
-pub fn mssql_form_from_test_context<'a>(
-    docker: Option<&'a Cli>,
-) -> (Option<Container<'a, GenericImage>>, ConnectionForm) {
+struct SharedMssql {
+    container: Mutex<Option<Container<'static, GenericImage>>>,
+    form: ConnectionForm,
+    ref_count: AtomicUsize,
+}
+
+pub struct MssqlContainerGuard {
+    shared: &'static SharedMssql,
+}
+
+impl Drop for MssqlContainerGuard {
+    fn drop(&mut self) {
+        if self.shared.ref_count.fetch_sub(1, Ordering::AcqRel) == 1 {
+            let mut container = self
+                .shared
+                .container
+                .lock()
+                .expect("mssql container mutex poisoned");
+            let _ = container.take();
+        }
+    }
+}
+
+static MSSQL_SHARED: OnceLock<SharedMssql> = OnceLock::new();
+
+pub fn mssql_form_from_test_context(
+    docker: Option<&Cli>,
+) -> (Option<MssqlContainerGuard>, ConnectionForm) {
+    let _ = docker;
     if should_reuse_local_db() {
         return (None, mssql_form_from_local_env());
     }
     shared::ensure_docker_available();
 
-    let docker = docker.expect("docker client is required when IT_REUSE_LOCAL_DB is not enabled");
-    let image = GenericImage::new("mcr.microsoft.com/mssql/server", "2022-latest")
-        .with_env_var("ACCEPT_EULA", "Y")
-        .with_env_var("MSSQL_PID", "Developer")
-        .with_env_var("MSSQL_SA_PASSWORD", "YourStrong!Passw0rd")
-        .with_wait_for(WaitFor::seconds(20))
-        .with_exposed_port(1433);
-    let runnable =
-        RunnableImage::from(image).with_container_name(shared::unique_container_name("mssql"));
-    let container = docker.run(runnable);
-    let port = container.get_host_port_ipv4(1433);
+    let shared = MSSQL_SHARED.get_or_init(|| {
+        let docker = Box::leak(Box::new(Cli::default()));
+        let image = GenericImage::new("mcr.microsoft.com/mssql/server", "2022-latest")
+            .with_env_var("ACCEPT_EULA", "Y")
+            .with_env_var("MSSQL_PID", "Developer")
+            .with_env_var("MSSQL_SA_PASSWORD", "YourStrong!Passw0rd")
+            .with_wait_for(WaitFor::seconds(20))
+            .with_exposed_port(1433);
+        let runnable =
+            RunnableImage::from(image).with_container_name(shared::unique_container_name("mssql"));
+        let container = docker.run(runnable);
+        let port = container.get_host_port_ipv4(1433);
 
-    shared::wait_for_port("127.0.0.1", port, Duration::from_secs(90));
+        shared::wait_for_port("127.0.0.1", port, Duration::from_secs(90));
 
-    let mut form = ConnectionForm {
-        driver: "mssql".to_string(),
-        host: Some("127.0.0.1".to_string()),
-        port: Some(i64::from(port)),
-        username: Some("sa".to_string()),
-        password: Some("YourStrong!Passw0rd".to_string()),
-        database: Some("master".to_string()),
-        ..Default::default()
-    };
-    apply_mssql_env_overrides(&mut form);
-    (Some(container), form)
+        let mut form = ConnectionForm {
+            driver: "mssql".to_string(),
+            host: Some("127.0.0.1".to_string()),
+            port: Some(i64::from(port)),
+            username: Some("sa".to_string()),
+            password: Some("YourStrong!Passw0rd".to_string()),
+            database: Some("master".to_string()),
+            ..Default::default()
+        };
+        apply_mssql_env_overrides(&mut form);
+        SharedMssql {
+            container: Mutex::new(Some(container)),
+            form,
+            ref_count: AtomicUsize::new(0),
+        }
+    });
+    shared.ref_count.fetch_add(1, Ordering::AcqRel);
+
+    (Some(MssqlContainerGuard { shared }), shared.form.clone())
 }
 
 fn mssql_form_from_local_env() -> ConnectionForm {
