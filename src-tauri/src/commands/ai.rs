@@ -113,6 +113,14 @@ async fn get_db(state: &State<'_, AppState>) -> Result<Arc<crate::db::local::Loc
     local_db.ok_or_else(|| "Local DB not initialized".to_string())
 }
 
+async fn get_db_from_app_state(state: &AppState) -> Result<Arc<crate::db::local::LocalDb>, String> {
+    let local_db = {
+        let lock = state.local_db.lock().await;
+        lock.clone()
+    };
+    local_db.ok_or_else(|| "Local DB not initialized".to_string())
+}
+
 fn provider_from_model(p: crate::models::AiProvider, api_key: String) -> OpenAICompatProvider {
     OpenAICompatProvider {
         name: p.name,
@@ -149,6 +157,11 @@ pub async fn ai_list_providers(
     db.list_ai_providers_public().await
 }
 
+pub async fn ai_list_providers_direct(state: &AppState) -> Result<Vec<AiProviderPublic>, String> {
+    let db = get_db_from_app_state(state).await?;
+    db.list_ai_providers_public().await
+}
+
 #[tauri::command]
 pub async fn ai_create_provider(
     state: State<'_, AppState>,
@@ -156,6 +169,16 @@ pub async fn ai_create_provider(
 ) -> Result<AiProviderPublic, String> {
     normalize_provider_form(&mut config, Some("openai"))?;
     let db = get_db(&state).await?;
+    let created = db.create_ai_provider(config).await?;
+    db.get_ai_provider_public_by_id(created.id).await
+}
+
+pub async fn ai_create_provider_direct(
+    state: &AppState,
+    mut config: AiProviderForm,
+) -> Result<AiProviderPublic, String> {
+    normalize_provider_form(&mut config, Some("openai"))?;
+    let db = get_db_from_app_state(state).await?;
     let created = db.create_ai_provider(config).await?;
     db.get_ai_provider_public_by_id(created.id).await
 }
@@ -172,15 +195,36 @@ pub async fn ai_update_provider(
     db.get_ai_provider_public_by_id(updated.id).await
 }
 
+pub async fn ai_update_provider_direct(
+    state: &AppState,
+    id: i64,
+    mut config: AiProviderForm,
+) -> Result<AiProviderPublic, String> {
+    normalize_provider_form(&mut config, None)?;
+    let db = get_db_from_app_state(state).await?;
+    let updated = db.update_ai_provider(id, config).await?;
+    db.get_ai_provider_public_by_id(updated.id).await
+}
+
 #[tauri::command]
 pub async fn ai_delete_provider(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let db = get_db(&state).await?;
     db.delete_ai_provider(id).await
 }
 
+pub async fn ai_delete_provider_direct(state: &AppState, id: i64) -> Result<(), String> {
+    let db = get_db_from_app_state(state).await?;
+    db.delete_ai_provider(id).await
+}
+
 #[tauri::command]
 pub async fn ai_set_default_provider(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let db = get_db(&state).await?;
+    db.set_default_ai_provider(id).await
+}
+
+pub async fn ai_set_default_provider_direct(state: &AppState, id: i64) -> Result<(), String> {
+    let db = get_db_from_app_state(state).await?;
     db.set_default_ai_provider(id).await
 }
 
@@ -191,6 +235,15 @@ pub async fn ai_clear_provider_api_key(
 ) -> Result<(), String> {
     let provider_type = normalize_provider_type(&provider_type)?;
     let db = get_db(&state).await?;
+    db.clear_ai_provider_api_key(&provider_type).await
+}
+
+pub async fn ai_clear_provider_api_key_direct(
+    state: &AppState,
+    provider_type: String,
+) -> Result<(), String> {
+    let provider_type = normalize_provider_type(&provider_type)?;
+    let db = get_db_from_app_state(state).await?;
     db.clear_ai_provider_api_key(&provider_type).await
 }
 
@@ -449,6 +502,178 @@ async fn run_chat(
     })
 }
 
+async fn run_chat_direct(
+    state: &AppState,
+    request: AiChatRequest,
+    create_if_missing: bool,
+) -> Result<AiStartResponse, String> {
+    let db = get_db_from_app_state(state).await?;
+
+    let provider_record = if let Some(provider_id) = request.provider_id {
+        db.get_ai_provider_by_id(provider_id)
+            .await
+            .map_err(|e| map_provider_lookup_error(&e))?
+    } else {
+        db.get_default_ai_provider()
+            .await
+            .map_err(|e| map_default_provider_error(&e))?
+    };
+
+    ensure_provider_enabled(provider_record.enabled)?;
+    validate_conversation_requirement(request.conversation_id, create_if_missing)?;
+
+    let api_key = db
+        .decrypt_ai_api_key(&provider_record.api_key)
+        .map_err(|_| {
+            "AI provider apiKey is missing or invalid. Please re-save it in AI Provider settings."
+                .to_string()
+        })?;
+    let provider = provider_from_model(provider_record.clone(), api_key);
+    provider.validate_config()?;
+
+    let conversation = match request.conversation_id {
+        Some(id) => db.get_ai_conversation(id).await?,
+        None if create_if_missing => {
+            let title = request
+                .title
+                .clone()
+                .unwrap_or_else(|| request.input.chars().take(36).collect());
+            db.create_ai_conversation(
+                title,
+                request.scenario.clone(),
+                request.connection_id,
+                request.database.clone(),
+            )
+            .await?
+        }
+        None => unreachable!("conversation requirement should be validated before this branch"),
+    };
+
+    let user_message = db
+        .create_ai_message(
+            conversation.id,
+            "user".to_string(),
+            request.input.clone(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+    let mut schema_override: Option<AiSchemaOverview> = None;
+    let mut selection_hint = String::new();
+    if let (Some(conn_id), Some(selected)) =
+        (request.connection_id, request.selected_tables.as_ref())
+    {
+        if !selected.is_empty() {
+            let driver = super::ensure_connection_with_db_from_app_state(
+                state,
+                conn_id,
+                request.database.clone(),
+            )
+            .await?;
+            let mut tables: Vec<AiTableSummary> = Vec::new();
+            for t in selected {
+                let structure = driver
+                    .get_table_structure(t.schema.clone(), t.name.clone())
+                    .await?;
+                let columns = structure
+                    .columns
+                    .into_iter()
+                    .map(|c| AiColumnSummary {
+                        name: c.name,
+                        column_type: c.r#type,
+                        nullable: Some(c.nullable),
+                    })
+                    .collect();
+                tables.push(AiTableSummary {
+                    schema: t.schema.clone(),
+                    name: t.name.clone(),
+                    columns,
+                });
+            }
+            selection_hint = selected
+                .iter()
+                .map(|t| t.name.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            schema_override = Some(AiSchemaOverview { tables });
+        }
+    }
+
+    let input_for_prompt = if selection_hint.is_empty() {
+        request.input.clone()
+    } else {
+        format!("{} {}", request.input, selection_hint)
+    };
+
+    let bundle = build_prompt_bundle(
+        &request.scenario,
+        &input_for_prompt,
+        schema_override
+            .as_ref()
+            .or_else(|| request.schema_overview.as_ref()),
+    );
+
+    let mut history: Vec<AiChatMessage> = Vec::new();
+    let mut existing = db
+        .list_ai_messages(conversation.id)
+        .await
+        .map_err(|e| map_history_load_error(conversation.id, &e))?;
+    if existing.len() > 16 {
+        existing = existing.split_off(existing.len() - 16);
+    }
+    for item in existing {
+        if item.role == "user" || item.role == "assistant" {
+            history.push(AiChatMessage {
+                role: item.role,
+                content: item.content,
+            });
+        }
+    }
+
+    let final_messages = assemble_final_messages(&bundle.messages, &history);
+    let start = std::time::Instant::now();
+    let response = provider.chat_stream(final_messages, |_piece| {}).await?;
+    let latency_ms = start.elapsed().as_millis() as i64;
+
+    let assistant_message = db
+        .create_ai_message(
+            conversation.id,
+            "assistant".to_string(),
+            response.content.clone(),
+            Some(bundle.prompt_version),
+            Some(response.model.clone()),
+            response.usage.as_ref().and_then(|u| u.prompt_tokens),
+            response.usage.as_ref().and_then(|u| u.completion_tokens),
+            Some(latency_ms),
+        )
+        .await?;
+    let _ = db.touch_ai_conversation(conversation.id).await;
+
+    Ok(AiStartResponse {
+        conversation_id: conversation.id,
+        user_message_id: user_message.id,
+        assistant_message_id: assistant_message.id,
+    })
+}
+
+pub async fn ai_chat_start_direct(
+    state: &AppState,
+    request: AiChatRequest,
+) -> Result<AiStartResponse, String> {
+    run_chat_direct(state, request, true).await
+}
+
+pub async fn ai_chat_continue_direct(
+    state: &AppState,
+    request: AiChatRequest,
+) -> Result<AiStartResponse, String> {
+    run_chat_direct(state, request, false).await
+}
+
 #[tauri::command]
 pub async fn ai_list_conversations(
     state: State<'_, AppState>,
@@ -456,6 +681,15 @@ pub async fn ai_list_conversations(
     database: Option<String>,
 ) -> Result<Vec<AiConversation>, String> {
     let db = get_db(&state).await?;
+    db.list_ai_conversations(connection_id, database).await
+}
+
+pub async fn ai_list_conversations_direct(
+    state: &AppState,
+    connection_id: Option<i64>,
+    database: Option<String>,
+) -> Result<Vec<AiConversation>, String> {
+    let db = get_db_from_app_state(state).await?;
     db.list_ai_conversations(connection_id, database).await
 }
 
@@ -473,12 +707,33 @@ pub async fn ai_get_conversation(
     })
 }
 
+pub async fn ai_get_conversation_direct(
+    state: &AppState,
+    conversation_id: i64,
+) -> Result<AiConversationDetail, String> {
+    let db = get_db_from_app_state(state).await?;
+    let conversation = db.get_ai_conversation(conversation_id).await?;
+    let messages = db.list_ai_messages(conversation_id).await?;
+    Ok(AiConversationDetail {
+        conversation,
+        messages,
+    })
+}
+
 #[tauri::command]
 pub async fn ai_delete_conversation(
     state: State<'_, AppState>,
     conversation_id: i64,
 ) -> Result<(), String> {
     let db = get_db(&state).await?;
+    db.delete_ai_conversation(conversation_id).await
+}
+
+pub async fn ai_delete_conversation_direct(
+    state: &AppState,
+    conversation_id: i64,
+) -> Result<(), String> {
+    let db = get_db_from_app_state(state).await?;
     db.delete_ai_conversation(conversation_id).await
 }
 

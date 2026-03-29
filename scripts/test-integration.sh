@@ -36,12 +36,16 @@ run_integration_test() {
 case "${it_db}" in
   mysql)
     run_integration_test "mysql_integration"
+    run_integration_test "mysql_command_integration"
+    run_integration_test "mysql_stateful_command_integration"
     ;;
   mariadb)
     run_integration_test "mariadb_integration"
     ;;
   postgres)
     run_integration_test "postgres_integration"
+    run_integration_test "postgres_command_integration"
+    run_integration_test "postgres_stateful_command_integration"
     ;;
   clickhouse)
     run_integration_test "clickhouse_integration"
@@ -57,8 +61,12 @@ case "${it_db}" in
     ;;
   all)
     run_integration_test "mysql_integration"
+    run_integration_test "mysql_command_integration"
+    run_integration_test "mysql_stateful_command_integration"
     run_integration_test "mariadb_integration"
     run_integration_test "postgres_integration"
+    run_integration_test "postgres_command_integration"
+    run_integration_test "postgres_stateful_command_integration"
     run_integration_test "clickhouse_integration"
     run_integration_test "mssql_integration"
     run_integration_test "duckdb_integration"

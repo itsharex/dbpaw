@@ -67,6 +67,45 @@ pub async fn ensure_connection_with_db(
     state.pool_manager.connect(&key, &form).await
 }
 
+pub async fn ensure_connection_with_db_from_app_state(
+    state: &AppState,
+    id: i64,
+    database: Option<String>,
+) -> Result<Arc<dyn DatabaseDriver>, String> {
+    let key = connection_pool_key(id, &database);
+
+    if let Some(driver) = state.pool_manager.get_connection(&key).await {
+        let local_db = {
+            let lock = state.local_db.lock().await;
+            lock.clone()
+        };
+
+        if let Some(db) = local_db {
+            if db.get_connection_by_id(id).await.is_err() {
+                state.pool_manager.remove_by_prefix(&id.to_string()).await;
+                return Err(format!("Connection with ID {} no longer exists", id));
+            }
+        }
+        return Ok(driver);
+    }
+
+    let local_db = {
+        let lock = state.local_db.lock().await;
+        lock.clone()
+    };
+
+    let db = local_db.ok_or("Local DB not initialized")?;
+    let mut form = db.get_connection_form_by_id(id).await?;
+
+    if let Some(db_name) = database {
+        if !db_name.is_empty() {
+            form.database = Some(db_name);
+        }
+    }
+
+    state.pool_manager.connect(&key, &form).await
+}
+
 async fn execute_with_retry_core<T, Ensure, EnsureFut, Remove, RemoveFut, Task, TaskFut>(
     mut ensure: Ensure,
     mut remove: Remove,
@@ -113,6 +152,25 @@ where
     let key = connection_pool_key(id, &database);
     execute_with_retry_core(
         || ensure_connection_with_db(state, id, database.clone()),
+        || state.pool_manager.remove(&key),
+        task,
+    )
+    .await
+}
+
+pub async fn execute_with_retry_from_app_state<F, Fut, T>(
+    state: &AppState,
+    id: i64,
+    database: Option<String>,
+    task: F,
+) -> Result<T, String>
+where
+    F: Fn(Arc<dyn DatabaseDriver>) -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    let key = connection_pool_key(id, &database);
+    execute_with_retry_core(
+        || ensure_connection_with_db_from_app_state(state, id, database.clone()),
         || state.pool_manager.remove(&key),
         task,
     )

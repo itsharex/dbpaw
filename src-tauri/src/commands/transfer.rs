@@ -191,6 +191,135 @@ pub async fn export_table_data(
     .await
 }
 
+pub async fn export_table_data_direct(
+    state: &AppState,
+    id: i64,
+    database: Option<String>,
+    schema: String,
+    table: String,
+    driver: String,
+    format: ExportFormat,
+    scope: ExportScope,
+    filter: Option<String>,
+    order_by: Option<String>,
+    sort_column: Option<String>,
+    sort_direction: Option<String>,
+    page: Option<i64>,
+    limit: Option<i64>,
+    file_path: Option<String>,
+    chunk_size: Option<i64>,
+) -> Result<ExportResult, String> {
+    let output_path = resolve_output_path(file_path, &table, extension_for_format(&format))?;
+    let chunk = chunk_size.unwrap_or(DEFAULT_CHUNK_SIZE).max(1);
+
+    super::execute_with_retry_from_app_state(state, id, database, |db_driver| {
+        let output_path = output_path.clone();
+        let schema = schema.clone();
+        let table = table.clone();
+        let driver = driver.clone();
+        let filter = filter.clone();
+        let order_by = order_by.clone();
+        let sort_column = sort_column.clone();
+        let sort_direction = sort_direction.clone();
+        let scope = scope.clone();
+        let format = format.clone();
+        async move {
+            let columns = db_driver
+                .get_table_metadata(schema.clone(), table.clone())
+                .await?
+                .columns
+                .into_iter()
+                .map(|c| c.name)
+                .collect::<Vec<_>>();
+
+            let mut writer =
+                ExportWriter::new(output_path.clone(), format.clone(), columns.clone())?;
+            let mut exported = 0i64;
+
+            match scope {
+                ExportScope::CurrentPage => {
+                    let use_page = page.unwrap_or(1).max(1);
+                    let use_limit = limit.unwrap_or(50).max(1);
+                    let resp = db_driver
+                        .get_table_data_chunk(
+                            schema.clone(),
+                            table.clone(),
+                            use_page,
+                            use_limit,
+                            sort_column.clone(),
+                            sort_direction.clone(),
+                            filter.clone(),
+                            order_by.clone(),
+                        )
+                        .await?;
+                    exported +=
+                        writer.write_rows(&resp.data, &columns, Some(&schema), &table, &driver)?;
+                }
+                ExportScope::Filtered | ExportScope::FullTable => {
+                    let filter_for_scope = if matches!(scope, ExportScope::Filtered) {
+                        filter.clone()
+                    } else {
+                        None
+                    };
+                    let order_for_scope = if matches!(scope, ExportScope::Filtered) {
+                        order_by.clone()
+                    } else {
+                        None
+                    };
+                    let sort_col_for_scope = if matches!(scope, ExportScope::Filtered) {
+                        sort_column.clone()
+                    } else {
+                        None
+                    };
+                    let sort_dir_for_scope = if matches!(scope, ExportScope::Filtered) {
+                        sort_direction.clone()
+                    } else {
+                        None
+                    };
+
+                    let mut current_page = 1;
+                    loop {
+                        let resp = db_driver
+                            .get_table_data_chunk(
+                                schema.clone(),
+                                table.clone(),
+                                current_page,
+                                chunk,
+                                sort_col_for_scope.clone(),
+                                sort_dir_for_scope.clone(),
+                                filter_for_scope.clone(),
+                                order_for_scope.clone(),
+                            )
+                            .await?;
+                        if resp.data.is_empty() {
+                            break;
+                        }
+
+                        exported += writer.write_rows(
+                            &resp.data,
+                            &columns,
+                            Some(&schema),
+                            &table,
+                            &driver,
+                        )?;
+                        if exported >= resp.total {
+                            break;
+                        }
+                        current_page += 1;
+                    }
+                }
+            }
+
+            writer.finish()?;
+            Ok(ExportResult {
+                file_path: output_path.to_string_lossy().to_string(),
+                row_count: exported,
+            })
+        }
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn export_query_result(
     state: State<'_, AppState>,
@@ -219,6 +348,42 @@ pub async fn export_query_result(
             let mut writer = ExportWriter::new(output_path.clone(), format, columns.clone())?;
             let exported =
                 writer.write_rows(&result.data, &columns, None, "query_result", &driver)?;
+            writer.finish()?;
+            Ok(ExportResult {
+                file_path: output_path.to_string_lossy().to_string(),
+                row_count: exported,
+            })
+        }
+    })
+    .await
+}
+
+pub async fn export_query_result_direct(
+    state: &AppState,
+    id: i64,
+    database: Option<String>,
+    sql: String,
+    driver: String,
+    format: ExportFormat,
+    file_path: Option<String>,
+) -> Result<ExportResult, String> {
+    let output_path =
+        resolve_output_path(file_path, "query_result", extension_for_format(&format))?;
+
+    super::execute_with_retry_from_app_state(state, id, database, |db_driver| {
+        let output_path = output_path.clone();
+        let driver = driver.clone();
+        let sql = sql.clone();
+        let format = format.clone();
+        async move {
+            let result = db_driver.execute_query(sql).await?;
+            let columns = result
+                .columns
+                .into_iter()
+                .map(|c| c.name)
+                .collect::<Vec<_>>();
+            let mut writer = ExportWriter::new(output_path.clone(), format, columns.clone())?;
+            let exported = writer.write_rows(&result.data, &columns, None, "query_result", &driver)?;
             writer.finish()?;
             Ok(ExportResult {
                 file_path: output_path.to_string_lossy().to_string(),
@@ -269,6 +434,112 @@ pub async fn import_sql_file(
     let use_outer_transaction = !import_plan.script_managed_transaction;
 
     super::execute_with_retry(&state, id, database, |db_driver| {
+        let import_plan = import_plan.clone();
+        let import_path = import_path.clone();
+        async move {
+            if use_outer_transaction {
+                db_driver
+                    .execute_query(begin_sql.to_string())
+                    .await
+                    .map_err(|e| format!("[IMPORT_ERROR] failed to start transaction: {e}"))?;
+            }
+
+            let mut success_statements = 0i64;
+            for (idx, unit) in import_plan.units.iter().enumerate() {
+                if let Err(e) = db_driver.execute_query(unit.sql.clone()).await {
+                    if use_outer_transaction {
+                        let _ = db_driver.execute_query(rollback_sql.to_string()).await;
+                    }
+                    return Ok(ImportSqlResult {
+                        file_path: import_path.to_string_lossy().to_string(),
+                        total_statements,
+                        success_statements,
+                        failed_at: Some((idx + 1) as i64),
+                        failed_batch: Some(unit.batch_index as i64),
+                        failed_statement_preview: Some(unit.preview.clone()),
+                        error: Some(truncate_error_message(&e)),
+                        time_taken_ms: started_at.elapsed().as_millis() as i64,
+                        rolled_back: use_outer_transaction,
+                    });
+                }
+                success_statements += 1;
+            }
+
+            if use_outer_transaction {
+                if let Err(e) = db_driver.execute_query(commit_sql.to_string()).await {
+                    let _ = db_driver.execute_query(rollback_sql.to_string()).await;
+                    return Ok(ImportSqlResult {
+                        file_path: import_path.to_string_lossy().to_string(),
+                        total_statements,
+                        success_statements,
+                        failed_at: None,
+                        failed_batch: None,
+                        failed_statement_preview: None,
+                        error: Some(format!(
+                            "[IMPORT_ERROR] failed to commit transaction: {}",
+                            truncate_error_message(&e)
+                        )),
+                        time_taken_ms: started_at.elapsed().as_millis() as i64,
+                        rolled_back: true,
+                    });
+                }
+            }
+
+            Ok(ImportSqlResult {
+                file_path: import_path.to_string_lossy().to_string(),
+                total_statements,
+                success_statements: total_statements,
+                failed_at: None,
+                failed_batch: None,
+                failed_statement_preview: None,
+                error: None,
+                time_taken_ms: started_at.elapsed().as_millis() as i64,
+                rolled_back: false,
+            })
+        }
+    })
+    .await
+}
+
+pub async fn import_sql_file_direct(
+    state: &AppState,
+    id: i64,
+    database: Option<String>,
+    file_path: String,
+    driver: String,
+) -> Result<ImportSqlResult, String> {
+    let normalized_driver = normalize_driver_name(&driver);
+    let (begin_sql, commit_sql, rollback_sql) =
+        import_transaction_sql(&normalized_driver, &driver)?;
+
+    let import_path = PathBuf::from(file_path.trim());
+    validate_import_path(&import_path)?;
+    validate_import_file_size(&import_path)?;
+
+    let source = fs::read_to_string(&import_path)
+        .map_err(|e| format!("[IMPORT_ERROR] failed to read sql file: {e}"))?;
+    let source = source
+        .strip_prefix('\u{feff}')
+        .unwrap_or(&source)
+        .to_string();
+
+    let import_plan = prepare_import_plan(&source, &normalized_driver)?;
+    if import_plan.units.is_empty() {
+        return Err("[IMPORT_ERROR] SQL file does not contain executable statements".to_string());
+    }
+    if import_plan.units.len() > MAX_IMPORT_STATEMENTS {
+        return Err(format!(
+            "[IMPORT_ERROR] statement count exceeds limit ({} > {})",
+            import_plan.units.len(),
+            MAX_IMPORT_STATEMENTS
+        ));
+    }
+
+    let started_at = std::time::Instant::now();
+    let total_statements = import_plan.units.len() as i64;
+    let use_outer_transaction = !import_plan.script_managed_transaction;
+
+    super::execute_with_retry_from_app_state(state, id, database, |db_driver| {
         let import_plan = import_plan.clone();
         let import_path = import_path.clone();
         async move {

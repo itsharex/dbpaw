@@ -593,6 +593,40 @@ async fn append_sql_execution_log(
     }
 }
 
+async fn append_sql_execution_log_direct(
+    state: &AppState,
+    sql: String,
+    source: Option<String>,
+    connection_id: Option<i64>,
+    database: Option<String>,
+    success: bool,
+    error: Option<String>,
+) {
+    let db = {
+        let lock = state.local_db.lock().await;
+        lock.clone()
+    };
+
+    if let Some(local_db) = db {
+        if let Err(e) = local_db
+            .insert_sql_execution_log(sql, source, connection_id, database, success, error)
+            .await
+        {
+            eprintln!("[SQL_LOG_APPEND_ERROR] {}", e);
+        }
+    }
+}
+
+fn validate_page_limit(page: i64, limit: i64) -> Result<(), String> {
+    if page <= 0 {
+        return Err("[VALIDATION_ERROR] page must be greater than 0".to_string());
+    }
+    if limit <= 0 {
+        return Err("[VALIDATION_ERROR] limit must be greater than 0".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn get_table_data_by_conn(
     form: ConnectionForm,
@@ -601,6 +635,7 @@ pub async fn get_table_data_by_conn(
     page: i64,
     limit: i64,
 ) -> Result<TableDataResponse, String> {
+    validate_page_limit(page, limit)?;
     let driver = crate::db::drivers::connect(&form).await?;
     driver
         .get_table_data(schema, table, page, limit, None, None, None, None)
@@ -691,6 +726,93 @@ pub async fn execute_query(
     result
 }
 
+async fn resolve_driver_from_app_state(state: &AppState, id: i64) -> Option<String> {
+    let db = {
+        let lock = state.local_db.lock().await;
+        lock.clone()
+    }?;
+    db.get_connection_form_by_id(id)
+        .await
+        .ok()
+        .map(|f| f.driver)
+}
+
+pub async fn execute_query_by_id_direct(
+    state: &AppState,
+    id: i64,
+    query: String,
+    database: Option<String>,
+    source: Option<String>,
+    query_id: Option<String>,
+) -> Result<QueryResult, String> {
+    let query_id = make_query_id(id, query_id);
+    let driver = resolve_driver_from_app_state(state, id).await;
+    let is_clickhouse = driver
+        .as_deref()
+        .map(|d| d.eq_ignore_ascii_case("clickhouse"))
+        .unwrap_or(false);
+    let guarded_query = maybe_apply_default_limit(&query, driver.as_deref());
+    if is_clickhouse {
+        register_running_query(id, &query_id).await;
+    }
+
+    let result = super::execute_with_retry_from_app_state(state, id, database.clone(), |driver| {
+        let query_clone = guarded_query.clone();
+        let query_id_clone = query_id.clone();
+        async move {
+            driver
+                .execute_query_with_id(
+                    query_clone,
+                    if is_clickhouse {
+                        Some(query_id_clone.as_str())
+                    } else {
+                        None
+                    },
+                )
+                .await
+        }
+    })
+    .await;
+    if is_clickhouse {
+        unregister_running_query(id, &query_id).await;
+    }
+
+    if result.is_ok() {
+        append_sql_execution_log_direct(
+            state,
+            guarded_query.clone(),
+            source,
+            Some(id),
+            database,
+            true,
+            None,
+        )
+        .await;
+    } else if let Err(err) = &result {
+        append_sql_execution_log_direct(
+            state,
+            guarded_query.clone(),
+            source,
+            Some(id),
+            database,
+            false,
+            Some(err.clone()),
+        )
+        .await;
+    }
+
+    result
+}
+
+pub async fn execute_by_conn_direct(
+    form: ConnectionForm,
+    sql: String,
+) -> Result<QueryResult, String> {
+    let guarded_sql = maybe_apply_default_limit(&sql, Some(&form.driver));
+    let driver = crate::db::drivers::connect(&form).await?;
+    driver.execute_query_with_id(guarded_sql, None).await
+}
+
 #[tauri::command]
 pub async fn get_table_data(
     state: State<'_, AppState>,
@@ -705,6 +827,7 @@ pub async fn get_table_data(
     sort_direction: Option<String>,
     order_by: Option<String>,
 ) -> Result<TableDataResponse, String> {
+    validate_page_limit(page, limit)?;
     super::execute_with_retry(&state, id, database, |driver| {
         let schema_clone = schema.clone();
         let table_clone = table.clone();
@@ -847,6 +970,56 @@ pub async fn list_sql_execution_logs(
     } else {
         Err("Local DB not initialized".to_string())
     }
+}
+
+pub async fn list_sql_execution_logs_direct(
+    state: &AppState,
+    limit: Option<i64>,
+) -> Result<Vec<SqlExecutionLog>, String> {
+    let safe_limit = clamp_sql_execution_logs_limit(limit);
+    let local_db = {
+        let lock = state.local_db.lock().await;
+        lock.clone()
+    };
+
+    if let Some(db) = local_db {
+        db.list_sql_execution_logs(safe_limit).await
+    } else {
+        Err("Local DB not initialized".to_string())
+    }
+}
+
+pub async fn cancel_query_direct(
+    state: &AppState,
+    uuid: String,
+    query_id: String,
+) -> Result<bool, String> {
+    let connection_id = uuid
+        .trim()
+        .parse::<i64>()
+        .map_err(|_| "[VALIDATION_ERROR] Invalid connection id for cancellation".to_string())?;
+    let query_id = query_id.trim().to_string();
+    if query_id.is_empty() {
+        return Err("[VALIDATION_ERROR] query_id cannot be empty".to_string());
+    }
+    if !is_running_query(connection_id, &query_id).await {
+        return Ok(false);
+    }
+
+    let local_db = {
+        let lock = state.local_db.lock().await;
+        lock.clone()
+    };
+    let db = local_db.ok_or("Local DB not initialized".to_string())?;
+    let form = db.get_connection_form_by_id(connection_id).await?;
+    if !form.driver.eq_ignore_ascii_case("clickhouse") {
+        return Ok(false);
+    }
+
+    let driver = crate::db::drivers::clickhouse::ClickHouseDriver::connect(&form).await?;
+    driver.kill_query(&query_id).await?;
+    unregister_running_query(connection_id, &query_id).await;
+    Ok(true)
 }
 
 #[cfg(test)]

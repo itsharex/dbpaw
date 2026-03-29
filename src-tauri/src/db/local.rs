@@ -24,8 +24,12 @@ impl LocalDb {
             .path()
             .app_data_dir()
             .map_err(|e| e.to_string())?;
+        Self::init_with_app_dir(&app_dir).await
+    }
+
+    pub async fn init_with_app_dir(app_dir: &Path) -> Result<Self, String> {
         if !app_dir.exists() {
-            fs::create_dir_all(&app_dir).map_err(|e| e.to_string())?;
+            fs::create_dir_all(app_dir).map_err(|e| e.to_string())?;
         }
         let ai_master_key = Self::load_or_create_ai_master_key(&app_dir)?;
         let db_path = app_dir.join("dbpaw.sqlite");
