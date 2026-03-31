@@ -42,9 +42,24 @@ bun tauri build
 bun run test:all
 ```
 
+最小统一质量门：
+
+```bash
+bun run test:smoke
+```
+
+CI 级完整门禁：
+
+```bash
+bun run test:ci
+```
+
 或按需执行：
 
 ```bash
+bun run typecheck
+bun run lint
+bun run rust:check
 bun run test:unit
 bun run test:service
 bun run test:rust:unit
@@ -87,9 +102,10 @@ bun run test:integration
 
 ### 推荐工作流
 
-- 日常开发：优先执行 `test:unit` + `test:service`。
+- 日常开发：优先执行 `bun run test:smoke`。
 - 提交前：按需执行 `test:integration` 做数据库回归。
-- PR：CI 会固定执行集成测试作为质量兜底。
+- 提交前若需要完整门禁：执行 `bun run test:ci`。
+- PR：CI 会固定执行 smoke gate 与数据库集成测试作为质量兜底。
 
 ### 功能开发后怎么跑测试（实践版）
 
@@ -97,10 +113,9 @@ bun run test:integration
 
 - 先跑：
   ```bash
-  bun run test:unit
-  bun run test:service
+  bun run test:smoke
   ```
-- 适用：前端逻辑、业务逻辑、小范围改动的快速验证。
+- 适用：前端逻辑、业务逻辑、小范围改动，以及改完后快速拿到统一质量反馈。
 
 2. 改动涉及数据库行为时（中频）
 
@@ -152,6 +167,14 @@ bun run test:integration
 
 ```bash
 bun run format
+```
+
+质量检查入口：
+
+```bash
+bun run typecheck
+bun run lint
+bun run rust:check
 ```
 
 ## 🌐 官网

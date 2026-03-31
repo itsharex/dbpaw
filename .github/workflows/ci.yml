@@ -4,11 +4,70 @@ on:
   pull_request:
     branches:
       - main
+  push:
+    branches:
+      - main
 
 jobs:
-  test:
+  # Fast smoke tests run first to fail fast
+  smoke:
+    name: Smoke Tests (typecheck, lint, unit)
     runs-on: ubuntu-22.04
-    timeout-minutes: 40
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> src-tauri/target
+
+      - name: Run smoke tests
+        run: bun run test:smoke
+
+  # Parallel database integration tests
+  integration:
+    name: Integration Tests (${{ matrix.database }})
+    runs-on: ubuntu-22.04
+    needs: smoke
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        database:
+          - mysql
+          - postgres
+          - mariadb
+          - clickhouse
+          - mssql
+          - sqlite
+          - duckdb
 
     steps:
       - name: Checkout
@@ -39,28 +98,35 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> src-tauri/target
+          key: ${{ matrix.database }}
 
-      - name: Run unit tests
-        run: bun run test:unit
-
-      - name: Run service tests
-        run: bun run test:service
-
-      - name: Run rust unit tests
-        run: bun run test:rust:unit
-
-      - name: Run integration tests (MySQL + Postgres with testcontainers)
-        run: IT_DB=all bun run test:integration
+      - name: Run ${{ matrix.database }} integration tests
+        run: IT_DB=${{ matrix.database }} bun run test:integration
 
       - name: Docker diagnostics on failure
         if: failure()
         run: |
           echo "==== docker ps -a ===="
           docker ps -a || true
-          echo "==== recent mysql/postgres logs ===="
-          for image in mysql:8.0 postgres:16-alpine; do
-            for id in $(docker ps -aq --filter "ancestor=${image}"); do
-              echo "--- logs for $id (${image}) ---"
-              docker logs "$id" || true
-            done
-          done
+          echo "==== Container logs ===="
+          docker ps -aq | xargs -I {} sh -c 'echo "--- Container {} ---" && docker logs {} 2>&1 | tail -50' || true
+
+  # Summary job to check all tests passed
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-22.04
+    needs: [smoke, integration]
+    if: always()
+
+    steps:
+      - name: Check all jobs succeeded
+        run: |
+          if [ "${{ needs.smoke.result }}" != "success" ]; then
+            echo "Smoke tests failed"
+            exit 1
+          fi
+          if [ "${{ needs.integration.result }}" != "success" ]; then
+            echo "Integration tests failed"
+            exit 1
+          fi
+          echo "All CI checks passed!"
