@@ -1,10 +1,10 @@
 #[path = "common/mysql_context.rs"]
 mod mysql_context;
 
-use dbpaw_lib::commands::connection::{self, CreateDatabasePayload};
-use dbpaw_lib::commands::{ai, query, storage, transfer};
-use dbpaw_lib::commands::metadata;
 use dbpaw_lib::ai::types::AiChatRequest;
+use dbpaw_lib::commands::connection::{self, CreateDatabasePayload};
+use dbpaw_lib::commands::metadata;
+use dbpaw_lib::commands::{ai, query, storage, transfer};
 use dbpaw_lib::db::drivers::mysql::MysqlDriver;
 use dbpaw_lib::db::drivers::DatabaseDriver;
 use dbpaw_lib::db::local::LocalDb;
@@ -129,7 +129,12 @@ async fn prepare_metadata_fixture(
     driver.close().await;
 }
 
-async fn cleanup_metadata_fixture(form: &ConnectionForm, schema: &str, parent_table: &str, child_table: &str) {
+async fn cleanup_metadata_fixture(
+    form: &ConnectionForm,
+    schema: &str,
+    parent_table: &str,
+    child_table: &str,
+) {
     let driver = MysqlDriver::connect(form)
         .await
         .expect("failed to connect mysql driver for metadata cleanup");
@@ -327,9 +332,10 @@ async fn test_mysql_command_get_table_structure_success() {
     let child = unique_name("dbpaw_meta_child");
     prepare_metadata_fixture(&form, &schema, &parent, &child).await;
 
-    let structure = metadata::get_table_structure_direct(&state, conn_id, schema.clone(), child.clone())
-        .await
-        .expect("get_table_structure should succeed");
+    let structure =
+        metadata::get_table_structure_direct(&state, conn_id, schema.clone(), child.clone())
+            .await
+            .expect("get_table_structure should succeed");
     assert!(structure.columns.iter().any(|c| c.name == "id"));
     assert!(structure.columns.iter().any(|c| c.name == "parent_id"));
 
@@ -447,7 +453,10 @@ async fn test_mysql_command_get_schema_overview_contains_target_schema() {
     )
     .await
     .expect("get_schema_overview should succeed");
-    assert!(overview.tables.iter().any(|t| t.schema == schema && t.name == child));
+    assert!(overview
+        .tables
+        .iter()
+        .any(|t| t.schema == schema && t.name == child));
 
     cleanup_metadata_fixture(&form, &schema, &parent, &child).await;
     let _ = connection::delete_connection_direct(&state, conn_id).await;
@@ -558,13 +567,10 @@ async fn test_mysql_command_cancel_query_non_clickhouse_returns_false() {
     let state = init_state_with_local_db().await;
     let conn_id = create_mysql_connection_for_state(&state, &form, "query-cancel-non-ch").await;
 
-    let canceled = query::cancel_query_direct(
-        &state,
-        conn_id.to_string(),
-        "phase4-qid-cancel".to_string(),
-    )
-    .await
-    .expect("cancel_query should return bool");
+    let canceled =
+        query::cancel_query_direct(&state, conn_id.to_string(), "phase4-qid-cancel".to_string())
+            .await
+            .expect("cancel_query should return bool");
     assert!(!canceled);
 
     let _ = connection::delete_connection_direct(&state, conn_id).await;
@@ -708,7 +714,10 @@ async fn test_mysql_command_transfer_export_and_import_minimal_flow() {
     )
     .await
     .expect("import_sql_file should succeed");
-    assert_eq!(import_result.success_statements, import_result.total_statements);
+    assert_eq!(
+        import_result.success_statements,
+        import_result.total_statements
+    );
     assert!(import_result.error.is_none());
 
     let cleanup_driver = MysqlDriver::connect(&form)
@@ -718,7 +727,10 @@ async fn test_mysql_command_transfer_export_and_import_minimal_flow() {
         .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
         .await;
     let _ = cleanup_driver
-        .execute_query(format!("DROP TABLE IF EXISTS `{}`.`{}`", schema, import_table))
+        .execute_query(format!(
+            "DROP TABLE IF EXISTS `{}`.`{}`",
+            schema, import_table
+        ))
         .await;
     cleanup_driver.close().await;
     let _ = fs::remove_file(table_export_path);

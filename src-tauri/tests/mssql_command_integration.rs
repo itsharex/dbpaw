@@ -38,7 +38,10 @@ async fn prepare_query_test_table(form: &ConnectionForm, table: &str) {
         .expect("failed to connect mssql driver");
 
     driver
-        .execute_query(format!("IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}", table, table))
+        .execute_query(format!(
+            "IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}",
+            table, table
+        ))
         .await
         .ok();
     driver
@@ -63,7 +66,10 @@ async fn cleanup_table(form: &ConnectionForm, table: &str) {
         .await
         .expect("failed to connect mssql driver for cleanup");
     driver
-        .execute_query(format!("IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}", table, table))
+        .execute_query(format!(
+            "IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}",
+            table, table
+        ))
         .await
         .ok();
     driver.close().await;
@@ -229,7 +235,10 @@ async fn test_mssql_command_execute_by_conn_insert_affects_rows() {
         .await
         .expect("failed to connect mssql driver");
     driver
-        .execute_query(format!("IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}", table, table))
+        .execute_query(format!(
+            "IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}",
+            table, table
+        ))
         .await
         .ok();
     driver
@@ -268,7 +277,10 @@ async fn test_mssql_command_get_table_data_by_conn_pagination_works() {
         .await
         .expect("failed to connect mssql driver");
     driver
-        .execute_query(format!("IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}", table, table))
+        .execute_query(format!(
+            "IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}",
+            table, table
+        ))
         .await
         .ok();
     driver

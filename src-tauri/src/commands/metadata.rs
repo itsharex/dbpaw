@@ -2,7 +2,10 @@ use crate::models::{ConnectionForm, SchemaOverview, TableInfo, TableMetadata, Ta
 use crate::state::AppState;
 use tauri::State;
 
-fn ensure_table_structure_found(structure: TableStructure, table: &str) -> Result<TableStructure, String> {
+fn ensure_table_structure_found(
+    structure: TableStructure,
+    table: &str,
+) -> Result<TableStructure, String> {
     if structure.columns.is_empty() {
         return Err(format!(
             "[NOT_FOUND] Table '{}' does not exist or has no visible columns",

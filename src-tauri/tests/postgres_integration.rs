@@ -350,7 +350,10 @@ async fn test_postgres_metadata_includes_indexes_and_foreign_keys() {
         .await;
 
     driver
-        .execute_query(format!("CREATE TABLE {} (id INT PRIMARY KEY)", parent_qualified))
+        .execute_query(format!(
+            "CREATE TABLE {} (id INT PRIMARY KEY)",
+            parent_qualified
+        ))
         .await
         .expect("create parent table failed");
     driver
@@ -456,7 +459,10 @@ async fn test_postgres_boolean_and_json_type_mapping_regression() {
         .await
         .expect("get_table_data for bool/json table failed");
     assert_eq!(table_data.total, 1);
-    let grid_row = table_data.data.first().expect("table data row should exist");
+    let grid_row = table_data
+        .data
+        .first()
+        .expect("table data row should exist");
     assert_eq!(grid_row["flag"], serde_json::Value::Bool(true));
     assert!(
         grid_row.get("meta").is_some(),

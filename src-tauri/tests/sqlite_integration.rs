@@ -252,7 +252,9 @@ async fn test_sqlite_get_table_data_rejects_invalid_sort_column() {
         .expect("Failed to connect to sqlite db");
 
     driver
-        .execute_query("CREATE TABLE dbpaw_sqlite_invalid_sort_probe (id INTEGER PRIMARY KEY)".to_string())
+        .execute_query(
+            "CREATE TABLE dbpaw_sqlite_invalid_sort_probe (id INTEGER PRIMARY KEY)".to_string(),
+        )
         .await
         .expect("create dbpaw_sqlite_invalid_sort_probe failed");
 
@@ -302,11 +304,17 @@ async fn test_sqlite_table_structure_and_schema_overview() {
         .expect("create dbpaw_sqlite_overview_probe failed");
 
     let structure = driver
-        .get_table_structure("main".to_string(), "dbpaw_sqlite_overview_probe".to_string())
+        .get_table_structure(
+            "main".to_string(),
+            "dbpaw_sqlite_overview_probe".to_string(),
+        )
         .await
         .expect("get_table_structure failed");
     assert!(
-        structure.columns.iter().any(|c| c.name == "id" && c.primary_key),
+        structure
+            .columns
+            .iter()
+            .any(|c| c.name == "id" && c.primary_key),
         "table structure should include primary key id"
     );
     assert!(
@@ -360,21 +368,26 @@ async fn test_sqlite_metadata_includes_indexes_and_foreign_keys() {
         .expect("create sqlite metadata probe tables failed");
 
     let metadata = driver
-        .get_table_metadata("main".to_string(), "dbpaw_sqlite_child_meta_probe".to_string())
+        .get_table_metadata(
+            "main".to_string(),
+            "dbpaw_sqlite_child_meta_probe".to_string(),
+        )
         .await
         .expect("get_table_metadata failed");
     assert!(
         metadata
             .indexes
             .iter()
-            .any(|i| i.name == "idx_dbpaw_sqlite_child_name" && i.columns.contains(&"name".to_string())),
+            .any(|i| i.name == "idx_dbpaw_sqlite_child_name"
+                && i.columns.contains(&"name".to_string())),
         "metadata should include idx_dbpaw_sqlite_child_name"
     );
     assert!(
         metadata
             .foreign_keys
             .iter()
-            .any(|fk| fk.column == "parent_id" && fk.referenced_table == "dbpaw_sqlite_parent_meta_probe"),
+            .any(|fk| fk.column == "parent_id"
+                && fk.referenced_table == "dbpaw_sqlite_parent_meta_probe"),
         "metadata should include FK parent_id -> dbpaw_sqlite_parent_meta_probe(id)"
     );
 
@@ -423,7 +436,10 @@ async fn test_sqlite_boolean_and_json_type_mapping_regression() {
     assert_eq!(query_result.row_count, 1);
     let query_row = query_result.data.first().expect("query row should exist");
     assert_eq!(query_row["flag"], serde_json::Value::Bool(true));
-    assert_eq!(query_row["tier"], serde_json::Value::String("gold".to_string()));
+    assert_eq!(
+        query_row["tier"],
+        serde_json::Value::String("gold".to_string())
+    );
 
     let table_data = driver
         .get_table_data(
@@ -547,7 +563,9 @@ async fn test_sqlite_execute_query_reports_affected_rows_for_update_delete() {
     assert_eq!(updated.row_count, 1);
 
     let deleted = driver
-        .execute_query("DELETE FROM dbpaw_sqlite_affected_rows_probe WHERE id IN (1, 2)".to_string())
+        .execute_query(
+            "DELETE FROM dbpaw_sqlite_affected_rows_probe WHERE id IN (1, 2)".to_string(),
+        )
         .await
         .expect("delete affected_rows probe rows failed");
     assert_eq!(deleted.row_count, 2);

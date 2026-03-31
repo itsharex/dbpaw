@@ -96,7 +96,10 @@ async fn test_clickhouse_integration_flow() {
         .await
         .expect("get_table_metadata failed");
     assert!(
-        metadata.columns.iter().any(|c| c.name == "id" && c.primary_key),
+        metadata
+            .columns
+            .iter()
+            .any(|c| c.name == "id" && c.primary_key),
         "metadata should include primary key id"
     );
     assert!(
@@ -462,7 +465,10 @@ async fn test_clickhouse_boolean_and_json_type_mapping_regression() {
         "unexpected query flag value: {:?}",
         query_flag
     );
-    assert_eq!(query_row["tier"], serde_json::Value::String("gold".to_string()));
+    assert_eq!(
+        query_row["tier"],
+        serde_json::Value::String("gold".to_string())
+    );
 
     let table_data = driver
         .get_table_data(
@@ -489,7 +495,10 @@ async fn test_clickhouse_boolean_and_json_type_mapping_regression() {
         "unexpected grid flag value: {:?}",
         grid_flag
     );
-    assert!(grid_row.get("meta").is_some(), "meta should exist in table_data");
+    assert!(
+        grid_row.get("meta").is_some(),
+        "meta should exist in table_data"
+    );
 
     let _ = driver
         .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))

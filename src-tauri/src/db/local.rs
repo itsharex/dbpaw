@@ -939,7 +939,10 @@ mod tests {
         let mut ai_master_key = [0u8; 32];
         rand::rngs::OsRng.fill_bytes(&mut ai_master_key);
 
-        LocalDb { pool, ai_master_key }
+        LocalDb {
+            pool,
+            ai_master_key,
+        }
     }
 
     fn provider_form(

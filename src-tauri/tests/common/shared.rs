@@ -25,7 +25,10 @@ pub fn wait_for_port(host: &str, port: u16, timeout: Duration) {
         sleep(Duration::from_millis(500));
     }
 
-    panic!("timed out waiting for {}:{} to accept connections", host, port);
+    panic!(
+        "timed out waiting for {}:{} to accept connections",
+        host, port
+    );
 }
 
 pub fn ensure_docker_available() {

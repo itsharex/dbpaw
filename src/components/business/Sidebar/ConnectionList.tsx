@@ -2958,8 +2958,9 @@ export function ConnectionList({
                 <button
                   className="w-full px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                   disabled={
-                    getImportDriverCapability(contextMenuDatabaseConnection.type) ===
-                    "read_only_not_supported"
+                    getImportDriverCapability(
+                      contextMenuDatabaseConnection.type,
+                    ) === "read_only_not_supported"
                   }
                   onClick={async () => {
                     await handleDatabaseImport(
@@ -2970,8 +2971,9 @@ export function ConnectionList({
                   }}
                 >
                   <Upload className="w-4 h-4" />
-                  {getImportDriverCapability(contextMenuDatabaseConnection.type) ===
-                  "read_only_not_supported"
+                  {getImportDriverCapability(
+                    contextMenuDatabaseConnection.type,
+                  ) === "read_only_not_supported"
                     ? t("connection.menu.importSqlReadOnly")
                     : t("connection.menu.importSql")}
                 </button>

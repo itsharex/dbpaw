@@ -456,11 +456,13 @@ export function TableView({
 
   const isClickHouseDriver = tableContext?.driver === "clickhouse";
   const hasPrimaryKeys = primaryKeys.length > 0;
-  const canInsert = !!tableContext &&
+  const canInsert =
+    !!tableContext &&
     (isClickHouseDriver
       ? isClickHouseMergeTreeEngine(clickhouseEngine)
       : hasPrimaryKeys);
-  const canUpdateDelete = !!tableContext &&
+  const canUpdateDelete =
+    !!tableContext &&
     (isClickHouseDriver
       ? canMutateClickHouseTable(clickhouseEngine, primaryKeys)
       : hasPrimaryKeys);
@@ -669,7 +671,8 @@ export function TableView({
   // --- SQL generation & save ---
 
   const generateUpdateSQL = useCallback(() => {
-    if (!tableContext || !canUpdateDelete || primaryKeys.length === 0) return [];
+    if (!tableContext || !canUpdateDelete || primaryKeys.length === 0)
+      return [];
 
     // Group changes by source row index
     const changesByRow = new Map<number, PendingChange[]>();
@@ -1147,7 +1150,8 @@ export function TableView({
 
   const buildRowsUpdateSQL = useCallback(
     (rowIndexes: number[]) => {
-      if (!tableContext || !canUpdateDelete || primaryKeys.length === 0) return "";
+      if (!tableContext || !canUpdateDelete || primaryKeys.length === 0)
+        return "";
       const orderedRows = [...rowIndexes].sort((a, b) => a - b);
       const { schema, table, driver } = tableContext;
       const tableName = getQualifiedTableName(driver, schema, table);
@@ -1658,34 +1662,34 @@ export function TableView({
               {(canInsert || canUpdateDelete) && (
                 <>
                   {canInsert && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 gap-1 px-2 text-xs hover:bg-muted/60"
-                    onClick={handleAddDraftRow}
-                    disabled={isSaving || isDeleting}
-                    title="Add a new row draft"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add
-                  </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-xs hover:bg-muted/60"
+                      onClick={handleAddDraftRow}
+                      disabled={isSaving || isDeleting}
+                      title="Add a new row draft"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Add
+                    </Button>
                   )}
                   {canUpdateDelete && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 gap-1 px-2 text-xs hover:bg-destructive/10 text-destructive disabled:text-muted-foreground"
-                    onClick={() => setDeleteDialogOpen(true)}
-                    disabled={!selectedRows.size || isSaving || isDeleting}
-                    title={
-                      selectedRows.size
-                        ? `Delete ${selectedRows.size} selected row(s)`
-                        : "Select rows to delete"
-                    }
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    Delete
-                  </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-xs hover:bg-destructive/10 text-destructive disabled:text-muted-foreground"
+                      onClick={() => setDeleteDialogOpen(true)}
+                      disabled={!selectedRows.size || isSaving || isDeleting}
+                      title={
+                        selectedRows.size
+                          ? `Delete ${selectedRows.size} selected row(s)`
+                          : "Select rows to delete"
+                      }
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete
+                    </Button>
                   )}
                 </>
               )}
@@ -1855,16 +1859,17 @@ export function TableView({
                 />
               </div>
               {tableContext && mutabilityHint && (
-                  <span
-                    className="text-xs text-muted-foreground italic"
-                    title={mutabilityHint}
-                  >
-                    {canInsert ? "Partial write" : "Read-only"}
-                  </span>
-                )}
+                <span
+                  className="text-xs text-muted-foreground italic"
+                  title={mutabilityHint}
+                >
+                  {canInsert ? "Partial write" : "Read-only"}
+                </span>
+              )}
             </div>
           ) : (
-            tableContext && mutabilityHint && (
+            tableContext &&
+            mutabilityHint && (
               <span
                 className="text-xs text-muted-foreground italic"
                 title={mutabilityHint}
