@@ -177,10 +177,15 @@ describe("mutation statement builders", () => {
 
   test("keeps generic update/delete statements for non-clickhouse", () => {
     expect(
-      buildUpdateStatement("postgres", '"public"."users"', '"name" = \'new\'', '"id" = 1'),
-    ).toBe("UPDATE \"public\".\"users\" SET \"name\" = 'new' WHERE \"id\" = 1");
-    expect(buildDeleteStatement("postgres", '"public"."users"', '"id" = 1')).toBe(
-      "DELETE FROM \"public\".\"users\" WHERE \"id\" = 1",
-    );
+      buildUpdateStatement(
+        "postgres",
+        '"public"."users"',
+        "\"name\" = 'new'",
+        '"id" = 1',
+      ),
+    ).toBe('UPDATE "public"."users" SET "name" = \'new\' WHERE "id" = 1');
+    expect(
+      buildDeleteStatement("postgres", '"public"."users"', '"id" = 1'),
+    ).toBe('DELETE FROM "public"."users" WHERE "id" = 1');
   });
 });

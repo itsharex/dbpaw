@@ -16,10 +16,14 @@
 
 1. Fork 仓库并新建分支
 2. 让改动尽量聚焦，方便 Review
-3. 在提交前跑格式化与测试：
+3. 在提交前跑统一质量门与测试：
    ```bash
    bun run format
-   bun run test:all
+   bun run test:smoke
+   ```
+   若改动涉及数据库行为，再补跑：
+   ```bash
+   IT_DB=all bun run test:integration
    ```
 4. 提交 PR 时建议包含：
    - 改了什么、为什么要改

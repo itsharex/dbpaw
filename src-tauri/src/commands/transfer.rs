@@ -383,7 +383,8 @@ pub async fn export_query_result_direct(
                 .map(|c| c.name)
                 .collect::<Vec<_>>();
             let mut writer = ExportWriter::new(output_path.clone(), format, columns.clone())?;
-            let exported = writer.write_rows(&result.data, &columns, None, "query_result", &driver)?;
+            let exported =
+                writer.write_rows(&result.data, &columns, None, "query_result", &driver)?;
             writer.finish()?;
             Ok(ExportResult {
                 file_path: output_path.to_string_lossy().to_string(),

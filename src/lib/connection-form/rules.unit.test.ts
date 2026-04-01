@@ -13,6 +13,13 @@ describe("parseHostEmbeddedPort", () => {
     });
   });
 
+  test("prefers embedded port over fallback port", () => {
+    expect(parseHostEmbeddedPort("127.0.0.1:3307", 3306)).toEqual({
+      host: "127.0.0.1",
+      port: 3307,
+    });
+  });
+
   test("keeps host and fallback port when no port provided", () => {
     expect(parseHostEmbeddedPort("localhost", 5432)).toEqual({
       host: "localhost",
@@ -70,6 +77,18 @@ describe("normalizeConnectionFormInput", () => {
     expect(normalized.port).toBe(3306);
     expect(normalized.name).toBe("test");
     expect(normalized.password).toBe("");
+  });
+
+  test("uses embedded host port even when a default port is already set", () => {
+    const normalized = normalizeConnectionFormInput({
+      driver: "mysql",
+      host: " db:3307 ",
+      port: 3306,
+      password: "",
+    } as any);
+
+    expect(normalized.host).toBe("db");
+    expect(normalized.port).toBe(3307);
   });
 
   test("does not split host:port for non-mysql drivers", () => {

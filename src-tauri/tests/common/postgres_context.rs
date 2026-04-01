@@ -23,8 +23,8 @@ pub fn postgres_form_from_test_context<'a>(
         .with_env_var("POSTGRES_DB", "postgres")
         .with_wait_for(WaitFor::seconds(3))
         .with_exposed_port(5432);
-    let runnable = RunnableImage::from(image)
-        .with_container_name(shared::unique_container_name("postgres"));
+    let runnable =
+        RunnableImage::from(image).with_container_name(shared::unique_container_name("postgres"));
     let container = docker.run(runnable);
     let port = container.get_host_port_ipv4(5432);
 
@@ -46,11 +46,20 @@ pub fn postgres_form_from_test_context<'a>(
 fn postgres_form_from_local_env() -> ConnectionForm {
     let mut form = ConnectionForm {
         driver: "postgres".to_string(),
-        host: Some(shared::env_or_any(&["POSTGRES_HOST", "PG_HOST"], "localhost")),
+        host: Some(shared::env_or_any(
+            &["POSTGRES_HOST", "PG_HOST"],
+            "localhost",
+        )),
         port: Some(shared::env_i64_any(&["POSTGRES_PORT", "PG_PORT"], 5432)),
         username: Some(shared::env_or_any(&["POSTGRES_USER", "PGUSER"], "postgres")),
-        password: Some(shared::env_or_any(&["POSTGRES_PASSWORD", "PGPASSWORD"], "postgres")),
-        database: Some(shared::env_or_any(&["POSTGRES_DB", "PGDATABASE"], "postgres")),
+        password: Some(shared::env_or_any(
+            &["POSTGRES_PASSWORD", "PGPASSWORD"],
+            "postgres",
+        )),
+        database: Some(shared::env_or_any(
+            &["POSTGRES_DB", "PGDATABASE"],
+            "postgres",
+        )),
         ..Default::default()
     };
     apply_postgres_env_overrides(&mut form);

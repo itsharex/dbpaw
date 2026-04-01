@@ -347,7 +347,8 @@ export const ja: Translations = {
       createDatabaseFailed: "Database の作成に失敗しました",
       importDesktopOnly:
         "SQL インポートは Tauri デスクトップモードでのみ利用できます。",
-      importUnsupportedDriver: "このドライバーでは SQL インポートに対応していません。",
+      importUnsupportedDriver:
+        "このドライバーでは SQL インポートに対応していません。",
       importReadOnlyDriver:
         "このドライバーは DbPaw では読み取り専用のため、SQL インポートに対応していません。",
       selectImportSqlFile: "インポートする SQL ファイルを選択",

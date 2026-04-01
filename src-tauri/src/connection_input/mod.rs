@@ -20,11 +20,7 @@ fn parse_host_embedded_port(host: &str, fallback_port: Option<i64>) -> (String, 
     if host_part.is_empty() || !port_part.chars().all(|c| c.is_ascii_digit()) {
         return (host.to_string(), fallback_port);
     }
-    let parsed_port = if fallback_port.is_some() {
-        fallback_port
-    } else {
-        port_part.parse::<i64>().ok()
-    };
+    let parsed_port = port_part.parse::<i64>().ok();
     (host_part.to_string(), parsed_port)
 }
 
@@ -111,6 +107,21 @@ mod tests {
         assert_eq!(normalized.host, Some("127.0.0.1".to_string()));
         assert_eq!(normalized.port, Some(3307));
         assert_eq!(normalized.username, Some("root".to_string()));
+    }
+
+    #[test]
+    fn normalize_prefers_embedded_mysql_port_over_existing_port() {
+        let form = ConnectionForm {
+            driver: "mysql".to_string(),
+            host: Some("127.0.0.1:3307".to_string()),
+            port: Some(3306),
+            username: Some("root".to_string()),
+            ..Default::default()
+        };
+
+        let normalized = normalize_connection_form(form).unwrap();
+        assert_eq!(normalized.host, Some("127.0.0.1".to_string()));
+        assert_eq!(normalized.port, Some(3307));
     }
 
     #[test]

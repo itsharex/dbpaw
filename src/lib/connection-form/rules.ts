@@ -58,7 +58,7 @@ export const parseHostEmbeddedPort = (
   }
   return {
     host: hostPart,
-    port: fallbackPort ?? Number(portPart),
+    port: Number(portPart),
   };
 };
 
