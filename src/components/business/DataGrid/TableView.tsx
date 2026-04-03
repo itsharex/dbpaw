@@ -76,14 +76,18 @@ import {
   canMutateClickHouseTable,
   collectSearchMatches,
   escapeSQL,
+  cellValueToString,
+  formatCellValue,
   formatInsertSQLValue,
   formatSQLValue,
   getQualifiedTableName,
   isClickHouseMergeTreeEngine,
+  isComplexValue,
   isInsertColumnRequired,
   quoteIdent,
   sortRows,
 } from "./tableView/utils";
+import { ComplexValueViewer } from "./ComplexValueViewer";
 import { toast } from "sonner";
 
 interface PendingChange {
@@ -253,6 +257,10 @@ export function TableView({
   const [pendingFocusDraftId, setPendingFocusDraftId] = useState<string | null>(
     null,
   );
+  const [complexViewer, setComplexViewer] = useState<{
+    value: unknown;
+    columnName: string;
+  } | null>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const saveButtonRef = useRef<HTMLButtonElement>(null);
@@ -545,11 +553,7 @@ export function TableView({
       // Check if there's a pending change for this cell
       const key = `${rowIndex}_${col}`;
       const pending = pendingChanges.get(key);
-      const value = pending
-        ? pending.newValue
-        : currentValue !== null && currentValue !== undefined
-          ? String(currentValue)
-          : "";
+      const value = pending ? pending.newValue : cellValueToString(currentValue);
       setEditingCell({ row: rowIndex, col });
       setEditValue(value);
       setSelectedCell({ row: rowIndex, col });
@@ -569,10 +573,7 @@ export function TableView({
     }
     const sourceRowIndex = data.indexOf(originalRow);
     const originalValue = originalRow[col];
-    const originalStr =
-      originalValue !== null && originalValue !== undefined
-        ? String(originalValue)
-        : "";
+    const originalStr = cellValueToString(originalValue);
     const key = `${row}_${col}`;
 
     if (editValue !== originalStr) {
@@ -1065,7 +1066,8 @@ export function TableView({
           return columns
             .map((col) => {
               const value = getCellDisplayValue(rowIndex, col, row[col]);
-              return value === null || value === undefined ? "" : String(value);
+              if (value === null || value === undefined) return "";
+              return cellValueToString(value);
             })
             .join("\t");
         })
@@ -1085,7 +1087,8 @@ export function TableView({
       selectedCell.col,
       row[selectedCell.col],
     );
-    return value === null || value === undefined ? "" : String(value);
+    if (value === null || value === undefined) return "";
+    return cellValueToString(value);
   }, [currentData, getCellDisplayValue]);
 
   const buildRowsCSV = useCallback(
@@ -1099,7 +1102,7 @@ export function TableView({
             .map((col) => {
               const value = getCellDisplayValue(rowIndex, col, row[col]);
               if (value === null || value === undefined) return "";
-              const str = String(value);
+              const str = cellValueToString(value);
               if (
                 str.includes(",") ||
                 str.includes('"') ||
@@ -2007,7 +2010,7 @@ export function TableView({
                             data-row-index={rowIndex}
                             data-col-index={colIndex}
                             className={[
-                              "px-0 py-0 text-sm text-foreground font-mono border-r border-border relative transition-all duration-150 ease-out",
+                              "px-0 py-0 text-sm text-foreground font-mono border-r border-border relative group transition-all duration-150 ease-out",
                               selected && !editing
                                 ? "bg-accent text-accent-foreground"
                                 : "",
@@ -2065,18 +2068,29 @@ export function TableView({
                                 {displayValue !== null &&
                                 displayValue !== undefined ? (
                                   <span
-                                    className={
-                                      modified
-                                        ? "text-orange-600 dark:text-orange-400"
-                                        : ""
-                                    }
+                                    className={modified ? "text-orange-600 dark:text-orange-400" : ""}
                                   >
-                                    {String(displayValue)}
+                                    {formatCellValue(displayValue)}
                                   </span>
                                 ) : (
                                   <span className="text-muted-foreground italic">
                                     NULL
                                   </span>
+                                )}
+                                {isComplexValue(displayValue) && (
+                                  <button
+                                    className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground bg-background/80 rounded px-0.5 transition-opacity"
+                                    title="View structured data"
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setComplexViewer({ value: displayValue, columnName: column });
+                                    }}
+                                  >
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                                    </svg>
+                                  </button>
                                 )}
                               </div>
                             )}
@@ -2269,6 +2283,15 @@ export function TableView({
             Close
           </button>
         </div>
+      )}
+
+      {complexViewer && (
+        <ComplexValueViewer
+          value={complexViewer.value}
+          columnName={complexViewer.columnName}
+          open={true}
+          onOpenChange={(open) => { if (!open) setComplexViewer(null); }}
+        />
       )}
 
       <div className="flex items-center px-4 py-1 border-t border-border bg-muted/40">

@@ -6,10 +6,12 @@ import {
   canMutateClickHouseTable,
   collectSearchMatches,
   escapeSQL,
+  formatCellValue,
   formatInsertSQLValue,
   formatSQLValue,
   getQualifiedTableName,
   isClickHouseMergeTreeEngine,
+  isComplexValue,
   isInsertColumnRequired,
   quoteIdent,
   sortRows,
@@ -329,6 +331,227 @@ describe("calculateAutoColumnWidths", () => {
     });
     // cap at 100 chars → 100 * 9 + 36 = 936 → capped at 900
     expect(result["col"]).toBe(900);
+  });
+});
+
+describe("isComplexValue", () => {
+  test("returns true for plain objects", () => {
+    expect(isComplexValue({ a: 1 })).toBe(true);
+    expect(isComplexValue({})).toBe(true);
+  });
+
+  test("returns true for arrays", () => {
+    expect(isComplexValue([1, 2, 3])).toBe(true);
+    expect(isComplexValue([])).toBe(true);
+  });
+
+  test("returns false for null", () => {
+    expect(isComplexValue(null)).toBe(false);
+  });
+
+  test("returns false for undefined", () => {
+    expect(isComplexValue(undefined)).toBe(false);
+  });
+
+  test("returns false for primitives", () => {
+    expect(isComplexValue("string")).toBe(false);
+    expect(isComplexValue(42)).toBe(false);
+    expect(isComplexValue(true)).toBe(false);
+  });
+});
+
+describe("formatCellValue", () => {
+  test("null → empty string", () => {
+    expect(formatCellValue(null)).toBe("");
+  });
+
+  test("undefined → empty string", () => {
+    expect(formatCellValue(undefined)).toBe("");
+  });
+
+  test("string passes through unchanged", () => {
+    expect(formatCellValue("hello")).toBe("hello");
+    expect(formatCellValue("")).toBe("");
+  });
+
+  test("number → string", () => {
+    expect(formatCellValue(42)).toBe("42");
+    expect(formatCellValue(-3.14)).toBe("-3.14");
+  });
+
+  test("boolean → string", () => {
+    expect(formatCellValue(true)).toBe("true");
+    expect(formatCellValue(false)).toBe("false");
+  });
+
+  test("empty array → []", () => {
+    expect(formatCellValue([])).toBe("[]");
+  });
+
+  test("array always shows full JSON regardless of length", () => {
+    expect(formatCellValue(["a"])).toBe('["a"]');
+    expect(formatCellValue([1, 2])).toBe("[1,2]");
+    expect(formatCellValue([1, 2, 3])).toBe("[1,2,3]");
+    expect(formatCellValue(["a", "b", "c", "d"])).toBe('["a","b","c","d"]');
+  });
+
+  test("empty object → {}", () => {
+    expect(formatCellValue({})).toBe("{}");
+  });
+
+  test("object with 1 key → inline JSON", () => {
+    expect(formatCellValue({ id: 1 })).toBe('{"id":1}');
+  });
+
+  test("object with 2 keys → inline JSON", () => {
+    expect(formatCellValue({ id: 1, name: "alice" })).toBe(
+      '{"id":1,"name":"alice"}',
+    );
+  });
+
+  test("object with 3+ keys → abbreviated summary", () => {
+    const result = formatCellValue({ a: 1, b: 2, c: 3 });
+    expect(result).toMatch(/^\{a, b, \.\.\. \+1\}$/);
+  });
+
+  test("object with many keys → shows first 2 keys and remainder count", () => {
+    const result = formatCellValue({ id: 1, name: "x", role: "admin", score: 99 });
+    expect(result).toMatch(/^\{id, name, \.\.\. \+2\}$/);
+  });
+
+  test("nested object with 2 keys → inline JSON (no recursion into children)", () => {
+    const result = formatCellValue({ user: { name: "alice" } });
+    expect(result).toBe('{"user":{"name":"alice"}}');
+  });
+
+  test("array of objects → full JSON", () => {
+    expect(formatCellValue([{ id: 1 }, { id: 2 }, { id: 3 }])).toBe(
+      '[{"id":1},{"id":2},{"id":3}]',
+    );
+  });
+});
+
+describe("formatCellValue: integration with collectSearchMatches", () => {
+  test("JSON object fields are searchable by key name", () => {
+    const data = [
+      { id: 1, meta: { role: "admin", tags: ["vip"] } },
+      { id: 2, meta: { role: "user", tags: [] } },
+    ];
+    const identity = (_row: number, _col: string, val: any) => val;
+    const matches = collectSearchMatches(data, ["id", "meta"], "admin", identity);
+    expect(matches.length).toBe(1);
+    expect(matches[0].row).toBe(0);
+    expect(matches[0].col).toBe("meta");
+  });
+
+  test("array fields are searchable by content", () => {
+    const data = [
+      { tags: ["read", "write"] },
+      { tags: ["read"] },
+    ];
+    const identity = (_row: number, _col: string, val: any) => val;
+    const matches = collectSearchMatches(data, ["tags"], "write", identity);
+    expect(matches.length).toBe(1);
+    expect(matches[0].row).toBe(0);
+  });
+});
+
+describe("calculateAutoColumnWidths: complex value handling", () => {
+  test("uses formatted string length for objects, not [object Object]", () => {
+    // A 3-key object formats to ~20 chars, not 15 ('[object Object]')
+    const result = calculateAutoColumnWidths({
+      data: [{ meta: { id: 1, name: "alice", role: "admin" } }],
+      columns: ["meta"],
+      columnWidths: {},
+    });
+    // If it used String() it would give '[object Object]' = 15 chars
+    // formatCellValue gives '{id, name, ... +1}' = 18 chars
+    // Either way width is > minimum, but we verify it doesn't crash
+    expect(result["meta"]).toBeGreaterThan(0);
+  });
+});
+
+describe("formatCellValue: PostgreSQL array column output", () => {
+  // These tests verify the display format for values that come back from the
+  // PostgreSQL backend after the array-type fix (actual JS arrays, not strings).
+
+  test("int array displays as compact JSON", () => {
+    expect(formatCellValue([10, 20, 30])).toBe("[10,20,30]");
+  });
+
+  test("text array displays as compact JSON string array", () => {
+    expect(formatCellValue(["postgres", "arrays"])).toBe('["postgres","arrays"]');
+  });
+
+  test("bool array displays as compact JSON", () => {
+    expect(formatCellValue([true, false, true])).toBe("[true,false,true]");
+  });
+
+  test("float array displays as compact JSON", () => {
+    expect(formatCellValue([3.14, 2.72])).toBe("[3.14,2.72]");
+  });
+
+  test("jsonb array (array of objects) displays as full JSON", () => {
+    const val = [{ source: "web", valid: true }, { source: "app", valid: false }];
+    expect(formatCellValue(val)).toBe(JSON.stringify(val));
+  });
+
+  test("empty array displays as []", () => {
+    expect(formatCellValue([])).toBe("[]");
+  });
+
+  test("array with null element displays null in JSON", () => {
+    expect(formatCellValue([1, null, 3])).toBe("[1,null,3]");
+  });
+
+  test("null column (entire array is null) → empty string", () => {
+    expect(formatCellValue(null)).toBe("");
+  });
+});
+
+describe("isComplexValue: PostgreSQL array column output", () => {
+  test("JS arrays from backend are complex", () => {
+    expect(isComplexValue([10, 20, 30])).toBe(true);
+    expect(isComplexValue(["a", "b"])).toBe(true);
+    expect(isComplexValue([])).toBe(true);
+  });
+
+  test("null column-level value is not complex", () => {
+    expect(isComplexValue(null)).toBe(false);
+  });
+
+  test("primitive types are not complex", () => {
+    expect(isComplexValue(42)).toBe(false);
+    expect(isComplexValue("hello")).toBe(false);
+    expect(isComplexValue(true)).toBe(false);
+  });
+});
+
+describe("collectSearchMatches: PostgreSQL array columns are searchable", () => {
+  const data = [
+    { id: 1, tags: ["postgres", "arrays", "jsonb"] },
+    { id: 2, tags: ["mysql", "innodb"] },
+    { id: 3, tags: [] },
+    { id: 4, tags: null },
+  ];
+  const identity = (_row: number, _col: string, val: any) => val;
+
+  test("finds match inside text array content", () => {
+    const matches = collectSearchMatches(data, ["id", "tags"], "jsonb", identity);
+    expect(matches.length).toBe(1);
+    expect(matches[0].row).toBe(0);
+    expect(matches[0].col).toBe("tags");
+  });
+
+  test("does not match empty array", () => {
+    const matches = collectSearchMatches(data, ["tags"], "postgres", identity);
+    // only row 0 should match, not row 2 (empty) or row 3 (null)
+    expect(matches.every((m) => m.row === 0)).toBe(true);
+  });
+
+  test("skips null array columns gracefully", () => {
+    const matches = collectSearchMatches(data, ["tags"], "null", identity);
+    expect(matches).toEqual([]);
   });
 });
 

@@ -51,7 +51,7 @@ export function calculateAutoColumnWidths({
     for (let i = 0; i < sampleSize; i++) {
       const val = data[i][col];
       if (val !== null && val !== undefined) {
-        const str = String(val);
+        const str = formatCellValue(val);
         const len = str.length > 100 ? 100 : str.length;
         if (len > sampledMaxLen) sampledMaxLen = len;
       }
@@ -122,7 +122,7 @@ export function collectSearchMatches(
     columns.forEach((column, colIndex) => {
       const value = getCellDisplayValue(rowIndex, column, row[column]);
       if (value === null || value === undefined) return;
-      const content = String(value).toLowerCase();
+      const content = formatCellValue(value).toLowerCase();
       if (content.includes(normalizedSearchKeyword)) {
         matches.push({ row: rowIndex, col: column, colIndex });
       }
@@ -262,6 +262,35 @@ export function getQualifiedTableName(
   }
 
   return `${quoteIdent(driver, schema)}.${quoteIdent(driver, table)}`;
+}
+
+export function isComplexValue(value: unknown): boolean {
+  return value !== null && value !== undefined && typeof value === "object";
+}
+
+/**
+ * Converts a cell value to its full-fidelity string representation.
+ * Used for editing, clipboard copy, and CSV/TSV export — anywhere the
+ * complete value is needed rather than an abbreviated display summary.
+ * Objects and arrays are serialized as JSON; primitives use String().
+ */
+export function cellValueToString(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+export function formatCellValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value !== "object") return String(value);
+  if (Array.isArray(value)) {
+    return JSON.stringify(value);
+  }
+  const keys = Object.keys(value as object);
+  if (keys.length === 0) return "{}";
+  if (keys.length <= 2) return JSON.stringify(value);
+  return `{${keys.slice(0, 2).join(", ")}, ... +${keys.length - 2}}`;
 }
 
 export function isClickHouseMergeTreeEngine(
