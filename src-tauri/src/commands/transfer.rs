@@ -620,6 +620,7 @@ fn import_transaction_sql<'a>(
             "COMMIT TRANSACTION",
             "ROLLBACK TRANSACTION",
         )),
+        "oracle" => Ok(("SELECT 1 FROM DUAL", "COMMIT", "ROLLBACK")),
         "clickhouse" => {
             Err("[UNSUPPORTED] Driver clickhouse is read-only in this import flow".to_string())
         }
@@ -1670,6 +1671,10 @@ mod tests {
                 "COMMIT TRANSACTION",
                 "ROLLBACK TRANSACTION"
             )
+        );
+        assert_eq!(
+            import_transaction_sql("oracle", "oracle").unwrap(),
+            ("SELECT 1 FROM DUAL", "COMMIT", "ROLLBACK")
         );
         assert!(import_transaction_sql("clickhouse", "clickhouse").is_err());
     }

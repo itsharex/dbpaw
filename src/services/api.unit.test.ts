@@ -104,6 +104,7 @@ describe("getImportDriverCapability", () => {
       "sqlite",
       "duckdb",
       "mssql",
+      "oracle",
     ];
     for (const driver of supported) {
       expect(getImportDriverCapability(driver)).toBe("supported");
@@ -111,7 +112,6 @@ describe("getImportDriverCapability", () => {
   });
 
   test("unknown drivers are unsupported", () => {
-    expect(getImportDriverCapability("oracle")).toBe("unsupported");
     expect(getImportDriverCapability("")).toBe("unsupported");
     expect(getImportDriverCapability("mongodb")).toBe("unsupported");
   });

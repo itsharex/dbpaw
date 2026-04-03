@@ -2,6 +2,7 @@ use self::clickhouse::ClickHouseDriver;
 use self::duckdb::DuckdbDriver;
 use self::mssql::MssqlDriver;
 use self::mysql::MysqlDriver;
+use self::oracle::OracleDriver;
 use self::postgres::PostgresDriver;
 use self::sqlite::SqliteDriver;
 use crate::models::{
@@ -14,6 +15,7 @@ pub mod clickhouse;
 pub mod duckdb;
 pub mod mssql;
 pub mod mysql;
+pub mod oracle;
 pub mod postgres;
 pub mod sqlite;
 
@@ -154,6 +156,10 @@ pub async fn connect(form: &ConnectionForm) -> Result<Box<dyn DatabaseDriver>, S
         }
         "mssql" => {
             let driver = MssqlDriver::connect(form).await?;
+            Ok(Box::new(driver) as Box<dyn DatabaseDriver>)
+        }
+        "oracle" => {
+            let driver = OracleDriver::connect(form).await?;
             Ok(Box::new(driver) as Box<dyn DatabaseDriver>)
         }
         _ => Err(format!(

@@ -15,7 +15,7 @@ import {
 // ─── Registry completeness ────────────────────────────────────────────────────
 
 describe("DRIVER_REGISTRY", () => {
-  test("contains all 8 supported drivers", () => {
+  test("contains all 9 supported drivers", () => {
     const ids = DRIVER_REGISTRY.map((d) => d.id);
     expect(ids).toContain("postgres");
     expect(ids).toContain("mysql");
@@ -25,7 +25,8 @@ describe("DRIVER_REGISTRY", () => {
     expect(ids).toContain("duckdb");
     expect(ids).toContain("clickhouse");
     expect(ids).toContain("mssql");
-    expect(DRIVER_REGISTRY).toHaveLength(8);
+    expect(ids).toContain("oracle");
+    expect(DRIVER_REGISTRY).toHaveLength(9);
   });
 
   test("has no duplicate IDs", () => {
@@ -225,6 +226,10 @@ describe("supportsSchemaBrowsing", () => {
       expect(supportsSchemaBrowsing(d)).toBe(false);
     }
   });
+
+  test("returns true for oracle", () => {
+    expect(supportsSchemaBrowsing("oracle")).toBe(true);
+  });
 });
 
 // ─── importCapability ─────────────────────────────────────────────────────────
@@ -245,6 +250,7 @@ describe("importCapability", () => {
       "sqlite",
       "duckdb",
       "mssql",
+      "oracle",
     ];
     for (const d of supported) {
       expect(getDriverConfig(d).importCapability).toBe("supported");

@@ -22,6 +22,7 @@ const DRIVER_IDS = [
   "duckdb",
   "clickhouse",
   "mssql",
+  "oracle",
 ] as const;
 
 export type Driver = (typeof DRIVER_IDS)[number];
@@ -146,6 +147,18 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: false,
     supportsSchemaBrowsing: true,
     supportsCreateDatabase: true,
+    importCapability: "supported",
+    icon: () => <Database className="w-4 h-4" />,
+  },
+  {
+    id: "oracle",
+    label: "Oracle",
+    defaultPort: 1521,
+    isFileBased: false,
+    isMysqlFamily: false,
+    supportsSSLCA: false,
+    supportsSchemaBrowsing: true,
+    supportsCreateDatabase: false,
     importCapability: "supported",
     icon: () => <Database className="w-4 h-4" />,
   },
