@@ -778,6 +778,153 @@ async fn test_postgres_view_can_be_listed_and_queried() {
 
 #[tokio::test]
 #[ignore]
+async fn test_postgres_array_types_decoded_as_json_arrays() {
+    let docker = (!postgres_context::should_reuse_local_db()).then(Cli::default);
+    let (_container, form) = postgres_context::postgres_form_from_test_context(docker.as_ref());
+    let driver = postgres_context::connect_with_retry(|| PostgresDriver::connect(&form)).await;
+
+    let table_name = "dbpaw_pg_array_type_probe";
+    let qualified = format!("public.{}", table_name);
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+
+    driver
+        .execute_query(format!(
+            "CREATE TABLE {} (\
+                id       INT PRIMARY KEY,\
+                ints2    SMALLINT[],\
+                ints4    INT[],\
+                ints8    BIGINT[],\
+                floats4  FLOAT4[],\
+                floats8  FLOAT8[],\
+                texts    TEXT[],\
+                bools    BOOLEAN[],\
+                jsonbs   JSONB[]\
+            )",
+            qualified
+        ))
+        .await
+        .expect("create array probe table failed");
+
+    // row 1: fully populated arrays
+    driver
+        .execute_query(format!(
+            "INSERT INTO {} VALUES \
+             (1, ARRAY[1::smallint,2::smallint], ARRAY[10,20,30], ARRAY[100::bigint,200::bigint], \
+              ARRAY[1.5::float4,2.5::float4], ARRAY[3.14::float8,6.28::float8], \
+              ARRAY['hello','world'], ARRAY[true,false,true], \
+              ARRAY['{{\"a\":1}}'::jsonb,'{{\"b\":2}}'::jsonb])",
+            qualified
+        ))
+        .await
+        .expect("insert full-array row failed");
+
+    // row 2: arrays containing NULL elements
+    driver
+        .execute_query(format!(
+            "INSERT INTO {} VALUES \
+             (2, ARRAY[NULL::smallint,5::smallint], ARRAY[NULL::int,42], NULL, \
+              NULL, NULL, \
+              ARRAY['x',NULL::text,'z'], ARRAY[NULL::boolean], \
+              NULL)",
+            qualified
+        ))
+        .await
+        .expect("insert null-element row failed");
+
+    // row 3: empty arrays
+    driver
+        .execute_query(format!(
+            "INSERT INTO {} VALUES \
+             (3, ARRAY[]::smallint[], ARRAY[]::int[], ARRAY[]::bigint[], \
+              ARRAY[]::float4[], ARRAY[]::float8[], \
+              ARRAY[]::text[], ARRAY[]::boolean[], \
+              ARRAY[]::jsonb[])",
+            qualified
+        ))
+        .await
+        .expect("insert empty-array row failed");
+
+    let result = driver
+        .execute_query(format!("SELECT * FROM {} ORDER BY id", qualified))
+        .await
+        .expect("select array probe rows failed");
+
+    assert_eq!(result.row_count, 3, "expected 3 rows");
+
+    // ---- row 1: full arrays ----
+    let r1 = &result.data[0];
+
+    let ints2 = r1["ints2"].as_array().expect("ints2 should be array");
+    assert_eq!(ints2.len(), 2);
+    assert_eq!(ints2[0].as_i64().unwrap_or(-1), 1);
+    assert_eq!(ints2[1].as_i64().unwrap_or(-1), 2);
+
+    let ints4 = r1["ints4"].as_array().expect("ints4 should be array");
+    assert_eq!(ints4.len(), 3);
+    assert_eq!(ints4[2].as_i64().unwrap_or(-1), 30);
+
+    let ints8 = r1["ints8"].as_array().expect("ints8 should be array");
+    assert_eq!(ints8.len(), 2);
+    assert_eq!(ints8[1].as_i64().unwrap_or(-1), 200);
+
+    let floats8 = r1["floats8"].as_array().expect("floats8 should be array");
+    assert_eq!(floats8.len(), 2);
+    assert!(floats8[0].as_f64().map(|v| (v - 3.14).abs() < 0.01).unwrap_or(false),
+        "floats8[0] should be ~3.14, got {:?}", floats8[0]);
+
+    let texts = r1["texts"].as_array().expect("texts should be array");
+    assert_eq!(texts.len(), 2);
+    assert_eq!(texts[0].as_str().unwrap_or(""), "hello");
+    assert_eq!(texts[1].as_str().unwrap_or(""), "world");
+
+    let bools = r1["bools"].as_array().expect("bools should be array");
+    assert_eq!(bools.len(), 3);
+    assert_eq!(bools[0], serde_json::Value::Bool(true));
+    assert_eq!(bools[1], serde_json::Value::Bool(false));
+
+    let jsonbs = r1["jsonbs"].as_array().expect("jsonbs should be array");
+    assert_eq!(jsonbs.len(), 2);
+    assert_eq!(jsonbs[0]["a"], serde_json::Value::Number(1.into()));
+    assert_eq!(jsonbs[1]["b"], serde_json::Value::Number(2.into()));
+
+    // ---- row 2: null elements inside arrays ----
+    let r2 = &result.data[1];
+
+    let ints2_null = r2["ints2"].as_array().expect("ints2 row2 should be array");
+    assert_eq!(ints2_null[0], serde_json::Value::Null, "first element should be NULL");
+    assert_eq!(ints2_null[1].as_i64().unwrap_or(-1), 5);
+
+    let ints4_null = r2["ints4"].as_array().expect("ints4 row2 should be array");
+    assert_eq!(ints4_null[0], serde_json::Value::Null, "first int4 element should be NULL");
+
+    let texts_null = r2["texts"].as_array().expect("texts row2 should be array");
+    assert_eq!(texts_null[0].as_str().unwrap_or(""), "x");
+    assert_eq!(texts_null[1], serde_json::Value::Null, "middle text element should be NULL");
+    assert_eq!(texts_null[2].as_str().unwrap_or(""), "z");
+
+    let bools_null = r2["bools"].as_array().expect("bools row2 should be array");
+    assert_eq!(bools_null[0], serde_json::Value::Null, "bool element should be NULL");
+
+    // column-level NULL (entire array is NULL)
+    assert_eq!(r2["ints8"], serde_json::Value::Null, "whole ints8 column should be NULL");
+
+    // ---- row 3: empty arrays ----
+    let r3 = &result.data[2];
+    assert_eq!(r3["ints4"].as_array().expect("ints4 row3").len(), 0);
+    assert_eq!(r3["texts"].as_array().expect("texts row3").len(), 0);
+    assert_eq!(r3["bools"].as_array().expect("bools row3").len(), 0);
+    assert_eq!(r3["jsonbs"].as_array().expect("jsonbs row3").len(), 0);
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+}
+
+#[tokio::test]
+#[ignore]
 async fn test_postgres_connection_failure_with_wrong_password() {
     let docker = (!postgres_context::should_reuse_local_db()).then(Cli::default);
     let (_container, mut form) = postgres_context::postgres_form_from_test_context(docker.as_ref());

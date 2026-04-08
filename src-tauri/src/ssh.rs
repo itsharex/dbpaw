@@ -48,6 +48,7 @@ pub fn start_ssh_tunnel(config: &ConnectionForm) -> Result<SshTunnel, String> {
     let default_port: i64 = match config.driver.to_ascii_lowercase().as_str() {
         "mysql" => 3306,
         "mssql" => 1433,
+        "oracle" => 1521,
         "clickhouse" => 9000,
         "sqlite" => 0,
         _ => 5432, // postgres and unknown drivers

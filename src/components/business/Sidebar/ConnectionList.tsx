@@ -61,10 +61,19 @@ import type {
   Driver,
   SavedQuery,
 } from "@/services/api";
+import {
+  DRIVER_REGISTRY,
+  getConnectionIcon,
+  getDefaultPort,
+  isFileBasedDriver,
+  supportsSSLCA,
+  isMysqlFamilyDriver,
+  supportsCreateDatabase,
+  supportsSchemaBrowsing,
+} from "@/lib/driver-registry";
 import { toast } from "sonner";
 import { TreeNode } from "./connection-list/TreeNode";
 import {
-  getConnectionIcon,
   getExportDefaultName,
   getExportFilter,
   renderConnectionStatusIndicator,
@@ -132,6 +141,14 @@ interface CreateDatabaseForm {
   lcCtype: string;
 }
 
+type SelectedTableNode = {
+  key: string;
+  connectionId: number;
+  database: string;
+  table: string;
+  schema: string;
+};
+
 const defaultForm: ConnectionForm = {
   driver: "postgres",
   name: "",
@@ -149,14 +166,6 @@ const defaultForm: ConnectionForm = {
   sshUsername: "",
 };
 
-const createDatabaseSupportedDrivers: Driver[] = [
-  "postgres",
-  "mysql",
-  "mariadb",
-  "tidb",
-  "clickhouse",
-  "mssql",
-];
 
 const defaultCreateDatabaseForm: CreateDatabaseForm = {
   name: "",
@@ -190,7 +199,6 @@ const mssqlCollationOptions = [
   "Chinese_PRC_CI_AS",
   "Japanese_CI_AS",
 ];
-const schemaNodeDrivers: Driver[] = ["postgres", "mssql"];
 interface ConnectionListProps {
   onTableSelect?: (
     connection: string,
@@ -223,6 +231,13 @@ interface ConnectionListProps {
     table: string;
     schema?: string;
   };
+  sidebarRevealRequest?: {
+    id: number;
+    connectionId: number;
+    database: string;
+    table: string;
+    schema?: string;
+  };
   onSelectSavedQuery?: (query: SavedQuery) => void;
   lastUpdated?: number;
   showSavedQueriesInTree?: boolean;
@@ -234,17 +249,14 @@ export function ConnectionList({
   onCreateQuery,
   onExportTable,
   activeTableTarget,
+  sidebarRevealRequest,
   onSelectSavedQuery,
   lastUpdated,
   showSavedQueriesInTree = false,
 }: ConnectionListProps) {
-  const AUTO_SCROLL_IDLE_DELAY_MS = 1200;
   const { t } = useTranslation();
   const tableNodeRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const autoScrollReqIdRef = useRef(0);
-  const userInteractionUntilRef = useRef(0);
-  const interactionIdleTimerRef = useRef<number | null>(null);
-  const pendingAutoScrollKeyRef = useRef<string | null>(null);
+  const handledRevealRequestIdRef = useRef<number | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(
     new Set(["1"]),
@@ -262,7 +274,9 @@ export function ConnectionList({
     new Set(),
   );
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
-  const [selectedTableKey, setSelectedTableKey] = useState<string | null>(null);
+  const [selectedTableNode, setSelectedTableNode] =
+    useState<SelectedTableNode | null>(null);
+  const selectedTableKey = selectedTableNode?.key ?? null;
   const [autoScrollRequest, setAutoScrollRequest] = useState<{
     key: string;
     id: number;
@@ -280,6 +294,15 @@ export function ConnectionList({
   const [dialogMode, setDialogMode] = useState<"create" | "edit">("create");
   const [editingConnectionId, setEditingConnectionId] = useState<string | null>(
     null,
+  );
+  const [loadingDatabaseKeys, setLoadingDatabaseKeys] = useState<Set<string>>(
+    new Set(),
+  );
+  const [loadingTableKeys, setLoadingTableKeys] = useState<Set<string>>(
+    new Set(),
+  );
+  const loadingSpinner = (
+    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
   );
   const [isTesting, setIsTesting] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -321,9 +344,9 @@ export function ConnectionList({
   const [isImportConfirmOpen, setIsImportConfirmOpen] = useState(false);
 
   const supportsCreateDatabaseForDriver = (driver: Driver) =>
-    createDatabaseSupportedDrivers.includes(driver);
+    supportsCreateDatabase(driver);
   const supportsSchemaNodeForDriver = (driver: Driver) =>
-    schemaNodeDrivers.includes(driver);
+    supportsSchemaBrowsing(driver);
   const getSchemaNodeKey = (databaseKey: string, schema: string) =>
     `${databaseKey}::${schema}`;
   const getTableNodeKey = (
@@ -332,35 +355,6 @@ export function ConnectionList({
     schemaName: string,
     tableName: string,
   ) => `${connectionId}-${databaseName}-${schemaName}-${tableName}`;
-  const isSidebarInteracting = () =>
-    Date.now() < userInteractionUntilRef.current;
-  const requestAutoScroll = (tableKey: string) => {
-    if (isSidebarInteracting()) {
-      pendingAutoScrollKeyRef.current = tableKey;
-      return;
-    }
-    pendingAutoScrollKeyRef.current = null;
-    setAutoScrollRequest({
-      key: tableKey,
-      id: ++autoScrollReqIdRef.current,
-    });
-  };
-  const markSidebarInteraction = () => {
-    userInteractionUntilRef.current = Date.now() + AUTO_SCROLL_IDLE_DELAY_MS;
-    if (interactionIdleTimerRef.current) {
-      window.clearTimeout(interactionIdleTimerRef.current);
-    }
-    interactionIdleTimerRef.current = window.setTimeout(() => {
-      interactionIdleTimerRef.current = null;
-      const pendingKey = pendingAutoScrollKeyRef.current;
-      if (!pendingKey) return;
-      pendingAutoScrollKeyRef.current = null;
-      setAutoScrollRequest({
-        key: pendingKey,
-        id: ++autoScrollReqIdRef.current,
-      });
-    }, AUTO_SCROLL_IDLE_DELAY_MS);
-  };
 
   const createDbTargetConnection = useMemo(
     () => connections.find((conn) => conn.id === createDbConnectionId) || null,
@@ -492,29 +486,13 @@ export function ConnectionList({
     }
   }, [searchTerm, filteredConnections, showSavedQueriesInTree]);
 
-  useEffect(
-    () => () => {
-      if (interactionIdleTimerRef.current) {
-        window.clearTimeout(interactionIdleTimerRef.current);
-      }
-    },
-    [],
-  );
-
-  const isFileBased = form.driver === "sqlite" || form.driver === "duckdb";
-  const supportsSslCa =
-    form.driver === "postgres" ||
-    form.driver === "mysql" ||
-    form.driver === "tidb" ||
-    form.driver === "mariadb";
-  const isPasswordRequiredOnCreate = useMemo(() => {
+  const isFileBased = isFileBasedDriver(form.driver);
+  const supportsSslCa = supportsSSLCA(form.driver);
+  const isPasswordRequiredOnCreate = useMemo(
     // MySQL-compatible engines (including TiDB and MariaDB) can be configured without password.
-    return (
-      form.driver !== "mysql" &&
-      form.driver !== "tidb" &&
-      form.driver !== "mariadb"
-    );
-  }, [form.driver]);
+    () => !isMysqlFamilyDriver(form.driver),
+    [form.driver],
+  );
   const normalizedForm = useMemo(
     () => normalizeConnectionFormInput(form),
     [form],
@@ -877,30 +855,10 @@ export function ConnectionList({
     }
   };
 
-  // Effect 1: Register scroll intent when active target changes
+  // Sync UI state (expansion, selection) and load data if needed.
   useEffect(() => {
     if (!activeTableTarget) {
-      return;
-    }
-
-    const connectionId = String(activeTableTarget.connectionId);
-    const databaseName = activeTableTarget.database;
-    const tableName = activeTableTarget.table;
-    const schemaName = activeTableTarget.schema || "";
-    const nextTableKey = getTableNodeKey(
-      connectionId,
-      databaseName,
-      schemaName,
-      tableName,
-    );
-
-    requestAutoScroll(nextTableKey);
-  }, [activeTableTarget]);
-
-  // Effect 2: Sync UI state (expansion, selection) and load data if needed
-  useEffect(() => {
-    if (!activeTableTarget) {
-      setSelectedTableKey(null);
+      setSelectedTableNode(null);
       return;
     }
 
@@ -961,8 +919,13 @@ export function ConnectionList({
         resolvedSchema,
         tableName,
       );
-      setSelectedTableKey(resolvedTableKey);
-      requestAutoScroll(resolvedTableKey);
+      setSelectedTableNode({
+        key: resolvedTableKey,
+        connectionId: activeTableTarget.connectionId,
+        database: databaseName,
+        table: tableName,
+        schema: resolvedSchema,
+      });
     };
 
     void ensureDatabaseTablesLoaded();
@@ -970,6 +933,38 @@ export function ConnectionList({
       cancelled = true;
     };
   }, [activeTableTarget, connections]);
+
+  useEffect(() => {
+    if (!sidebarRevealRequest || !activeTableTarget || !selectedTableNode)
+      return;
+    if (handledRevealRequestIdRef.current === sidebarRevealRequest.id) return;
+    if (
+      sidebarRevealRequest.connectionId !== activeTableTarget.connectionId ||
+      sidebarRevealRequest.database !== activeTableTarget.database ||
+      sidebarRevealRequest.table !== activeTableTarget.table
+    ) {
+      return;
+    }
+    if (
+      selectedTableNode.connectionId !== sidebarRevealRequest.connectionId ||
+      selectedTableNode.database !== sidebarRevealRequest.database ||
+      selectedTableNode.table !== sidebarRevealRequest.table
+    ) {
+      return;
+    }
+    if (
+      sidebarRevealRequest.schema &&
+      sidebarRevealRequest.schema !== selectedTableNode.schema
+    ) {
+      return;
+    }
+
+    handledRevealRequestIdRef.current = sidebarRevealRequest.id;
+    setAutoScrollRequest({
+      key: selectedTableNode.key,
+      id: sidebarRevealRequest.id,
+    });
+  }, [activeTableTarget, selectedTableNode, sidebarRevealRequest]);
 
   useEffect(() => {
     if (!autoScrollRequest) return;
@@ -987,7 +982,7 @@ export function ConnectionList({
             target.scrollIntoView({
               block: "center",
               inline: "nearest",
-              behavior: "smooth",
+              behavior: "auto",
             });
             setAutoScrollRequest((prev) =>
               prev?.id === autoScrollRequest.id ? null : prev,
@@ -1060,7 +1055,14 @@ export function ConnectionList({
             ? db.schemas.length === 0
             : db.tables.length === 0)
         ) {
-          fetchAndSetTables(connId, dbName);
+          setLoadingDatabaseKeys((prev) => new Set(prev).add(key));
+          fetchAndSetTables(connId, dbName).finally(() => {
+            setLoadingDatabaseKeys((prev) => {
+              const next = new Set(prev);
+              next.delete(key);
+              return next;
+            });
+          });
         }
       }
     }
@@ -1179,12 +1181,19 @@ export function ConnectionList({
       newExpanded.add(tableKey);
       // Load column info on first expand
       if (table.columns.length === 0) {
+        setLoadingTableKeys((prev) => new Set(prev).add(tableKey));
         fetchAndSetTableColumns(
           connectionId,
           databaseName,
           table.schema,
           table.name,
-        );
+        ).finally(() => {
+          setLoadingTableKeys((prev) => {
+            const next = new Set(prev);
+            next.delete(tableKey);
+            return next;
+          });
+        });
       }
     }
     setExpandedTables(newExpanded);
@@ -1780,20 +1789,7 @@ export function ConnectionList({
                         setForm((f) => ({
                           ...f,
                           driver: v,
-                          port:
-                            v === "postgres"
-                              ? 5432
-                              : v === "mysql"
-                                ? 3306
-                                : v === "mariadb"
-                                  ? 3306
-                                  : v === "tidb"
-                                    ? 4000
-                                    : v === "clickhouse"
-                                      ? 8123
-                                      : v === "mssql"
-                                        ? 1433
-                                        : f.port,
+                          port: getDefaultPort(v) ?? f.port,
                         }))
                       }
                     >
@@ -1805,14 +1801,11 @@ export function ConnectionList({
                         />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="postgres">PostgreSQL</SelectItem>
-                        <SelectItem value="mysql">MySQL</SelectItem>
-                        <SelectItem value="mariadb">MariaDB</SelectItem>
-                        <SelectItem value="tidb">TiDB</SelectItem>
-                        <SelectItem value="sqlite">SQLite</SelectItem>
-                        <SelectItem value="duckdb">DuckDB</SelectItem>
-                        <SelectItem value="clickhouse">ClickHouse</SelectItem>
-                        <SelectItem value="mssql">SQL Server</SelectItem>
+                        {DRIVER_REGISTRY.map((d) => (
+                          <SelectItem key={d.id} value={d.id}>
+                            {d.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1851,19 +1844,9 @@ export function ConnectionList({
                           </Label>
                           <Input
                             id="port"
-                            placeholder={
-                              form.driver === "postgres"
-                                ? "5432"
-                                : form.driver === "mysql"
-                                  ? "3306"
-                                  : form.driver === "mariadb"
-                                    ? "3306"
-                                    : form.driver === "tidb"
-                                      ? "4000"
-                                      : form.driver === "mssql"
-                                        ? "1433"
-                                        : "8123"
-                            }
+                            placeholder={String(
+                              getDefaultPort(form.driver) ?? "",
+                            )}
                             value={String(form.port || "")}
                             onChange={(e) =>
                               setForm((f) => ({
@@ -2292,9 +2275,7 @@ export function ConnectionList({
           <Input
             placeholder={t("connection.searchTables")}
             value={searchTerm}
-            onFocus={markSidebarInteraction}
             onChange={(e) => {
-              markSidebarInteraction();
               setSearchTerm(e.target.value);
             }}
             className="pl-8"
@@ -2303,8 +2284,6 @@ export function ConnectionList({
       </div>
       <div
         className="flex-1 overflow-auto"
-        onPointerDown={markSidebarInteraction}
-        onWheel={markSidebarInteraction}
         onClick={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
       >
         {filteredConnections.map((connection) => {
@@ -2452,6 +2431,11 @@ export function ConnectionList({
                                         table,
                                       );
                                     }}
+                                    statusIndicator={
+                                      loadingTableKeys.has(tableKey)
+                                        ? loadingSpinner
+                                        : undefined
+                                    }
                                     actions={
                                       <div onClick={(e) => e.stopPropagation()}>
                                         <Button
@@ -2569,6 +2553,11 @@ export function ConnectionList({
                             }
                             isExpanded={expandedDatabases.has(dbKey)}
                             onToggle={() => toggleDatabase(dbKey)}
+                            statusIndicator={
+                              loadingDatabaseKeys.has(dbKey)
+                                ? loadingSpinner
+                                : undefined
+                            }
                             onContextMenu={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
@@ -2675,6 +2664,11 @@ export function ConnectionList({
                                       table,
                                     );
                                   }}
+                                  statusIndicator={
+                                    loadingTableKeys.has(tableKey) ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                                    ) : undefined
+                                  }
                                   actions={
                                     <div onClick={(e) => e.stopPropagation()}>
                                       <Button
@@ -2792,6 +2786,11 @@ export function ConnectionList({
                           }
                           isExpanded={expandedDatabases.has(dbKey)}
                           onToggle={() => toggleDatabase(dbKey)}
+                          statusIndicator={
+                            loadingDatabaseKeys.has(dbKey) ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                            ) : undefined
+                          }
                           onContextMenu={(e) => {
                             e.preventDefault();
                             e.stopPropagation();

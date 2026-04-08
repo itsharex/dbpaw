@@ -38,6 +38,16 @@ export const mockConnections: any[] = [
     filePath: "/path/to/database.db",
     createdAt: new Date().toISOString(),
   },
+  {
+    id: 3,
+    name: "PostgreSQL JSONB Test",
+    dbType: "postgres",
+    host: "localhost",
+    port: 5432,
+    database: "jsondb",
+    username: "postgres",
+    createdAt: new Date().toISOString(),
+  },
 ];
 
 export const mockTables: { schema: string; name: string; type: string }[] = [
@@ -61,6 +71,10 @@ export const mockTables: { schema: string; name: string; type: string }[] = [
   { schema: "analytics", name: "page_views", type: "table" },
   { schema: "analytics", name: "events", type: "table" },
   { schema: "analytics", name: "funnels", type: "table" },
+  // complex-type test table — SELECT * FROM json_test returns mockComplexTypeData
+  { schema: "public", name: "json_test", type: "table" },
+  // array-type test table — SELECT * FROM pg_arrays returns mockArrayTypeData
+  { schema: "public", name: "pg_arrays", type: "table" },
 ];
 
 export const mockTableStructure = {
@@ -198,6 +212,11 @@ export const mockTableData = {
       password_hash: "hashed_password_1",
       created_at: "2024-01-15 10:30:00",
       updated_at: "2024-01-15 10:30:00",
+      // object with 4 keys → abbreviated as {role, department, ... +2}
+      metadata: { role: "admin", department: "engineering", level: 5, active: true },
+      // array with 3 items → [3 items]
+      tags: ["vip", "beta-tester", "early-adopter"],
+      settings: null,
     },
     {
       id: 2,
@@ -206,6 +225,12 @@ export const mockTableData = {
       password_hash: "hashed_password_2",
       created_at: "2024-01-16 11:45:00",
       updated_at: "2024-01-16 11:45:00",
+      // object with 2 keys → inline JSON
+      metadata: { role: "user", department: "marketing" },
+      // array with 1 item → inline JSON
+      tags: ["newsletter"],
+      // nested object → tree view shows expand/collapse
+      settings: { theme: "dark", lang: "zh", notifications: { email: true, sms: false } },
     },
     {
       id: 3,
@@ -214,6 +239,11 @@ export const mockTableData = {
       password_hash: "hashed_password_3",
       created_at: "2024-01-17 14:20:00",
       updated_at: "2024-01-17 14:20:00",
+      // empty object → {}
+      metadata: {},
+      // empty array → []
+      tags: [],
+      settings: { theme: "light", lang: "en" },
     },
     {
       id: 4,
@@ -222,6 +252,10 @@ export const mockTableData = {
       password_hash: "hashed_password_4",
       created_at: "2024-01-18 09:15:00",
       updated_at: "2024-01-18 09:15:00",
+      // object containing a nested array
+      metadata: { role: "moderator", permissions: ["read", "write", "delete"], score: 88 },
+      tags: ["moderator", "trusted"],
+      settings: null,
     },
     {
       id: 5,
@@ -230,12 +264,220 @@ export const mockTableData = {
       password_hash: "hashed_password_5",
       created_at: "2024-01-19 16:50:00",
       updated_at: "2024-01-19 16:50:00",
+      // array of objects → table view renders as multi-column table
+      metadata: [{ key: "plan", value: "pro" }, { key: "trial", value: false }],
+      tags: ["pro"],
+      // object with 4 keys → tree/table view
+      settings: { theme: "system", lang: "ja", timezone: "Asia/Tokyo", fontSize: 14 },
+    },
+    {
+      id: 6,
+      username: "frank",
+      email: "frank@example.com",
+      password_hash: "hashed_password_6",
+      created_at: "2024-01-20 08:00:00",
+      updated_at: "2024-01-20 08:00:00",
+      // deeply nested 3-level object → tree view shows recursive expand
+      metadata: {
+        profile: {
+          address: { city: "Shanghai", country: "CN", zip: "200000" },
+          contact: { phone: "138-0000-0001", wechat: "frank_wx" },
+        },
+        billing: { plan: "enterprise", seats: 50, currency: "CNY" },
+      },
+      // large array (10 items) → [10 items]
+      tags: ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"],
+      settings: { theme: "dark", lang: "en", beta: false },
+    },
+    {
+      id: 7,
+      username: "grace",
+      email: "grace@example.com",
+      password_hash: "hashed_password_7",
+      created_at: "2024-01-21 09:30:00",
+      updated_at: "2024-01-21 09:30:00",
+      // array of objects with uniform shape → table view renders nicely
+      metadata: [
+        { name: "cpu", value: "85%", status: "warn" },
+        { name: "memory", value: "42%", status: "ok" },
+        { name: "disk", value: "91%", status: "critical" },
+        { name: "network", value: "12%", status: "ok" },
+      ],
+      // mixed-type array → table view falls back to index/value layout
+      tags: ["ops", 42, true, null, { env: "prod" }],
+      settings: null,
+    },
+    {
+      id: 8,
+      username: "henry",
+      email: "henry@example.com",
+      password_hash: "hashed_password_8",
+      created_at: "2024-01-22 11:00:00",
+      updated_at: "2024-01-22 11:00:00",
+      // object with null/boolean values inside
+      metadata: { verified: true, banned: false, reason: null, score: 0 },
+      tags: ["new"],
+      // deeply nested settings
+      settings: {
+        ui: { sidebar: "collapsed", density: "compact", animations: true },
+        editor: { fontSize: 13, tabSize: 2, wordWrap: true, minimap: false },
+        shortcuts: { save: "Ctrl+S", run: "F5", format: "Shift+Alt+F" },
+      },
+    },
+    {
+      id: 9,
+      username: "iris",
+      email: "iris@example.com",
+      password_hash: "hashed_password_9",
+      created_at: "2024-01-23 14:45:00",
+      updated_at: "2024-01-23 14:45:00",
+      // object with only 1 key → inline JSON {"role":"guest"}
+      metadata: { role: "guest" },
+      // array with exactly 2 items → inline JSON
+      tags: ["read-only", "trial"],
+      settings: { theme: "light", lang: "en", timezone: "UTC" },
+    },
+    {
+      id: 10,
+      username: "jack",
+      email: "jack@example.com",
+      password_hash: "hashed_password_10",
+      created_at: "2024-01-24 16:20:00",
+      updated_at: "2024-01-24 16:20:00",
+      // all three complex fields are null → verify null rendering unchanged
+      metadata: null,
+      tags: null,
+      settings: null,
     },
   ],
-  total: 5,
+  total: 10,
   page: 1,
   limit: 10,
   executionTimeMs: 25,
+};
+
+// Dedicated dataset for querying "SELECT * FROM json_test" in mock mode.
+// Covers every complex-type edge case in a single focused table.
+export const mockComplexTypeData: QueryResult = {
+  rowCount: 8,
+  timeTakenMs: 12,
+  success: true,
+  columns: [
+    { name: "id", type: "integer" },
+    { name: "label", type: "text" },
+    { name: "payload", type: "jsonb" },
+    { name: "notes", type: "text" },
+  ],
+  data: [
+    {
+      id: 1,
+      label: "flat object (2 keys)",
+      payload: { name: "alice", age: 30 },
+      notes: "inline JSON in cell",
+    },
+    {
+      id: 2,
+      label: "flat object (4+ keys)",
+      payload: { id: 42, role: "admin", active: true, score: 99 },
+      notes: "abbreviated as {id, role, ... +2}",
+    },
+    {
+      id: 3,
+      label: "nested object (3 levels)",
+      payload: {
+        user: {
+          profile: { city: "Beijing", country: "CN" },
+          prefs: { lang: "zh", theme: "dark" },
+        },
+        meta: { version: 2, flags: ["a", "b"] },
+      },
+      notes: "tree view shows recursive expand/collapse",
+    },
+    {
+      id: 4,
+      label: "array of primitives (10 items)",
+      payload: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
+      notes: "[10 items] in cell",
+    },
+    {
+      id: 5,
+      label: "array of objects (uniform shape)",
+      payload: [
+        { metric: "cpu", value: 72, unit: "%" },
+        { metric: "mem", value: 48, unit: "%" },
+        { metric: "disk", value: 91, unit: "%" },
+      ],
+      notes: "table view renders as multi-column table",
+    },
+    {
+      id: 6,
+      label: "mixed-type array",
+      payload: ["text", 42, true, null, { nested: "obj" }, [1, 2]],
+      notes: "table view falls back to index/value layout",
+    },
+    {
+      id: 7,
+      label: "empty containers",
+      payload: {},
+      notes: "verify {} and [] display correctly",
+    },
+    {
+      id: 8,
+      label: "null value",
+      payload: null,
+      notes: "should display NULL (italic), no expand icon",
+    },
+  ],
+};
+
+// Dedicated dataset for querying "SELECT * FROM pg_arrays" in mock mode.
+// Simulates what PostgreSQL array columns look like after the backend fix.
+export const mockArrayTypeData: QueryResult = {
+  rowCount: 4,
+  timeTakenMs: 8,
+  success: true,
+  columns: [
+    { name: "id", type: "integer" },
+    { name: "tags", type: "text[]" },
+    { name: "scores", type: "int4[]" },
+    { name: "flags", type: "bool[]" },
+    { name: "readings", type: "float8[]" },
+    { name: "metadata_list", type: "jsonb[]" },
+  ],
+  data: [
+    {
+      id: 1,
+      tags: ["postgres", "arrays", "jsonb"],
+      scores: [95, 87, 72],
+      flags: [true, false, true],
+      readings: [3.14, 2.72, 1.41],
+      metadata_list: [{ source: "web", valid: true }, { source: "app", valid: false }],
+    },
+    {
+      id: 2,
+      tags: ["empty-arrays-test"],
+      scores: [],
+      flags: [],
+      readings: [],
+      metadata_list: [],
+    },
+    {
+      id: 3,
+      tags: ["null-elements", null, "after-null"],
+      scores: [1, null, 3],
+      flags: [null, true],
+      readings: [null, 9.99],
+      metadata_list: [null, { key: "value" }],
+    },
+    {
+      id: 4,
+      tags: null,
+      scores: null,
+      flags: null,
+      readings: null,
+      metadata_list: null,
+    },
+  ],
 };
 
 export const mockDatabases = [
@@ -271,7 +513,7 @@ export const mockSavedQueries: SavedQuery[] = [
 
 export const mockQueryResult: QueryResult = {
   data: mockTableData.data,
-  rowCount: 5,
+  rowCount: 10,
   columns: [
     { name: "id", type: "integer" },
     { name: "username", type: "varchar" },
@@ -279,6 +521,9 @@ export const mockQueryResult: QueryResult = {
     { name: "password_hash", type: "varchar" },
     { name: "created_at", type: "timestamp" },
     { name: "updated_at", type: "timestamp" },
+    { name: "metadata", type: "jsonb" },
+    { name: "tags", type: "text[]" },
+    { name: "settings", type: "jsonb" },
   ],
   timeTakenMs: 45,
   success: true,
@@ -515,8 +760,19 @@ export async function mockExecuteQuery(
 
   // Return different data based on query type
   if (lower.includes("select")) {
+    // Dedicated array-type dataset: SELECT * FROM pg_arrays
+    const isArrayQuery =
+      lower.includes("pg_arrays") ||
+      lower.includes("array");
+    // Dedicated complex-type dataset: SELECT * FROM json_test
+    const isComplexQuery =
+      !isArrayQuery &&
+      (lower.includes("json_test") ||
+        lower.includes("json") ||
+        lower.includes("jsonb") ||
+        lower.includes("complex"));
     const result = {
-      ...mockQueryResult,
+      ...(isArrayQuery ? mockArrayTypeData : isComplexQuery ? mockComplexTypeData : mockQueryResult),
       timeTakenMs: Math.floor(Math.random() * 100) + 20,
     };
     appendSqlExecutionLog({
@@ -622,6 +878,30 @@ export async function mockGetTableDDL(
 /**
  * Mock get table metadata
  */
+const mockJsonTestTableMetadata: TableMetadata = {
+  columns: [
+    { name: "id", type: "integer", nullable: false, primaryKey: true },
+    { name: "label", type: "text", nullable: false, primaryKey: false },
+    { name: "payload", type: "jsonb", nullable: true, primaryKey: false },
+    { name: "notes", type: "text", nullable: true, primaryKey: false },
+  ],
+  indexes: [],
+  foreignKeys: [],
+};
+
+const mockArrayTestTableMetadata: TableMetadata = {
+  columns: [
+    { name: "id", type: "integer", nullable: false, primaryKey: true },
+    { name: "tags", type: "text[]", nullable: true, primaryKey: false },
+    { name: "scores", type: "int4[]", nullable: true, primaryKey: false },
+    { name: "flags", type: "bool[]", nullable: true, primaryKey: false },
+    { name: "readings", type: "float8[]", nullable: true, primaryKey: false },
+    { name: "metadata_list", type: "jsonb[]", nullable: true, primaryKey: false },
+  ],
+  indexes: [],
+  foreignKeys: [],
+};
+
 export async function mockGetTableMetadata(
   _id: number,
   _database: string | undefined,
@@ -629,6 +909,8 @@ export async function mockGetTableMetadata(
   _table: string,
 ): Promise<TableMetadata> {
   await new Promise((resolve) => setTimeout(resolve, 50));
+  if (_table === "json_test") return mockJsonTestTableMetadata;
+  if (_table === "pg_arrays") return mockArrayTestTableMetadata;
   return mockTableMetadata;
 }
 
@@ -694,13 +976,20 @@ export async function mockGetTableData(params: {
 }> {
   await new Promise((resolve) => setTimeout(resolve, 100));
 
-  const { page = 1, limit = 10 } = params;
+  const { page = 1, limit = 10, table } = params;
   const start = (page - 1) * limit;
   const end = start + limit;
 
+  const source =
+    table === "json_test"
+      ? { data: mockComplexTypeData.data, total: mockComplexTypeData.rowCount }
+      : table === "pg_arrays"
+        ? { data: mockArrayTypeData.data, total: mockArrayTypeData.rowCount }
+        : mockTableData;
+
   return {
-    data: mockTableData.data.slice(start, end),
-    total: mockTableData.total,
+    data: source.data.slice(start, end),
+    total: source.total,
     page,
     limit,
     executionTimeMs: Math.floor(Math.random() * 50) + 20,

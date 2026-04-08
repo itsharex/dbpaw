@@ -11,6 +11,26 @@ describe("normalizeDatabaseOptions", () => {
       normalizeDatabaseOptions([" app ", "analytics", "app"], "archive"),
     ).toEqual(["archive", "app", "analytics"]);
   });
+
+  test("returns empty array for empty input and no fallback", () => {
+    expect(normalizeDatabaseOptions([])).toEqual([]);
+  });
+
+  test("filters out blank names", () => {
+    expect(normalizeDatabaseOptions(["", "  ", "app"])).toEqual(["app"]);
+  });
+
+  test("does not prepend fallback if it already exists in list", () => {
+    expect(normalizeDatabaseOptions(["app", "analytics"], "app")).toEqual([
+      "app",
+      "analytics",
+    ]);
+  });
+
+  test("does not prepend blank fallback", () => {
+    expect(normalizeDatabaseOptions(["app"], "")).toEqual(["app"]);
+    expect(normalizeDatabaseOptions(["app"], "  ")).toEqual(["app"]);
+  });
 });
 
 describe("resolvePreferredDatabase", () => {
@@ -42,5 +62,25 @@ describe("resolvePreferredDatabase", () => {
         availableDatabases: ["analytics", "app"],
       }),
     ).toBe("analytics");
+  });
+
+  test("returns preferred when no available databases list provided", () => {
+    expect(
+      resolvePreferredDatabase({
+        preferredDatabase: "mydb",
+      }),
+    ).toBe("mydb");
+  });
+
+  test("returns connectionDatabase when no preferred and no available list", () => {
+    expect(
+      resolvePreferredDatabase({
+        connectionDatabase: "defaultdb",
+      }),
+    ).toBe("defaultdb");
+  });
+
+  test("returns undefined when everything is empty", () => {
+    expect(resolvePreferredDatabase({})).toBeUndefined();
   });
 });

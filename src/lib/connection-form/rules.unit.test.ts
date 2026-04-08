@@ -1,9 +1,72 @@
 import { describe, expect, test } from "bun:test";
 import {
-  parseHostEmbeddedPort,
-  normalizePortNumber,
+  allowsHostWithPort,
+  isFileBasedDriver,
+  isMysqlFamilyDriver,
   normalizeConnectionFormInput,
+  normalizePortNumber,
+  normalizeTextValue,
+  parseHostEmbeddedPort,
+  requiresPasswordOnCreate,
 } from "./rules";
+
+describe("isMysqlFamilyDriver", () => {
+  test("recognizes mysql family", () => {
+    expect(isMysqlFamilyDriver("mysql")).toBe(true);
+    expect(isMysqlFamilyDriver("mariadb")).toBe(true);
+    expect(isMysqlFamilyDriver("tidb")).toBe(true);
+  });
+
+  test("rejects non-mysql drivers", () => {
+    expect(isMysqlFamilyDriver("postgres")).toBe(false);
+    expect(isMysqlFamilyDriver("sqlite")).toBe(false);
+  });
+});
+
+describe("isFileBasedDriver", () => {
+  test("recognizes file-based drivers", () => {
+    expect(isFileBasedDriver("sqlite")).toBe(true);
+    expect(isFileBasedDriver("duckdb")).toBe(true);
+  });
+
+  test("rejects network drivers", () => {
+    expect(isFileBasedDriver("mysql")).toBe(false);
+    expect(isFileBasedDriver("postgres")).toBe(false);
+  });
+});
+
+describe("allowsHostWithPort / requiresPasswordOnCreate", () => {
+  test("only mysql family allows host:port notation", () => {
+    expect(allowsHostWithPort("mysql")).toBe(true);
+    expect(allowsHostWithPort("postgres")).toBe(false);
+  });
+
+  test("non-mysql drivers require password on create", () => {
+    expect(requiresPasswordOnCreate("postgres")).toBe(true);
+    expect(requiresPasswordOnCreate("mysql")).toBe(false);
+  });
+});
+
+describe("normalizeTextValue", () => {
+  test("returns undefined for undefined and null", () => {
+    expect(normalizeTextValue(undefined)).toBeUndefined();
+    expect(normalizeTextValue(null as any)).toBeUndefined();
+  });
+
+  test("returns undefined for blank strings when emptyToUndefined is true (default)", () => {
+    expect(normalizeTextValue("")).toBeUndefined();
+    expect(normalizeTextValue("   ")).toBeUndefined();
+  });
+
+  test("returns empty string for blank when emptyToUndefined is false", () => {
+    expect(normalizeTextValue("", false)).toBe("");
+    expect(normalizeTextValue("  ", false)).toBe("");
+  });
+
+  test("trims surrounding whitespace", () => {
+    expect(normalizeTextValue("  hello  ")).toBe("hello");
+  });
+});
 
 describe("parseHostEmbeddedPort", () => {
   test("parses host:port when valid", () => {

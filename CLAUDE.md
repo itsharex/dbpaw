@@ -123,6 +123,8 @@ Database Drivers  → Driver integration tests (*_integration.rs)
 
 ### Database Driver Development
 
+For a complete step-by-step checklist (exact file paths, line numbers, and gotchas), see [ADD_NEW_DB.md](ADD_NEW_DB.md). Use the `/new-db` skill to scaffold automatically.
+
 When adding/modifying database drivers:
 1. Implement `DatabaseDriver` trait in `src-tauri/src/db/drivers/<driver>.rs`
 2. Add to driver enum in `src-tauri/src/db/drivers/mod.rs`

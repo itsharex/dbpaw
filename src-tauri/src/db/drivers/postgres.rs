@@ -1066,6 +1066,138 @@ impl DatabaseDriver for PostgresDriver {
                             .ok()
                             .map(|v| v.0)
                             .unwrap_or(serde_json::Value::Null),
+                        // PostgreSQL array types (element type prefixed with _)
+                        "_BOOL" => row
+                            .try_get::<Vec<Option<bool>>, _>(name)
+                            .ok()
+                            .map(|v| {
+                                serde_json::Value::Array(
+                                    v.into_iter()
+                                        .map(|o| match o {
+                                            Some(b) => serde_json::Value::Bool(b),
+                                            None => serde_json::Value::Null,
+                                        })
+                                        .collect(),
+                                )
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "_INT2" => row
+                            .try_get::<Vec<Option<i16>>, _>(name)
+                            .ok()
+                            .map(|v| {
+                                serde_json::Value::Array(
+                                    v.into_iter()
+                                        .map(|o| match o {
+                                            Some(n) => serde_json::Value::Number(n.into()),
+                                            None => serde_json::Value::Null,
+                                        })
+                                        .collect(),
+                                )
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "_INT4" => row
+                            .try_get::<Vec<Option<i32>>, _>(name)
+                            .ok()
+                            .map(|v| {
+                                serde_json::Value::Array(
+                                    v.into_iter()
+                                        .map(|o| match o {
+                                            Some(n) => serde_json::Value::Number(n.into()),
+                                            None => serde_json::Value::Null,
+                                        })
+                                        .collect(),
+                                )
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "_INT8" => row
+                            .try_get::<Vec<Option<i64>>, _>(name)
+                            .ok()
+                            .map(|v| {
+                                serde_json::Value::Array(
+                                    v.into_iter()
+                                        .map(|o| match o {
+                                            Some(n) => serde_json::Value::Number(n.into()),
+                                            None => serde_json::Value::Null,
+                                        })
+                                        .collect(),
+                                )
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "_FLOAT4" => row
+                            .try_get::<Vec<Option<f32>>, _>(name)
+                            .ok()
+                            .map(|v| {
+                                serde_json::Value::Array(
+                                    v.into_iter()
+                                        .map(|o| match o {
+                                            Some(f) => serde_json::Number::from_f64(f as f64)
+                                                .map(serde_json::Value::Number)
+                                                .unwrap_or_else(|| {
+                                                    serde_json::Value::String(f.to_string())
+                                                }),
+                                            None => serde_json::Value::Null,
+                                        })
+                                        .collect(),
+                                )
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "_FLOAT8" => row
+                            .try_get::<Vec<Option<f64>>, _>(name)
+                            .ok()
+                            .map(|v| {
+                                serde_json::Value::Array(
+                                    v.into_iter()
+                                        .map(|o| match o {
+                                            Some(f) => serde_json::Number::from_f64(f)
+                                                .map(serde_json::Value::Number)
+                                                .unwrap_or_else(|| {
+                                                    serde_json::Value::String(f.to_string())
+                                                }),
+                                            None => serde_json::Value::Null,
+                                        })
+                                        .collect(),
+                                )
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "_NUMERIC" => row
+                            .try_get::<Vec<Option<Decimal>>, _>(name)
+                            .ok()
+                            .map(|v| {
+                                serde_json::Value::Array(
+                                    v.into_iter()
+                                        .map(|o| match o {
+                                            Some(d) => serde_json::Value::String(d.to_string()),
+                                            None => serde_json::Value::Null,
+                                        })
+                                        .collect(),
+                                )
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "_TEXT" | "_VARCHAR" | "_BPCHAR" | "_NAME" | "_UUID" => row
+                            .try_get::<Vec<Option<String>>, _>(name)
+                            .ok()
+                            .map(|v| {
+                                serde_json::Value::Array(
+                                    v.into_iter()
+                                        .map(|o| match o {
+                                            Some(s) => serde_json::Value::String(s),
+                                            None => serde_json::Value::Null,
+                                        })
+                                        .collect(),
+                                )
+                            })
+                            .unwrap_or(serde_json::Value::Null),
+                        "_JSON" | "_JSONB" => row
+                            .try_get::<Vec<Option<serde_json::Value>>, _>(name)
+                            .ok()
+                            .map(|v| {
+                                serde_json::Value::Array(
+                                    v.into_iter()
+                                        .map(|o| o.unwrap_or(serde_json::Value::Null))
+                                        .collect(),
+                                )
+                            })
+                            .unwrap_or(serde_json::Value::Null),
                         _ => {
                             if let Ok(v) = row.try_get::<String, _>(name) {
                                 serde_json::Value::String(v)

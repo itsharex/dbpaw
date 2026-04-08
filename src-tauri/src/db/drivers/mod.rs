@@ -2,6 +2,7 @@ use self::clickhouse::ClickHouseDriver;
 use self::duckdb::DuckdbDriver;
 use self::mssql::MssqlDriver;
 use self::mysql::MysqlDriver;
+use self::oracle::OracleDriver;
 use self::postgres::PostgresDriver;
 use self::sqlite::SqliteDriver;
 use crate::models::{
@@ -14,6 +15,7 @@ pub mod clickhouse;
 pub mod duckdb;
 pub mod mssql;
 pub mod mysql;
+pub mod oracle;
 pub mod postgres;
 pub mod sqlite;
 
@@ -24,7 +26,12 @@ pub(crate) fn conn_failed_error(e: &dyn std::fmt::Display) -> String {
     let raw = e.to_string();
     let lower = raw.to_ascii_lowercase();
 
-    let hint = if lower.contains("handshake")
+    let hint = if lower.contains("dpi-1047") || lower.contains("cannot locate a 64-bit oracle client") {
+        "hint: Oracle Instant Client is not installed — download it from \
+         https://www.oracle.com/database/technologies/instant-client/downloads.html \
+         and add the directory containing libclntsh to your library path \
+         (macOS: DYLD_LIBRARY_PATH; Linux: LD_LIBRARY_PATH)"
+    } else if lower.contains("handshake")
         || lower.contains("fatal alert")
         || lower.contains("tls")
         || lower.contains("ssl")
@@ -156,6 +163,10 @@ pub async fn connect(form: &ConnectionForm) -> Result<Box<dyn DatabaseDriver>, S
             let driver = MssqlDriver::connect(form).await?;
             Ok(Box::new(driver) as Box<dyn DatabaseDriver>)
         }
+        "oracle" => {
+            let driver = OracleDriver::connect(form).await?;
+            Ok(Box::new(driver) as Box<dyn DatabaseDriver>)
+        }
         _ => Err(format!(
             "[UNSUPPORTED] Driver {} not supported",
             form.driver
@@ -166,6 +177,17 @@ pub async fn connect(form: &ConnectionForm) -> Result<Box<dyn DatabaseDriver>, S
 #[cfg(test)]
 mod tests {
     use super::{conn_failed_error, strip_trailing_statement_terminator};
+
+    #[test]
+    fn conn_failed_error_oracle_client_hint() {
+        let msg = conn_failed_error(
+            &"DPI-1047: Cannot locate a 64-bit Oracle Client library: \"dlopen(libclntsh.dylib, 0x0001): tried: '/usr/local/lib/libclntsh.dylib' (no such file)\"",
+        );
+        assert!(msg.starts_with("[CONN_FAILED]"));
+        assert!(msg.contains("Oracle Instant Client is not installed"));
+        assert!(msg.contains("DYLD_LIBRARY_PATH"));
+        assert!(!msg.contains("TLS/SSL handshake failed"));
+    }
 
     #[test]
     fn conn_failed_error_tls_hint() {
