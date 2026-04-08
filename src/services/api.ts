@@ -467,6 +467,10 @@ export const api = {
     delete: (id: number) => invoke<void>("delete_connection", { id }),
     createDatabase: (id: number, payload: CreateDatabasePayload) =>
       invoke<void>("create_database_by_id", { id, payload }),
+    getMysqlCharsets: (id: number) =>
+      invoke<string[]>("get_mysql_charsets_by_id", { id }),
+    getMysqlCollations: (id: number, charset?: string) =>
+      invoke<string[]>("get_mysql_collations_by_id", { id, charset }),
     testEphemeral: (form: ConnectionForm) =>
       invoke<TestConnectionResult>("test_connection_ephemeral", { form }),
     listSqliteIssues: () =>

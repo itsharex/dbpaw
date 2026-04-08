@@ -125,6 +125,8 @@ pub fn run() {
             commands::connection::list_databases,
             commands::connection::list_databases_by_id,
             commands::connection::create_database_by_id,
+            commands::connection::get_mysql_charsets_by_id,
+            commands::connection::get_mysql_collations_by_id,
             commands::storage::save_query,
             commands::storage::get_saved_queries,
             commands::storage::update_saved_query,

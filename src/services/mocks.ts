@@ -943,6 +943,44 @@ export async function mockListDatabasesById(_id: number): Promise<string[]> {
 }
 
 /**
+ * Mock get MySQL charsets
+ */
+export async function mockGetMysqlCharsets(_id: number): Promise<string[]> {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  return [
+    "armscii8", "ascii", "big5", "binary", "cp1250", "cp1251", "cp1256",
+    "cp1257", "cp850", "cp852", "cp866", "cp932", "dec8", "eucjpms", "euckr",
+    "gb18030", "gb2312", "gbk", "geostd8", "greek", "hebrew", "hp8",
+    "keybcs2", "koi8r", "koi8u", "latin1", "latin2", "latin5", "latin7",
+    "macce", "macroman", "sjis", "swe7", "tis620", "ucs2", "ujis", "utf16",
+    "utf16le", "utf32", "utf8", "utf8mb4",
+  ];
+}
+
+/**
+ * Mock get MySQL collations
+ */
+export async function mockGetMysqlCollations(
+  _id: number,
+  charset?: string,
+): Promise<string[]> {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const all: Record<string, string[]> = {
+    utf8mb4: [
+      "utf8mb4_0900_ai_ci", "utf8mb4_0900_as_ci", "utf8mb4_0900_as_cs",
+      "utf8mb4_bin", "utf8mb4_general_ci", "utf8mb4_unicode_ci",
+      "utf8mb4_unicode_520_ci",
+    ],
+    utf8: ["utf8_bin", "utf8_general_ci", "utf8_unicode_ci"],
+    latin1: ["latin1_bin", "latin1_general_ci", "latin1_swedish_ci"],
+    ascii: ["ascii_bin", "ascii_general_ci"],
+    binary: ["binary"],
+  };
+  if (charset && all[charset]) return all[charset];
+  return Object.values(all).flat().sort();
+}
+
+/**
  * Mock get schema overview
  */
 export async function mockGetSchemaOverview(
@@ -1356,6 +1394,12 @@ export async function invokeMock<T>(cmd: string, args?: any): Promise<T> {
 
     case "create_database_by_id":
       return mockCreateDatabaseById(args.id, args.payload) as Promise<T>;
+
+    case "get_mysql_charsets_by_id":
+      return mockGetMysqlCharsets(args.id) as Promise<T>;
+
+    case "get_mysql_collations_by_id":
+      return mockGetMysqlCollations(args.id, args.charset) as Promise<T>;
 
     case "test_connection_ephemeral":
       return mockTestConnectionEphemeral(args.form) as Promise<T>;

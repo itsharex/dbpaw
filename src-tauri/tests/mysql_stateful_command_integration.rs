@@ -856,3 +856,143 @@ async fn test_mysql_command_ai_minimal_provider_conversation_and_chat_flow() {
         .await
         .expect("ai_delete_provider should succeed");
 }
+
+#[tokio::test]
+#[ignore]
+async fn test_mysql_command_get_charsets_by_id_returns_standard_charsets() {
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_mysql_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
+    wait_until_mysql_ready(&form).await;
+    let state = init_state_with_local_db().await;
+    let conn_id = create_mysql_connection_for_state(&state, &form, "get-charsets").await;
+
+    let charsets = connection::get_mysql_charsets_by_id_direct(&state, conn_id)
+        .await
+        .expect("get_mysql_charsets_by_id should succeed");
+
+    assert!(!charsets.is_empty(), "charset list must not be empty");
+    assert!(
+        charsets.iter().any(|c| c == "utf8mb4"),
+        "utf8mb4 must be present"
+    );
+    assert!(
+        charsets.iter().any(|c| c == "utf8"),
+        "utf8 must be present"
+    );
+    assert!(
+        charsets.iter().any(|c| c == "latin1"),
+        "latin1 must be present"
+    );
+    assert!(
+        charsets.windows(2).all(|w| w[0] <= w[1]),
+        "charsets must be sorted"
+    );
+    assert!(
+        charsets.iter().all(|c| !c.trim().is_empty()),
+        "all charset names must be non-empty"
+    );
+
+    let _ = connection::delete_connection_direct(&state, conn_id).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_mysql_command_get_charsets_by_id_invalid_connection_returns_error() {
+    let state = init_state_with_local_db().await;
+    let result = connection::get_mysql_charsets_by_id_direct(&state, -999_999).await;
+    assert!(result.is_err());
+    assert!(!result.err().unwrap_or_default().trim().is_empty());
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_mysql_command_get_collations_by_id_without_charset_returns_all() {
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_mysql_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
+    wait_until_mysql_ready(&form).await;
+    let state = init_state_with_local_db().await;
+    let conn_id = create_mysql_connection_for_state(&state, &form, "get-collations-all").await;
+
+    let collations = connection::get_mysql_collations_by_id_direct(&state, conn_id, None)
+        .await
+        .expect("get_mysql_collations_by_id should succeed without charset filter");
+
+    assert!(!collations.is_empty(), "collation list must not be empty");
+    assert!(
+        collations.iter().any(|c| c == "utf8mb4_general_ci"),
+        "utf8mb4_general_ci must be present"
+    );
+    assert!(
+        collations.iter().any(|c| c == "utf8_general_ci"),
+        "utf8_general_ci must be present"
+    );
+    assert!(
+        collations.windows(2).all(|w| w[0] <= w[1]),
+        "collations must be sorted"
+    );
+
+    let _ = connection::delete_connection_direct(&state, conn_id).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_mysql_command_get_collations_by_id_with_charset_returns_only_matching() {
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_mysql_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
+    wait_until_mysql_ready(&form).await;
+    let state = init_state_with_local_db().await;
+    let conn_id =
+        create_mysql_connection_for_state(&state, &form, "get-collations-filtered").await;
+
+    let collations = connection::get_mysql_collations_by_id_direct(
+        &state,
+        conn_id,
+        Some("utf8mb4".to_string()),
+    )
+    .await
+    .expect("get_mysql_collations_by_id should succeed with charset filter");
+
+    assert!(!collations.is_empty(), "utf8mb4 collation list must not be empty");
+    assert!(
+        collations.iter().any(|c| c == "utf8mb4_general_ci"),
+        "utf8mb4_general_ci must be present"
+    );
+    // All returned collations must start with the requested charset prefix
+    for col in &collations {
+        assert!(
+            col.starts_with("utf8mb4"),
+            "collation '{}' does not belong to utf8mb4",
+            col
+        );
+    }
+
+    let _ = connection::delete_connection_direct(&state, conn_id).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_mysql_command_get_collations_by_id_with_invalid_charset_returns_error() {
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_mysql_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
+    wait_until_mysql_ready(&form).await;
+    let state = init_state_with_local_db().await;
+    let conn_id =
+        create_mysql_connection_for_state(&state, &form, "get-collations-invalid-cs").await;
+
+    let result = connection::get_mysql_collations_by_id_direct(
+        &state,
+        conn_id,
+        Some("utf8 mb4; DROP TABLE users".to_string()),
+    )
+    .await;
+
+    assert!(result.is_err());
+    let err = result.err().unwrap_or_default();
+    assert!(
+        err.contains("[VALIDATION_ERROR]"),
+        "expected VALIDATION_ERROR, got: {}",
+        err
+    );
+
+    let _ = connection::delete_connection_direct(&state, conn_id).await;
+}

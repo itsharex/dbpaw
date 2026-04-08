@@ -257,6 +257,15 @@ describe("api command mapping", () => {
     ["ai_delete_provider", () => api.ai.providers.delete(1)],
     ["ai_list_conversations", () => api.ai.conversations.list()],
     ["cancel_query", () => api.query.cancel("uuid-abc", "qid-1")],
+    ["get_mysql_charsets_by_id", () => api.connections.getMysqlCharsets(1)],
+    [
+      "get_mysql_collations_by_id",
+      () => api.connections.getMysqlCollations(1),
+    ],
+    [
+      "get_mysql_collations_by_id",
+      () => api.connections.getMysqlCollations(1, "utf8mb4"),
+    ],
   ];
 
   for (const [expectedCmd, callFn] of commands) {
