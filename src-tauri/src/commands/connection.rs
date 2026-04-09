@@ -267,7 +267,7 @@ pub async fn create_database_by_id(
     }
 
     let exec_res = match driver.as_str() {
-        "mysql" | "mariadb" | "tidb" => {
+        driver if crate::db::drivers::is_mysql_family_driver(driver) => {
             let sql = build_mysql_create_database_sql(&payload, &db_name)?;
             super::execute_with_retry(&state, id, None, |driver| {
                 let sql_clone = sql.clone();
@@ -348,7 +348,7 @@ pub async fn create_database_by_id_direct(
     }
 
     let exec_res = match driver.as_str() {
-        "mysql" | "mariadb" | "tidb" => {
+        driver if crate::db::drivers::is_mysql_family_driver(driver) => {
             let sql = build_mysql_create_database_sql(&payload, &db_name)?;
             super::execute_with_retry_from_app_state(state, id, None, |driver| {
                 let sql_clone = sql.clone();
@@ -425,7 +425,9 @@ pub async fn get_mysql_charsets_by_id(
     id: i64,
 ) -> Result<Vec<String>, String> {
     super::execute_with_retry(&state, id, None, |driver| async move {
-        let result = driver.execute_query("SHOW CHARACTER SET".to_string()).await?;
+        let result = driver
+            .execute_query("SHOW CHARACTER SET".to_string())
+            .await?;
         let mut charsets: Vec<String> = result
             .data
             .iter()
@@ -481,7 +483,9 @@ pub async fn get_mysql_charsets_by_id_direct(
     id: i64,
 ) -> Result<Vec<String>, String> {
     super::execute_with_retry_from_app_state(state, id, None, |driver| async move {
-        let result = driver.execute_query("SHOW CHARACTER SET".to_string()).await?;
+        let result = driver
+            .execute_query("SHOW CHARACTER SET".to_string())
+            .await?;
         let mut charsets: Vec<String> = result
             .data
             .iter()
@@ -870,11 +874,28 @@ mod tests {
             "utf8mb4_0900_ai_ci",
         ];
         for cs in valid {
-            assert!(
-                is_safe_option_token(cs),
-                "expected '{}' to be accepted",
-                cs
-            );
+            assert!(is_safe_option_token(cs), "expected '{}' to be accepted", cs);
         }
+    }
+
+    #[test]
+    fn mysql_create_database_sql_is_reusable_for_starrocks_connections() {
+        assert!(crate::db::drivers::is_mysql_family_driver("starrocks"));
+
+        let sql = build_mysql_create_database_sql(
+            &CreateDatabasePayload {
+                name: "analytics".to_string(),
+                if_not_exists: Some(true),
+                charset: None,
+                collation: None,
+                encoding: None,
+                lc_collate: None,
+                lc_ctype: None,
+            },
+            "analytics",
+        )
+        .unwrap();
+
+        assert_eq!(sql, "CREATE DATABASE IF NOT EXISTS `analytics`");
     }
 }

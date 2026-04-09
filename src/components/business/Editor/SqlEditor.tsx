@@ -372,6 +372,7 @@ export function SqlEditor({
         mysql: "mysql",
         tidb: "mysql",
         mariadb: "mysql",
+        starrocks: "mysql",
         sqlite: "sqlite",
         duckdb: "sqlite",
         clickhouse: "sql",
@@ -517,6 +518,7 @@ export function SqlEditor({
       case "mysql":
       case "tidb":
       case "mariadb":
+      case "starrocks":
         return MySQL;
       case "sqlite":
       case "duckdb":

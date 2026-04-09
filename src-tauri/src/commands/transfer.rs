@@ -565,6 +565,10 @@ fn import_transaction_sql<'a>(
 ) -> Result<(&'a str, &'a str, &'a str), String> {
     match normalized_driver {
         "mysql" | "mariadb" | "tidb" => Ok(("START TRANSACTION", "COMMIT", "ROLLBACK")),
+        "starrocks" => Err(
+            "[UNSUPPORTED] Driver starrocks does not support transactional SQL import in this flow"
+                .to_string(),
+        ),
         "postgres" | "sqlite" | "duckdb" => Ok(("BEGIN", "COMMIT", "ROLLBACK")),
         "mssql" => Ok((
             "BEGIN TRANSACTION",
@@ -1637,6 +1641,7 @@ mod tests {
             ("SELECT 1 FROM DUAL", "COMMIT", "ROLLBACK")
         );
         assert!(import_transaction_sql("clickhouse", "clickhouse").is_err());
+        assert!(import_transaction_sql("starrocks", "starrocks").is_err());
     }
 
     #[test]
@@ -1690,7 +1695,9 @@ mod tests {
             ("id", Value::Number(1.into())),
             ("name", Value::String("alice".to_string())),
         ])];
-        writer.write_rows(&rows, &cols, None, "t", "postgres").unwrap();
+        writer
+            .write_rows(&rows, &cols, None, "t", "postgres")
+            .unwrap();
         writer.finish().unwrap();
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.starts_with("id,name\n"));
@@ -1715,10 +1722,15 @@ mod tests {
         let cols = vec!["id".to_string(), "name".to_string()];
         let mut writer = ExportWriter::new(path.clone(), ExportFormat::SqlDml).unwrap();
         let rows = vec![
-            make_row(&[("id", Value::Number(1.into())), ("name", Value::String("alice".to_string()))]),
+            make_row(&[
+                ("id", Value::Number(1.into())),
+                ("name", Value::String("alice".to_string())),
+            ]),
             make_row(&[("id", Value::Number(2.into())), ("name", Value::Null)]),
         ];
-        let count = writer.write_rows(&rows, &cols, Some("public"), "users", "postgres").unwrap();
+        let count = writer
+            .write_rows(&rows, &cols, Some("public"), "users", "postgres")
+            .unwrap();
         writer.finish().unwrap();
         assert_eq!(count, 2);
         let content = fs::read_to_string(&path).unwrap();
@@ -1733,7 +1745,9 @@ mod tests {
     fn export_writer_sql_ddl_writes_only_ddl() {
         let path = tmp_path("sql_ddl.sql");
         let mut writer = ExportWriter::new(path.clone(), ExportFormat::SqlDdl).unwrap();
-        writer.write_ddl("CREATE TABLE users (id INTEGER);").unwrap();
+        writer
+            .write_ddl("CREATE TABLE users (id INTEGER);")
+            .unwrap();
         writer.finish().unwrap();
         let content = fs::read_to_string(&path).unwrap();
         assert!(content.contains("CREATE TABLE users (id INTEGER);"));
@@ -1746,12 +1760,16 @@ mod tests {
         let path = tmp_path("sql_full.sql");
         let cols = vec!["id".to_string(), "val".to_string()];
         let mut writer = ExportWriter::new(path.clone(), ExportFormat::SqlFull).unwrap();
-        writer.write_ddl("CREATE TABLE t (id INT, val TEXT);").unwrap();
+        writer
+            .write_ddl("CREATE TABLE t (id INT, val TEXT);")
+            .unwrap();
         let rows = vec![make_row(&[
             ("id", Value::Number(1.into())),
             ("val", Value::String("x".to_string())),
         ])];
-        let count = writer.write_rows(&rows, &cols, None, "t", "postgres").unwrap();
+        let count = writer
+            .write_rows(&rows, &cols, None, "t", "postgres")
+            .unwrap();
         writer.finish().unwrap();
         assert_eq!(count, 1);
         let content = fs::read_to_string(&path).unwrap();

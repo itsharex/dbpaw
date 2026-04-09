@@ -166,7 +166,6 @@ const defaultForm: ConnectionForm = {
   sshUsername: "",
 };
 
-
 const defaultCreateDatabaseForm: CreateDatabaseForm = {
   name: "",
   ifNotExists: true,
@@ -451,15 +450,18 @@ export function ConnectionList({
     [connections, createDbConnectionId],
   );
   const createDbTargetDriver = createDbTargetConnection?.type;
-  const isMySqlFamilyCreateDb =
-    createDbTargetDriver === "mysql" ||
-    createDbTargetDriver === "mariadb" ||
-    createDbTargetDriver === "tidb";
+  const isMySqlFamilyCreateDb = createDbTargetDriver
+    ? isMysqlFamilyDriver(createDbTargetDriver as any)
+    : false;
   const isPostgresCreateDb = createDbTargetDriver === "postgres";
   const isMssqlCreateDb = createDbTargetDriver === "mssql";
 
   useEffect(() => {
-    if (!isCreateDbDialogOpen || !isMySqlFamilyCreateDb || !createDbConnectionId)
+    if (
+      !isCreateDbDialogOpen ||
+      !isMySqlFamilyCreateDb ||
+      !createDbConnectionId
+    )
       return;
     setLoadingMysqlOptions(true);
     api.connections
@@ -470,7 +472,11 @@ export function ConnectionList({
   }, [isCreateDbDialogOpen, isMySqlFamilyCreateDb, createDbConnectionId]);
 
   useEffect(() => {
-    if (!isCreateDbDialogOpen || !isMySqlFamilyCreateDb || !createDbConnectionId)
+    if (
+      !isCreateDbDialogOpen ||
+      !isMySqlFamilyCreateDb ||
+      !createDbConnectionId
+    )
       return;
     api.connections
       .getMysqlCollations(
