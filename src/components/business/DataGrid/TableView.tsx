@@ -76,6 +76,7 @@ import {
   calculateAutoColumnWidths,
   canMutateClickHouseTable,
   collectSearchMatches,
+  createSingleAndDoubleClickHandler,
   escapeSQL,
   cellValueToString,
   formatCellValue,
@@ -180,6 +181,9 @@ export function TableView({
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const columnWidthsRef = useRef<Record<string, number>>({});
   columnWidthsRef.current = columnWidths;
+  const headerClickStateRef = useRef<
+    Record<string, { timerId: ReturnType<typeof setTimeout> | null }>
+  >({});
 
   // Reset column widths when columns definition changes (e.g. switching tables)
   const prevColumnsRef = useRef<string>("");
@@ -648,6 +652,26 @@ export function TableView({
       });
     });
   }, []);
+
+  const handleHeaderCopy = useCallback(
+    (column: string) => {
+      void navigator.clipboard
+        .writeText(column)
+        .then(() => {
+          toast.success(
+            t("tableView.toast.columnNameCopied", {
+              column,
+            }),
+          );
+        })
+        .catch((error) => {
+          toast.error("Failed to copy", {
+            description: error instanceof Error ? error.message : String(error),
+          });
+        });
+    },
+    [t],
+  );
 
   const selectSingleRow = useCallback((rowIndex: number) => {
     const nextSelectedRows = new Set([rowIndex]);
@@ -1359,6 +1383,18 @@ export function TableView({
   };
 
   useEffect(() => {
+    const clickStates = headerClickStateRef.current;
+    return () => {
+      Object.values(clickStates).forEach((state) => {
+        if (state.timerId) {
+          clearTimeout(state.timerId);
+          state.timerId = null;
+        }
+      });
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
@@ -1935,6 +1971,17 @@ export function TableView({
                 const direction = isSorted ? activeSortDirection : undefined;
                 const comment = columnComments[column]?.trim();
                 const headerTooltip = comment || column;
+                const headerActionLabel = t("tableView.header.actionHint", {
+                  column,
+                });
+                const headerClickState =
+                  headerClickStateRef.current[column] ??
+                  (headerClickStateRef.current[column] = { timerId: null });
+                const headerInteraction = createSingleAndDoubleClickHandler(
+                  headerClickState,
+                  () => handleHeaderCopy(column),
+                  () => handleSortClick(column),
+                );
                 return (
                   <th
                     key={column}
@@ -1951,7 +1998,10 @@ export function TableView({
                       <button
                         type="button"
                         className="flex items-center gap-1 cursor-pointer hover:text-foreground transition-colors min-w-0 flex-1"
-                        onClick={() => handleSortClick(column)}
+                        title={`${headerTooltip}\n${headerActionLabel}`}
+                        aria-label={headerActionLabel}
+                        onClick={headerInteraction.handleClick}
+                        onDoubleClick={headerInteraction.handleDoubleClick}
                       >
                         <span className="truncate" title={headerTooltip}>
                           {column}

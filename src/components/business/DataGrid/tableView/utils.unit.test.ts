@@ -5,6 +5,7 @@ import {
   calculateAutoColumnWidths,
   canMutateClickHouseTable,
   collectSearchMatches,
+  createSingleAndDoubleClickHandler,
   escapeSQL,
   formatCellValue,
   formatInsertSQLValue,
@@ -268,6 +269,60 @@ describe("sortRows", () => {
     const original = [...rows];
     sortRows(rows, "id", "asc");
     expect(rows).toEqual(original);
+  });
+});
+
+describe("createSingleAndDoubleClickHandler", () => {
+  test("runs single-click action after delay", async () => {
+    const calls: string[] = [];
+    const state = { timerId: null };
+    const handler = createSingleAndDoubleClickHandler(
+      state,
+      () => calls.push("copy"),
+      () => calls.push("sort"),
+      10,
+    );
+
+    handler.handleClick();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(calls).toEqual(["copy"]);
+    expect(state.timerId).toBeNull();
+  });
+
+  test("double click cancels pending single-click action", () => {
+    const calls: string[] = [];
+    const state = { timerId: null };
+    const handler = createSingleAndDoubleClickHandler(
+      state,
+      () => calls.push("copy"),
+      () => calls.push("sort"),
+      20,
+    );
+
+    handler.handleClick();
+    handler.handleDoubleClick();
+
+    expect(calls).toEqual(["sort"]);
+    expect(state.timerId).toBeNull();
+  });
+
+  test("cancelPendingClick clears pending single-click action", async () => {
+    const calls: string[] = [];
+    const state = { timerId: null };
+    const handler = createSingleAndDoubleClickHandler(
+      state,
+      () => calls.push("copy"),
+      () => calls.push("sort"),
+      10,
+    );
+
+    handler.handleClick();
+    handler.cancelPendingClick();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(calls).toEqual([]);
+    expect(state.timerId).toBeNull();
   });
 });
 

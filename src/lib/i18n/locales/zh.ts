@@ -375,6 +375,14 @@ export const zh: Translations = {
     send: "发送",
     sendMessage: "发送消息",
   },
+  tableView: {
+    header: {
+      actionHint: "单击复制字段名，双击按 {{column}} 排序",
+    },
+    toast: {
+      columnNameCopied: "已复制字段名：{{column}}",
+    },
+  },
   tableSelector: {
     emptyLabel: "选择表结构（不含数据）",
     selectedLabel: "已选结构：{{count}} 项",

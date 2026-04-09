@@ -14,6 +14,42 @@ export interface InsertColumnMeta {
   primaryKey?: boolean;
 }
 
+export interface HeaderInteractionState {
+  timerId: ReturnType<typeof setTimeout> | null;
+}
+
+export function createSingleAndDoubleClickHandler(
+  state: HeaderInteractionState,
+  onSingleClick: () => void,
+  onDoubleClick: () => void,
+  delayMs = 250,
+) {
+  return {
+    handleClick() {
+      if (state.timerId) {
+        clearTimeout(state.timerId);
+      }
+      state.timerId = setTimeout(() => {
+        state.timerId = null;
+        onSingleClick();
+      }, delayMs);
+    },
+    handleDoubleClick() {
+      if (state.timerId) {
+        clearTimeout(state.timerId);
+        state.timerId = null;
+      }
+      onDoubleClick();
+    },
+    cancelPendingClick() {
+      if (state.timerId) {
+        clearTimeout(state.timerId);
+        state.timerId = null;
+      }
+    },
+  };
+}
+
 export function isInsertColumnRequired(
   column: Pick<InsertColumnMeta, "nullable" | "defaultValue">,
 ): boolean {

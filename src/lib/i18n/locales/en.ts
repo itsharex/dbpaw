@@ -429,6 +429,14 @@ export const en = {
     },
     untitled: "Untitled",
   },
+  tableView: {
+    header: {
+      actionHint: "Click to copy column name, double-click to sort {{column}}",
+    },
+    toast: {
+      columnNameCopied: "Copied column name: {{column}}",
+    },
+  },
 } as const;
 
 type DeepStringify<T> = {

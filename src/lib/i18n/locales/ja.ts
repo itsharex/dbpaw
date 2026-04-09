@@ -390,6 +390,15 @@ export const ja: Translations = {
     send: "送信",
     sendMessage: "メッセージを送信",
   },
+  tableView: {
+    header: {
+      actionHint:
+        "{{column}} をクリックで列名コピー、ダブルクリックで並び替え",
+    },
+    toast: {
+      columnNameCopied: "列名をコピーしました: {{column}}",
+    },
+  },
   tableSelector: {
     emptyLabel: "テーブルスキーマを選択（データなし）",
     selectedLabel: "スキーマ: {{count}} 件選択中",
