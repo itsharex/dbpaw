@@ -931,19 +931,469 @@ enum SqlScanState {
     BlockComment,
 }
 
-fn parse_sql_statements(sql: &str, driver: &str) -> Result<Vec<String>, String> {
-    let mysql_style_hash_comment = matches!(driver, "mysql" | "mariadb" | "tidb");
+fn starts_with_chars(chars: &[char], idx: usize, needle: &[char]) -> bool {
+    if idx + needle.len() > chars.len() {
+        return false;
+    }
+    for (offset, ch) in needle.iter().enumerate() {
+        if chars[idx + offset] != *ch {
+            return false;
+        }
+    }
+    true
+}
+
+fn line_start_index(chars: &[char], idx: usize) -> usize {
+    let mut start = idx;
+    while start > 0 && chars[start - 1] != '\n' {
+        start -= 1;
+    }
+    start
+}
+
+fn parse_mysql_delimiter_command(chars: &[char], idx: usize) -> Option<(String, usize)> {
+    let line_start = line_start_index(chars, idx);
+    let mut cursor = line_start;
+    while cursor < chars.len() && matches!(chars[cursor], ' ' | '\t' | '\r') {
+        cursor += 1;
+    }
+    if cursor != idx {
+        return None;
+    }
+
+    let keyword: Vec<char> = "DELIMITER".chars().collect();
+    if !starts_with_chars(chars, cursor, &keyword) {
+        return None;
+    }
+
+    let mut after_keyword = cursor + keyword.len();
+    if after_keyword < chars.len() && chars[after_keyword] != ' ' && chars[after_keyword] != '\t' {
+        return None;
+    }
+    while after_keyword < chars.len() && matches!(chars[after_keyword], ' ' | '\t') {
+        after_keyword += 1;
+    }
+    if after_keyword >= chars.len() || matches!(chars[after_keyword], '\n' | '\r') {
+        return None;
+    }
+
+    let mut line_end = after_keyword;
+    while line_end < chars.len() && !matches!(chars[line_end], '\n' | '\r') {
+        line_end += 1;
+    }
+
+    let delimiter: String = chars[after_keyword..line_end]
+        .iter()
+        .collect::<String>()
+        .trim()
+        .to_string();
+    if delimiter.is_empty() {
+        return None;
+    }
+
+    let mut next_idx = line_end;
+    if next_idx < chars.len() && chars[next_idx] == '\r' {
+        next_idx += 1;
+    }
+    if next_idx < chars.len() && chars[next_idx] == '\n' {
+        next_idx += 1;
+    }
+
+    Some((delimiter, next_idx))
+}
+
+fn sqlite_trigger_state(sql: &str) -> (bool, bool) {
     let chars: Vec<char> = sql.chars().collect();
-    let mut out = Vec::new();
-    let mut current = String::new();
     let mut state = SqlScanState::Normal;
     let mut i = 0usize;
+    let mut tokens = Vec::new();
+    let mut trigger_begin_seen = false;
+    let mut trigger_block_depth = 0i32;
+    let mut case_depth = 0i32;
+    let mut last_word: Option<String> = None;
 
     while i < chars.len() {
         match &state {
             SqlScanState::Normal => {
                 let ch = chars[i];
                 let next = chars.get(i + 1).copied();
+                if ch == '-' && next == Some('-') {
+                    state = SqlScanState::LineComment;
+                    i += 2;
+                    continue;
+                }
+                if ch == '/' && next == Some('*') {
+                    state = SqlScanState::BlockComment;
+                    i += 2;
+                    continue;
+                }
+                if ch == '\'' {
+                    state = SqlScanState::SingleQuoted;
+                    i += 1;
+                    continue;
+                }
+                if ch == '"' {
+                    state = SqlScanState::DoubleQuoted;
+                    i += 1;
+                    continue;
+                }
+                if ch == '`' {
+                    state = SqlScanState::BacktickQuoted;
+                    i += 1;
+                    continue;
+                }
+                if ch.is_ascii_alphabetic() || ch == '_' {
+                    let start = i;
+                    i += 1;
+                    while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                        i += 1;
+                    }
+                    let token = chars[start..i]
+                        .iter()
+                        .collect::<String>()
+                        .to_ascii_lowercase();
+                    tokens.push(token.clone());
+
+                    if trigger_begin_seen {
+                        match token.as_str() {
+                            "case" => case_depth += 1,
+                            "begin" => trigger_block_depth += 1,
+                            "end" => {
+                                if case_depth > 0 {
+                                    case_depth -= 1;
+                                } else if trigger_block_depth > 0 {
+                                    trigger_block_depth -= 1;
+                                }
+                            }
+                            _ => {}
+                        }
+                    } else if token == "begin" {
+                        let is_create_trigger = matches!(
+                            tokens.as_slice(),
+                            [first, second, ..] if first == "create"
+                                && (second == "trigger"
+                                    || ((second == "temp" || second == "temporary")
+                                        && tokens.get(2).map(String::as_str) == Some("trigger")))
+                        );
+                        if is_create_trigger {
+                            trigger_begin_seen = true;
+                            trigger_block_depth = 1;
+                        }
+                    }
+
+                    last_word = Some(token);
+                    continue;
+                }
+                i += 1;
+            }
+            SqlScanState::SingleQuoted => {
+                if chars[i] == '\\' && chars.get(i + 1).is_some() {
+                    i += 2;
+                    continue;
+                }
+                if chars[i] == '\'' {
+                    if chars.get(i + 1) == Some(&'\'') {
+                        i += 2;
+                        continue;
+                    }
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::DoubleQuoted => {
+                if chars[i] == '"' {
+                    if chars.get(i + 1) == Some(&'"') {
+                        i += 2;
+                        continue;
+                    }
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::BacktickQuoted => {
+                if chars[i] == '`' {
+                    if chars.get(i + 1) == Some(&'`') {
+                        i += 2;
+                        continue;
+                    }
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::LineComment => {
+                if chars[i] == '\n' {
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::BlockComment => {
+                if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+                    state = SqlScanState::Normal;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::DollarQuoted(_) => {
+                state = SqlScanState::Normal;
+            }
+        }
+    }
+
+    let is_trigger = trigger_begin_seen;
+    let ready_to_terminate = is_trigger
+        && trigger_block_depth == 0
+        && case_depth == 0
+        && last_word.as_deref() == Some("end");
+    (is_trigger, ready_to_terminate)
+}
+
+fn oracle_plsql_state(sql: &str) -> (bool, bool) {
+    let chars: Vec<char> = sql.chars().collect();
+    let mut state = SqlScanState::Normal;
+    let mut i = 0usize;
+    let mut tokens = Vec::new();
+    let mut block_depth = 0i32;
+    let mut case_depth = 0i32;
+    let mut last_word: Option<String> = None;
+    let mut is_oracle_block = false;
+
+    while i < chars.len() {
+        match &state {
+            SqlScanState::Normal => {
+                let ch = chars[i];
+                let next = chars.get(i + 1).copied();
+                if ch == '-' && next == Some('-') {
+                    state = SqlScanState::LineComment;
+                    i += 2;
+                    continue;
+                }
+                if ch == '/' && next == Some('*') {
+                    state = SqlScanState::BlockComment;
+                    i += 2;
+                    continue;
+                }
+                if ch == '\'' {
+                    state = SqlScanState::SingleQuoted;
+                    i += 1;
+                    continue;
+                }
+                if ch == '"' {
+                    state = SqlScanState::DoubleQuoted;
+                    i += 1;
+                    continue;
+                }
+                if ch == '`' {
+                    state = SqlScanState::BacktickQuoted;
+                    i += 1;
+                    continue;
+                }
+                if ch.is_ascii_alphabetic() || ch == '_' {
+                    let start = i;
+                    i += 1;
+                    while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                        i += 1;
+                    }
+                    let token = chars[start..i]
+                        .iter()
+                        .collect::<String>()
+                        .to_ascii_lowercase();
+                    tokens.push(token.clone());
+
+                    if !is_oracle_block {
+                        let second = tokens.get(1).map(String::as_str);
+                        let third = tokens.get(2).map(String::as_str);
+                        let fourth = tokens.get(3).map(String::as_str);
+                        is_oracle_block =
+                            matches!(tokens.first().map(String::as_str), Some("declare") | Some("begin"))
+                                || (tokens.first().map(String::as_str) == Some("create")
+                                    && second == Some("or")
+                                    && third == Some("replace")
+                                    && matches!(
+                                        fourth,
+                                        Some("function")
+                                            | Some("procedure")
+                                            | Some("trigger")
+                                            | Some("package")
+                                            | Some("type")
+                                    ));
+                    }
+
+                    if is_oracle_block {
+                        match token.as_str() {
+                            "case" => case_depth += 1,
+                            "begin" => block_depth += 1,
+                            "end" => {
+                                if case_depth > 0 {
+                                    case_depth -= 1;
+                                } else if block_depth > 0 {
+                                    block_depth -= 1;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    last_word = Some(token);
+                    continue;
+                }
+                i += 1;
+            }
+            SqlScanState::SingleQuoted => {
+                if chars[i] == '\\' && chars.get(i + 1).is_some() {
+                    i += 2;
+                    continue;
+                }
+                if chars[i] == '\'' {
+                    if chars.get(i + 1) == Some(&'\'') {
+                        i += 2;
+                        continue;
+                    }
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::DoubleQuoted => {
+                if chars[i] == '"' {
+                    if chars.get(i + 1) == Some(&'"') {
+                        i += 2;
+                        continue;
+                    }
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::BacktickQuoted => {
+                if chars[i] == '`' {
+                    if chars.get(i + 1) == Some(&'`') {
+                        i += 2;
+                        continue;
+                    }
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::LineComment => {
+                if chars[i] == '\n' {
+                    state = SqlScanState::Normal;
+                }
+                i += 1;
+            }
+            SqlScanState::BlockComment => {
+                if chars[i] == '*' && chars.get(i + 1) == Some(&'/') {
+                    state = SqlScanState::Normal;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            SqlScanState::DollarQuoted(_) => {
+                state = SqlScanState::Normal;
+            }
+        }
+    }
+
+    let ready_to_terminate =
+        is_oracle_block && block_depth == 0 && case_depth == 0 && last_word.as_deref() == Some("end");
+    (is_oracle_block, ready_to_terminate)
+}
+
+fn parse_oracle_slash_terminator(chars: &[char], idx: usize) -> Option<usize> {
+    let line_start = line_start_index(chars, idx);
+    let mut cursor = line_start;
+    while cursor < chars.len() && matches!(chars[cursor], ' ' | '\t' | '\r') {
+        cursor += 1;
+    }
+    if cursor != idx || chars.get(idx) != Some(&'/') {
+        return None;
+    }
+
+    let mut line_end = idx + 1;
+    while line_end < chars.len() && !matches!(chars[line_end], '\n' | '\r') {
+        if !matches!(chars[line_end], ' ' | '\t') {
+            return None;
+        }
+        line_end += 1;
+    }
+
+    let mut next_idx = line_end;
+    if next_idx < chars.len() && chars[next_idx] == '\r' {
+        next_idx += 1;
+    }
+    if next_idx < chars.len() && chars[next_idx] == '\n' {
+        next_idx += 1;
+    }
+
+    Some(next_idx)
+}
+
+fn parse_sql_statements(sql: &str, driver: &str) -> Result<Vec<String>, String> {
+    let mysql_style_hash_comment = matches!(driver, "mysql" | "mariadb" | "tidb");
+    let mysql_style_delimiter = mysql_style_hash_comment;
+    let sqlite_style_trigger = driver == "sqlite";
+    let oracle_style_block = driver == "oracle";
+    let chars: Vec<char> = sql.chars().collect();
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut state = SqlScanState::Normal;
+    let mut delimiter = ";".to_string();
+    let mut i = 0usize;
+
+    while i < chars.len() {
+        match &state {
+            SqlScanState::Normal => {
+                if mysql_style_delimiter {
+                    if let Some((next_delimiter, next_idx)) = parse_mysql_delimiter_command(&chars, i)
+                    {
+                        delimiter = next_delimiter;
+                        i = next_idx;
+                        continue;
+                    }
+                }
+                if oracle_style_block {
+                    if let Some(next_idx) = parse_oracle_slash_terminator(&chars, i) {
+                        let (is_block, ready_to_terminate) = oracle_plsql_state(current.trim());
+                        if is_block && ready_to_terminate {
+                            let statement = current.trim();
+                            if !statement.is_empty() {
+                                out.push(statement.to_string());
+                            }
+                            current.clear();
+                            i = next_idx;
+                            continue;
+                        }
+                    }
+                }
+
+                let ch = chars[i];
+                let next = chars.get(i + 1).copied();
+                let delimiter_chars: Vec<char> = delimiter.chars().collect();
+
+                if starts_with_chars(&chars, i, &delimiter_chars) {
+                    if sqlite_style_trigger && delimiter == ";" {
+                        let (is_trigger, ready_to_terminate) = sqlite_trigger_state(current.trim());
+                        if is_trigger && !ready_to_terminate {
+                            current.push(ch);
+                            i += delimiter_chars.len();
+                            continue;
+                        }
+                    }
+                    if oracle_style_block && delimiter == ";" {
+                        let (is_block, _) = oracle_plsql_state(current.trim());
+                        if is_block {
+                            current.push(ch);
+                            i += delimiter_chars.len();
+                            continue;
+                        }
+                    }
+                    let statement = current.trim();
+                    if !statement.is_empty() {
+                        out.push(statement.to_string());
+                    }
+                    current.clear();
+                    i += delimiter_chars.len();
+                    continue;
+                }
 
                 if ch == '-' && next == Some('-') {
                     state = SqlScanState::LineComment;
@@ -985,15 +1435,6 @@ fn parse_sql_statements(sql: &str, driver: &str) -> Result<Vec<String>, String> 
                         i = end_idx + 1;
                         continue;
                     }
-                }
-                if ch == ';' {
-                    let statement = current.trim();
-                    if !statement.is_empty() {
-                        out.push(statement.to_string());
-                    }
-                    current.clear();
-                    i += 1;
-                    continue;
                 }
                 current.push(ch);
                 i += 1;
@@ -1558,6 +1999,120 @@ mod tests {
         assert_eq!(statements.len(), 2);
         assert_eq!(statements[0], "SELECT 1 # 2");
         assert_eq!(statements[1], "SELECT '#not_comment'");
+    }
+
+    #[test]
+    fn parse_sql_statements_supports_mysql_delimiter_blocks() {
+        let sql = r#"
+            DELIMITER $$
+            CREATE PROCEDURE p_demo()
+            BEGIN
+                SELECT 1;
+                SELECT 'semi;inside';
+            END$$
+            DELIMITER ;
+            SELECT 2;
+        "#;
+
+        let statements = parse_sql_statements(sql, "mysql").unwrap();
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].starts_with("CREATE PROCEDURE p_demo()"));
+        assert!(statements[0].contains("SELECT 1;"));
+        assert!(statements[0].contains("SELECT 'semi;inside';"));
+        assert_eq!(statements[1], "SELECT 2");
+    }
+
+    #[test]
+    fn parse_sql_statements_ignores_mysql_delimiter_inside_strings() {
+        let sql = r#"
+            DELIMITER //
+            CREATE TRIGGER trg_demo BEFORE INSERT ON demo
+            FOR EACH ROW
+            BEGIN
+                SET @note = 'DELIMITER // should stay';
+            END//
+            DELIMITER ;
+        "#;
+
+        let statements = parse_sql_statements(sql, "mysql").unwrap();
+        assert_eq!(statements.len(), 1);
+        assert!(statements[0].contains("DELIMITER // should stay"));
+        assert!(statements[0].contains("END"));
+    }
+
+    #[test]
+    fn parse_sql_statements_supports_sqlite_trigger_blocks() {
+        let sql = r#"
+            CREATE TRIGGER trg_demo
+            AFTER INSERT ON demo
+            BEGIN
+                INSERT INTO audit_log(message) VALUES ('first;value');
+                UPDATE demo SET touched_at = CURRENT_TIMESTAMP WHERE rowid = NEW.rowid;
+            END;
+            SELECT 1;
+        "#;
+
+        let statements = parse_sql_statements(sql, "sqlite").unwrap();
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].starts_with("CREATE TRIGGER trg_demo"));
+        assert!(statements[0].contains("VALUES ('first;value');"));
+        assert!(statements[0].contains("UPDATE demo SET touched_at = CURRENT_TIMESTAMP"));
+        assert_eq!(statements[1], "SELECT 1");
+    }
+
+    #[test]
+    fn parse_sql_statements_keeps_sqlite_case_end_inside_trigger_body() {
+        let sql = r#"
+            CREATE TRIGGER trg_case
+            AFTER UPDATE ON demo
+            BEGIN
+                UPDATE demo
+                SET status = CASE WHEN NEW.id > 10 THEN 'big' ELSE 'small' END;
+            END;
+        "#;
+
+        let statements = parse_sql_statements(sql, "sqlite").unwrap();
+        assert_eq!(statements.len(), 1);
+        assert!(statements[0].contains("CASE WHEN NEW.id > 10 THEN 'big' ELSE 'small' END;"));
+        assert!(statements[0].ends_with("END"));
+    }
+
+    #[test]
+    fn parse_sql_statements_supports_oracle_create_or_replace_blocks() {
+        let sql = r#"
+            CREATE OR REPLACE PROCEDURE p_demo IS
+            BEGIN
+                INSERT INTO audit_log(message) VALUES ('first;value');
+                UPDATE audit_log SET message = 'done' WHERE message = 'first;value';
+            END;
+            /
+            SELECT 1 FROM DUAL;
+        "#;
+
+        let statements = parse_sql_statements(sql, "oracle").unwrap();
+        assert_eq!(statements.len(), 2);
+        assert!(statements[0].starts_with("CREATE OR REPLACE PROCEDURE p_demo IS"));
+        assert!(statements[0].contains("VALUES ('first;value');"));
+        assert!(statements[0].contains("END;"));
+        assert_eq!(statements[1], "SELECT 1 FROM DUAL");
+    }
+
+    #[test]
+    fn parse_sql_statements_supports_oracle_case_end_inside_block() {
+        let sql = r#"
+            CREATE OR REPLACE FUNCTION f_demo RETURN VARCHAR2 IS
+                v_result VARCHAR2(10);
+            BEGIN
+                v_result := CASE WHEN 1 = 1 THEN 'yes' ELSE 'no' END;
+                RETURN v_result;
+            END;
+            /
+        "#;
+
+        let statements = parse_sql_statements(sql, "oracle").unwrap();
+        assert_eq!(statements.len(), 1);
+        assert!(statements[0].contains("CASE WHEN 1 = 1 THEN 'yes' ELSE 'no' END;"));
+        assert!(statements[0].ends_with("END;"));
     }
 
     #[test]

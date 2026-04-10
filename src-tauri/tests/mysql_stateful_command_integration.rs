@@ -742,6 +742,108 @@ async fn test_mysql_command_transfer_export_and_import_minimal_flow() {
 
 #[tokio::test]
 #[ignore]
+async fn test_mysql_command_import_sql_file_supports_delimiter_script() {
+    let docker = (!mysql_context::should_reuse_local_db()).then(Cli::default);
+    let (_mysql_container, form) = mysql_context::mysql_form_from_test_context(docker.as_ref());
+    wait_until_mysql_ready(&form).await;
+    let state = init_state_with_local_db().await;
+    let conn_id = create_mysql_connection_for_state(&state, &form, "import-delimiter").await;
+    let schema = form
+        .database
+        .clone()
+        .unwrap_or_else(|| "test_db".to_string());
+
+    let proc_table = unique_name("dbpaw_import_proc_tbl");
+    let audit_table = unique_name("dbpaw_import_audit_tbl");
+    let proc_name = unique_name("dbpaw_import_proc");
+    let trigger_name = unique_name("dbpaw_import_trg");
+    let base = std::env::temp_dir().join(unique_name("dbpaw_mysql_import_it"));
+    fs::create_dir_all(&base).expect("create temp transfer dir should succeed");
+    let import_sql_path = base.join("import.sql");
+
+    let import_sql = format!(
+        r#"
+CREATE TABLE `{proc_table}` (id INT PRIMARY KEY, name VARCHAR(64));
+CREATE TABLE `{audit_table}` (entry_id INT PRIMARY KEY AUTO_INCREMENT, source_id INT, action_name VARCHAR(32));
+DELIMITER $$
+CREATE PROCEDURE `{proc_name}`()
+BEGIN
+    INSERT INTO `{proc_table}` (id, name) VALUES (1, 'from_proc');
+END$$
+CREATE TRIGGER `{trigger_name}` AFTER INSERT ON `{proc_table}`
+FOR EACH ROW
+BEGIN
+    INSERT INTO `{audit_table}` (source_id, action_name) VALUES (NEW.id, 'insert');
+END$$
+DELIMITER ;
+"#
+    );
+    fs::write(&import_sql_path, import_sql).expect("write import sql file should succeed");
+
+    let import_result = transfer::import_sql_file_direct(
+        &state,
+        conn_id,
+        Some(schema.clone()),
+        import_sql_path.to_string_lossy().to_string(),
+        "mysql".to_string(),
+    )
+    .await
+    .expect("import_sql_file should succeed");
+    assert_eq!(
+        import_result.success_statements,
+        import_result.total_statements
+    );
+    assert!(import_result.error.is_none());
+
+    let driver = MysqlDriver::connect(&form)
+        .await
+        .expect("failed to connect mysql driver for verification");
+    driver
+        .execute_query(format!("CALL `{}`()", proc_name))
+        .await
+        .expect("call imported procedure should succeed");
+    driver
+        .execute_query(format!(
+            "INSERT INTO `{}` (id, name) VALUES (2, 'direct')",
+            proc_table
+        ))
+        .await
+        .expect("direct insert into imported mysql table should succeed");
+
+    let verify = driver
+        .execute_query(format!(
+            "SELECT COUNT(*) AS c FROM `{}`.`{}`",
+            schema, audit_table
+        ))
+        .await
+        .expect("verify mysql trigger should succeed");
+    let count = verify.data[0]["c"]
+        .as_str()
+        .and_then(|v| v.parse::<i64>().ok())
+        .expect("audit count should parse");
+    assert_eq!(count, 2);
+
+    let _ = driver
+        .execute_query(format!("DROP TRIGGER IF EXISTS `{}`", trigger_name))
+        .await;
+    let _ = driver
+        .execute_query(format!("DROP PROCEDURE IF EXISTS `{}`", proc_name))
+        .await;
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS `{}`.`{}`", schema, proc_table))
+        .await;
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS `{}`.`{}`", schema, audit_table))
+        .await;
+    driver.close().await;
+
+    let _ = fs::remove_file(import_sql_path);
+    let _ = fs::remove_dir_all(base);
+    let _ = connection::delete_connection_direct(&state, conn_id).await;
+}
+
+#[tokio::test]
+#[ignore]
 async fn test_mysql_command_ai_minimal_provider_conversation_and_chat_flow() {
     let state = init_state_with_local_db().await;
 
