@@ -452,6 +452,7 @@ export const api = {
       id: number;
       database: string;
       driver: string;
+      format: "sql_dml" | "sql_ddl" | "sql_full";
       filePath?: string;
       chunkSize?: number;
     }) => invoke<ExportResult>("export_database_sql", params),

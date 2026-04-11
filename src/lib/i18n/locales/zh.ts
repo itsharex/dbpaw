@@ -305,6 +305,26 @@ export const zh: Translations = {
       confirm: "开始导入",
       importing: "导入中…",
     },
+    exportDialog: {
+      title: "导出 SQL",
+      description: "选择数据库 {{database}} 的导出内容。",
+      confirm: "导出",
+      exporting: "导出中…",
+      options: {
+        sqlDdl: {
+          label: "仅 DDL",
+          description: "只导出 CREATE 等结构定义，不包含数据。",
+        },
+        sqlDml: {
+          label: "仅 DML",
+          description: "只导出 INSERT 数据，不包含表结构。",
+        },
+        sqlFull: {
+          label: "DDL + DML",
+          description: "同时导出结构和数据，适合完整迁移或备份。",
+        },
+      },
+    },
     createDbDialog: {
       title: "新建 Database",
       fields: {

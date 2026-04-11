@@ -314,6 +314,30 @@ export const ja: Translations = {
       confirm: "インポート",
       importing: "インポート中…",
     },
+    exportDialog: {
+      title: "SQL をエクスポート",
+      description:
+        "データベース {{database}} から何をエクスポートするか選択します。",
+      confirm: "エクスポート",
+      exporting: "エクスポート中…",
+      options: {
+        sqlDdl: {
+          label: "DDL のみ",
+          description:
+            "CREATE などの構造定義のみをエクスポートし、データは含めません。",
+        },
+        sqlDml: {
+          label: "DML のみ",
+          description:
+            "INSERT データのみをエクスポートし、スキーマ定義は含めません。",
+        },
+        sqlFull: {
+          label: "DDL + DML",
+          description:
+            "構造とデータの両方をエクスポートし、移行やバックアップに適しています。",
+        },
+      },
+    },
     createDbDialog: {
       title: "Database を作成",
       fields: {

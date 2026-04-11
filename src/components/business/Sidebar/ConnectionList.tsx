@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -49,6 +50,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -107,6 +109,8 @@ interface DatabaseInfo {
   schemas: SchemaInfo[];
   tables: TableInfo[];
 }
+
+type DatabaseExportFormat = "sql_dml" | "sql_ddl" | "sql_full";
 
 interface Connection {
   id: string;
@@ -316,6 +320,7 @@ interface ConnectionListProps {
     connectionId: number;
     database: string;
     driver: string;
+    format: DatabaseExportFormat;
     filePath: string;
   }) => void;
   onCreateTable?: (
@@ -446,6 +451,15 @@ export function ConnectionList({
     filePath: string;
   } | null>(null);
   const [isImportConfirmOpen, setIsImportConfirmOpen] = useState(false);
+  const [pendingDatabaseExport, setPendingDatabaseExport] = useState<{
+    connectionId: string;
+    databaseName: string;
+    driver: Driver;
+    format: DatabaseExportFormat;
+  } | null>(null);
+  const [isDatabaseExportDialogOpen, setIsDatabaseExportDialogOpen] =
+    useState(false);
+  const [isExportingDatabaseSql, setIsExportingDatabaseSql] = useState(false);
 
   const supportsCreateDatabaseForDriver = (driver: Driver) =>
     supportsCreateDatabase(driver);
@@ -1836,26 +1850,57 @@ export function ConnectionList({
       return;
     }
 
+    setPendingDatabaseExport({
+      connectionId: connection.id,
+      databaseName: database.name,
+      driver: connection.type,
+      format: "sql_full",
+    });
+    setIsDatabaseExportDialogOpen(true);
+  };
+
+  const handleConfirmDatabaseExport = async () => {
+    if (!pendingDatabaseExport || !onExportDatabase) return;
+    if (!isTauri()) {
+      toast.error(t("connection.toast.exportDesktopOnly"));
+      return;
+    }
+
+    setIsExportingDatabaseSql(true);
     try {
+      const suffix =
+        pendingDatabaseExport.format === "sql_ddl"
+          ? "ddl"
+          : pendingDatabaseExport.format === "sql_dml"
+            ? "dml"
+            : "full";
       const selected = await save({
         title: t("connection.toast.saveExportFile"),
-        defaultPath: getExportDefaultName(database.name, "sql_full"),
-        filters: getExportFilter("sql_full"),
+        defaultPath: getExportDefaultName(
+          `${pendingDatabaseExport.databaseName}_${suffix}`,
+          pendingDatabaseExport.format,
+        ),
+        filters: getExportFilter(pendingDatabaseExport.format),
       });
       if (!selected) return;
       const filePath = Array.isArray(selected) ? selected[0] : selected;
       if (!filePath) return;
 
       onExportDatabase({
-        connectionId: Number(connection.id),
-        database: database.name,
-        driver: connection.type,
+        connectionId: Number(pendingDatabaseExport.connectionId),
+        database: pendingDatabaseExport.databaseName,
+        driver: pendingDatabaseExport.driver,
+        format: pendingDatabaseExport.format,
         filePath,
       });
+      setIsDatabaseExportDialogOpen(false);
+      setPendingDatabaseExport(null);
     } catch (e) {
       toast.error(t("connection.toast.openSaveDialogFailed"), {
         description: e instanceof Error ? e.message : String(e),
       });
+    } finally {
+      setIsExportingDatabaseSql(false);
     }
   };
 
@@ -3698,6 +3743,106 @@ export function ConnectionList({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <Dialog
+        open={isDatabaseExportDialogOpen}
+        onOpenChange={(open) => {
+          setIsDatabaseExportDialogOpen(open);
+          if (!open && !isExportingDatabaseSql) {
+            setPendingDatabaseExport(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("connection.exportDialog.title")}</DialogTitle>
+            <DialogDescription>
+              {t("connection.exportDialog.description", {
+                database: pendingDatabaseExport?.databaseName || "",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <RadioGroup
+              value={pendingDatabaseExport?.format || "sql_full"}
+              onValueChange={(value: DatabaseExportFormat) =>
+                setPendingDatabaseExport((prev) =>
+                  prev ? { ...prev, format: value } : prev,
+                )
+              }
+            >
+              <label className="flex items-start gap-3 rounded-md border p-3 cursor-pointer">
+                <RadioGroupItem value="sql_ddl" id="database-export-sql-ddl" />
+                <div className="grid gap-1">
+                  <Label
+                    htmlFor="database-export-sql-ddl"
+                    className="cursor-pointer"
+                  >
+                    {t("connection.exportDialog.options.sqlDdl.label")}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t("connection.exportDialog.options.sqlDdl.description")}
+                  </p>
+                </div>
+              </label>
+              <label className="flex items-start gap-3 rounded-md border p-3 cursor-pointer">
+                <RadioGroupItem value="sql_dml" id="database-export-sql-dml" />
+                <div className="grid gap-1">
+                  <Label
+                    htmlFor="database-export-sql-dml"
+                    className="cursor-pointer"
+                  >
+                    {t("connection.exportDialog.options.sqlDml.label")}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t("connection.exportDialog.options.sqlDml.description")}
+                  </p>
+                </div>
+              </label>
+              <label className="flex items-start gap-3 rounded-md border p-3 cursor-pointer">
+                <RadioGroupItem
+                  value="sql_full"
+                  id="database-export-sql-full"
+                />
+                <div className="grid gap-1">
+                  <Label
+                    htmlFor="database-export-sql-full"
+                    className="cursor-pointer"
+                  >
+                    {t("connection.exportDialog.options.sqlFull.label")}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t("connection.exportDialog.options.sqlFull.description")}
+                  </p>
+                </div>
+              </label>
+            </RadioGroup>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isExportingDatabaseSql}
+                onClick={() => setIsDatabaseExportDialogOpen(false)}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="button"
+                disabled={isExportingDatabaseSql || !pendingDatabaseExport}
+                onClick={() => void handleConfirmDatabaseExport()}
+              >
+                {isExportingDatabaseSql ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t("connection.exportDialog.exporting")}
+                  </>
+                ) : (
+                  t("connection.exportDialog.confirm")
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -75,6 +75,11 @@ describe("getExportDefaultName", () => {
     const name = getExportDefaultName("analytics", "sql_full");
     expect(name).toMatch(/^analytics_.*\.sql$/);
   });
+
+  test("supports export mode suffixes in generated names", () => {
+    const name = getExportDefaultName("analytics_ddl", "sql_ddl");
+    expect(name).toMatch(/^analytics_ddl_.*\.sql$/);
+  });
 });
 
 describe("getExportFilter", () => {

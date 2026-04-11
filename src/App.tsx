@@ -861,6 +861,7 @@ export default function App() {
     connectionId: number;
     database: string;
     driver: string;
+    format: "sql_dml" | "sql_ddl" | "sql_full";
     filePath: string;
   }) => {
     try {
@@ -868,6 +869,7 @@ export default function App() {
         id: ctx.connectionId,
         database: ctx.database,
         driver: ctx.driver,
+        format: ctx.format,
         filePath: ctx.filePath,
       });
       toast.success(

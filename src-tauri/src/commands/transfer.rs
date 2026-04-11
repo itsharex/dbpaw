@@ -201,12 +201,13 @@ async fn do_database_export(
     db_driver: Arc<dyn DatabaseDriver>,
     output_path: PathBuf,
     driver: String,
+    format: ExportFormat,
     chunk: i64,
 ) -> Result<ExportResult, String> {
     let mut tables = db_driver.list_tables(None).await?;
     tables.sort_by(|a, b| a.schema.cmp(&b.schema).then(a.name.cmp(&b.name)));
 
-    let mut writer = ExportWriter::new(output_path.clone(), ExportFormat::SqlFull)?;
+    let mut writer = ExportWriter::new(output_path.clone(), format.clone())?;
     let mut exported = 0i64;
     for table in tables {
         exported += write_table_export(
@@ -215,7 +216,7 @@ async fn do_database_export(
             table.schema,
             table.name,
             driver.clone(),
-            ExportFormat::SqlFull,
+            format.clone(),
             ExportScope::FullTable,
             None,
             None,
@@ -350,6 +351,7 @@ pub async fn export_database_sql(
     id: i64,
     database: String,
     driver: String,
+    format: ExportFormat,
     file_path: Option<String>,
     chunk_size: Option<i64>,
 ) -> Result<ExportResult, String> {
@@ -358,7 +360,8 @@ pub async fn export_database_sql(
     super::execute_with_retry(&state, id, Some(database), |db_driver| {
         let output_path = output_path.clone();
         let driver = driver.clone();
-        async move { do_database_export(db_driver, output_path, driver, chunk).await }
+        let format = format.clone();
+        async move { do_database_export(db_driver, output_path, driver, format, chunk).await }
     })
     .await
 }
@@ -368,6 +371,7 @@ pub async fn export_database_sql_direct(
     id: i64,
     database: String,
     driver: String,
+    format: ExportFormat,
     file_path: Option<String>,
     chunk_size: Option<i64>,
 ) -> Result<ExportResult, String> {
@@ -376,7 +380,8 @@ pub async fn export_database_sql_direct(
     super::execute_with_retry_from_app_state(state, id, Some(database), |db_driver| {
         let output_path = output_path.clone();
         let driver = driver.clone();
-        async move { do_database_export(db_driver, output_path, driver, chunk).await }
+        let format = format.clone();
+        async move { do_database_export(db_driver, output_path, driver, format, chunk).await }
     })
     .await
 }
@@ -1055,6 +1060,24 @@ fn starts_with_chars(chars: &[char], idx: usize, needle: &[char]) -> bool {
     true
 }
 
+fn starts_with_chars_ignore_ascii_case(chars: &[char], idx: usize, needle: &str) -> bool {
+    let mut needle_chars = needle.chars();
+    let needle_len = needle.len();
+    if idx + needle_len > chars.len() {
+        return false;
+    }
+    for offset in 0..needle_len {
+        let needle_ch = match needle_chars.next() {
+            Some(c) => c,
+            None => return false,
+        };
+        if !chars[idx + offset].eq_ignore_ascii_case(&needle_ch) {
+            return false;
+        }
+    }
+    true
+}
+
 fn line_start_index(chars: &[char], idx: usize) -> usize {
     let mut start = idx;
     while start > 0 && chars[start - 1] != '\n' {
@@ -1073,12 +1096,11 @@ fn parse_mysql_delimiter_command(chars: &[char], idx: usize) -> Option<(String, 
         return None;
     }
 
-    let keyword: Vec<char> = "DELIMITER".chars().collect();
-    if !starts_with_chars(chars, cursor, &keyword) {
+    if !starts_with_chars_ignore_ascii_case(chars, cursor, "DELIMITER") {
         return None;
     }
 
-    let mut after_keyword = cursor + keyword.len();
+    let mut after_keyword = cursor + "DELIMITER".len();
     if after_keyword < chars.len() && chars[after_keyword] != ' ' && chars[after_keyword] != '\t' {
         return None;
     }
@@ -2634,6 +2656,7 @@ mod tests {
             driver,
             path.clone(),
             "postgres".to_string(),
+            ExportFormat::SqlFull,
             2000,
         ))
         .unwrap();
@@ -2648,6 +2671,76 @@ mod tests {
         assert!(content.contains("INSERT INTO \"alpha\".\"accounts\""));
         assert!(content.contains("INSERT INTO \"alpha\".\"users\""));
         assert!(content.contains("INSERT INTO \"zeta\".\"logs\""));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn database_export_respects_sql_ddl_mode() {
+        let path = tmp_path("database_export_ddl.sql");
+        let driver = Arc::new(FakeExportDriver {
+            tables: vec![TableInfo {
+                schema: "public".to_string(),
+                name: "users".to_string(),
+                r#type: "table".to_string(),
+            }],
+            ddls: HashMap::from([(
+                ("public".to_string(), "users".to_string()),
+                "CREATE TABLE users (id INT);".to_string(),
+            )]),
+            rows: HashMap::from([(
+                ("public".to_string(), "users".to_string()),
+                vec![make_row(&[("id", Value::Number(1.into()))])],
+            )]),
+        });
+
+        let result = tauri::async_runtime::block_on(do_database_export(
+            driver,
+            path.clone(),
+            "postgres".to_string(),
+            ExportFormat::SqlDdl,
+            2000,
+        ))
+        .unwrap();
+
+        assert_eq!(result.row_count, 0);
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("CREATE TABLE users"));
+        assert!(!content.contains("INSERT INTO"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn database_export_respects_sql_dml_mode() {
+        let path = tmp_path("database_export_dml.sql");
+        let driver = Arc::new(FakeExportDriver {
+            tables: vec![TableInfo {
+                schema: "public".to_string(),
+                name: "users".to_string(),
+                r#type: "table".to_string(),
+            }],
+            ddls: HashMap::from([(
+                ("public".to_string(), "users".to_string()),
+                "CREATE TABLE users (id INT);".to_string(),
+            )]),
+            rows: HashMap::from([(
+                ("public".to_string(), "users".to_string()),
+                vec![make_row(&[("id", Value::Number(1.into()))])],
+            )]),
+        });
+
+        let result = tauri::async_runtime::block_on(do_database_export(
+            driver,
+            path.clone(),
+            "postgres".to_string(),
+            ExportFormat::SqlDml,
+            2000,
+        ))
+        .unwrap();
+
+        assert_eq!(result.row_count, 1);
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(!content.contains("CREATE TABLE"));
+        assert!(content.contains("INSERT INTO \"public\".\"users\""));
         let _ = fs::remove_file(path);
     }
 

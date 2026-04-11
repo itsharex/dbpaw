@@ -271,7 +271,13 @@ describe("api command mapping", () => {
     ["delete_connection", () => api.connections.delete(1)],
     [
       "export_database_sql",
-      () => api.transfer.exportDatabase({ id: 1, database: "db", driver: "postgres" }),
+      () =>
+        api.transfer.exportDatabase({
+          id: 1,
+          database: "db",
+          driver: "postgres",
+          format: "sql_full",
+        }),
     ],
     ["get_saved_queries", () => api.queries.list()],
     ["delete_saved_query", () => api.queries.delete(1)],
@@ -310,6 +316,7 @@ describe("api command mapping", () => {
       id: 7,
       database: "analytics",
       driver: "postgres",
+      format: "sql_dml",
       filePath: "/tmp/analytics.sql",
       chunkSize: 500,
     });
@@ -318,6 +325,7 @@ describe("api command mapping", () => {
       id: 7,
       database: "analytics",
       driver: "postgres",
+      format: "sql_dml",
       filePath: "/tmp/analytics.sql",
       chunkSize: 500,
     });

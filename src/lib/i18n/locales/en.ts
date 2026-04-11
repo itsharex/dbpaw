@@ -311,6 +311,28 @@ export const en = {
       confirm: "Import",
       importing: "Importing…",
     },
+    exportDialog: {
+      title: "Export SQL",
+      description: "Choose what to export from database {{database}}.",
+      confirm: "Export",
+      exporting: "Exporting…",
+      options: {
+        sqlDdl: {
+          label: "DDL only",
+          description:
+            "Export structure definitions such as CREATE statements without table data.",
+        },
+        sqlDml: {
+          label: "DML only",
+          description: "Export INSERT data only without schema definitions.",
+        },
+        sqlFull: {
+          label: "DDL + DML",
+          description:
+            "Export both schema and data for a full migration or backup.",
+        },
+      },
+    },
     createDbDialog: {
       title: "Create Database",
       fields: {

@@ -46,6 +46,7 @@ interface SidebarProps {
     connectionId: number;
     database: string;
     driver: string;
+    format: "sql_dml" | "sql_ddl" | "sql_full";
     filePath: string;
   }) => void;
   onCreateTable?: (

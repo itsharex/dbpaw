@@ -1340,10 +1340,17 @@ export async function mockExportTableData(_params: any): Promise<ExportResult> {
   };
 }
 
-export async function mockExportDatabaseSql(_params: any): Promise<ExportResult> {
+export async function mockExportDatabaseSql(params: any): Promise<ExportResult> {
   await new Promise((resolve) => setTimeout(resolve, 120));
+  const suffix =
+    params?.format === "sql_ddl"
+      ? "ddl"
+      : params?.format === "sql_dml"
+        ? "dml"
+        : "full";
   return {
-    filePath: `/tmp/dbpaw-database-export-${Date.now()}.sql`,
+    filePath:
+      params?.filePath || `/tmp/dbpaw-database-export-${suffix}-${Date.now()}.sql`,
     rowCount: mockTableData.total,
   };
 }
