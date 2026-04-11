@@ -13,7 +13,7 @@ jobs:
   smoke:
     name: Smoke Tests (typecheck, lint, unit)
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -37,6 +37,18 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
+      - name: Run smoke tests
+        run: bun run typecheck && bun run lint && bun run test:unit && bun run test:service
+
+  rust-check:
+    name: Rust Check
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
@@ -52,14 +64,14 @@ jobs:
         with:
           workspaces: src-tauri -> src-tauri/target
 
-      - name: Run smoke tests
-        run: bun run test:smoke
+      - name: Run rust check
+        run: bun run rust:check
 
   # Parallel database integration tests
   integration:
     name: Integration Tests (${{ matrix.database }})
     runs-on: ubuntu-22.04
-    needs: smoke
+    needs: [smoke, rust-check]
     timeout-minutes: 15
 
     strategy:
@@ -125,7 +137,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-22.04
-    needs: [smoke, integration]
+    needs: [smoke, rust-check, integration]
     if: always()
 
     steps:
@@ -133,6 +145,10 @@ jobs:
         run: |
           if [ "${{ needs.smoke.result }}" != "success" ]; then
             echo "Smoke tests failed"
+            exit 1
+          fi
+          if [ "${{ needs.rust-check.result }}" != "success" ]; then
+            echo "Rust check failed"
             exit 1
           fi
           if [ "${{ needs.integration.result }}" != "success" ]; then
