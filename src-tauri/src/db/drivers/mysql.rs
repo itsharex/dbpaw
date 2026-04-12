@@ -657,6 +657,38 @@ fn is_affected_rows_statement(sql: &str) -> bool {
     )
 }
 
+impl MysqlDriver {
+    async fn fetch_primary_key_columns(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<HashSet<String>, String> {
+        let rows = sqlx::query(
+            "SELECT kcu.column_name \
+             FROM information_schema.table_constraints tc \
+             JOIN information_schema.key_column_usage kcu \
+               ON tc.constraint_name = kcu.constraint_name \
+              AND tc.table_schema = kcu.table_schema \
+              AND tc.table_name = kcu.table_name \
+             WHERE tc.constraint_type = 'PRIMARY KEY' \
+               AND tc.table_schema = ? \
+               AND tc.table_name = ? \
+             ORDER BY kcu.ordinal_position",
+        )
+        .bind(schema)
+        .bind(table)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+
+        let mut pk_set = HashSet::new();
+        for row in rows {
+            pk_set.insert(decode_mysql_text_cell(&row, 0)?);
+        }
+        Ok(pk_set)
+    }
+}
+
 #[async_trait]
 impl DatabaseDriver for MysqlDriver {
     async fn close(&self) {
@@ -744,6 +776,8 @@ impl DatabaseDriver for MysqlDriver {
         schema: String,
         table: String,
     ) -> Result<TableStructure, String> {
+        let pk_set = self.fetch_primary_key_columns(&schema, &table).await?;
+
         let rows = sqlx::query(
             "SELECT column_name, data_type, is_nullable, column_default \
              FROM information_schema.columns \
@@ -758,12 +792,13 @@ impl DatabaseDriver for MysqlDriver {
 
         let mut columns = Vec::new();
         for row in rows {
+            let name = decode_mysql_text_cell(&row, 0).unwrap_or_default();
             columns.push(ColumnInfo {
-                name: decode_mysql_text_cell(&row, 0).unwrap_or_default(),
+                primary_key: pk_set.contains(&name),
+                name,
                 r#type: decode_mysql_text_cell(&row, 1).unwrap_or_default(),
                 nullable: decode_mysql_text_cell(&row, 2).unwrap_or_default() == "YES",
                 default_value: decode_mysql_optional_text_cell(&row, 3).ok().flatten(),
-                primary_key: false, // TODO
                 comment: None,
             });
         }
@@ -775,28 +810,7 @@ impl DatabaseDriver for MysqlDriver {
         schema: String,
         table: String,
     ) -> Result<TableMetadata, String> {
-        let pk_rows = sqlx::query(
-            "SELECT kcu.column_name \
-             FROM information_schema.table_constraints tc \
-             JOIN information_schema.key_column_usage kcu \
-               ON tc.constraint_name = kcu.constraint_name \
-              AND tc.table_schema = kcu.table_schema \
-              AND tc.table_name = kcu.table_name \
-             WHERE tc.constraint_type = 'PRIMARY KEY' \
-               AND tc.table_schema = ? \
-               AND tc.table_name = ? \
-             ORDER BY kcu.ordinal_position",
-        )
-        .bind(&schema)
-        .bind(&table)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
-
-        let mut pk_set: HashSet<String> = HashSet::new();
-        for row in pk_rows {
-            pk_set.insert(decode_mysql_text_cell(&row, 0)?);
-        }
+        let pk_set = self.fetch_primary_key_columns(&schema, &table).await?;
 
         let column_rows = sqlx::query(
             "SELECT column_name, column_type, is_nullable, column_default, column_comment \
@@ -847,12 +861,12 @@ impl DatabaseDriver for MysqlDriver {
         let mut index_map: HashMap<String, (bool, Option<String>, Vec<(i64, String)>)> =
             HashMap::new();
         for row in index_rows {
-            let index_name: String = row.try_get(0).unwrap_or_default();
+            let index_name = decode_mysql_text_cell(&row, 0)?;
             let non_unique: i64 = row.try_get(1).unwrap_or(1);
-            let index_type: Option<String> = row.try_get::<Option<String>, _>(2).unwrap_or(None);
+            let index_type = decode_mysql_optional_text_cell(&row, 2).ok().flatten();
             let seq: i64 = row.try_get(3).unwrap_or(0);
-            let column_name: Option<String> = row.try_get::<Option<String>, _>(4).unwrap_or(None);
-            let Some(column_name) = column_name else {
+            let Some(column_name) = decode_mysql_optional_text_cell(&row, 4).ok().flatten()
+            else {
                 continue;
             };
 
@@ -913,13 +927,15 @@ impl DatabaseDriver for MysqlDriver {
         let mut foreign_keys = Vec::new();
         for row in fk_rows {
             foreign_keys.push(ForeignKeyInfo {
-                name: row.try_get(0).unwrap_or_default(),
-                column: row.try_get(1).unwrap_or_default(),
-                referenced_schema: row.try_get::<Option<String>, _>(2).unwrap_or(None),
-                referenced_table: row.try_get(3).unwrap_or_default(),
-                referenced_column: row.try_get(4).unwrap_or_default(),
-                on_update: row.try_get::<Option<String>, _>(5).unwrap_or(None),
-                on_delete: row.try_get::<Option<String>, _>(6).unwrap_or(None),
+                name: decode_mysql_text_cell(&row, 0).unwrap_or_default(),
+                column: decode_mysql_text_cell(&row, 1).unwrap_or_default(),
+                referenced_schema: decode_mysql_optional_text_cell(&row, 2)
+                    .ok()
+                    .flatten(),
+                referenced_table: decode_mysql_text_cell(&row, 3).unwrap_or_default(),
+                referenced_column: decode_mysql_text_cell(&row, 4).unwrap_or_default(),
+                on_update: decode_mysql_optional_text_cell(&row, 5).ok().flatten(),
+                on_delete: decode_mysql_optional_text_cell(&row, 6).ok().flatten(),
             });
         }
 

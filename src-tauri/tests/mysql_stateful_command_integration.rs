@@ -983,7 +983,10 @@ async fn test_mysql_command_get_charsets_by_id_returns_standard_charsets() {
         charsets.iter().any(|c| c == "utf8mb4"),
         "utf8mb4 must be present"
     );
-    assert!(charsets.iter().any(|c| c == "utf8"), "utf8 must be present");
+    assert!(
+        charsets.iter().any(|c| c == "utf8" || c == "utf8mb3"),
+        "utf8 or utf8mb3 must be present"
+    );
     assert!(
         charsets.iter().any(|c| c == "latin1"),
         "latin1 must be present"
@@ -1028,8 +1031,10 @@ async fn test_mysql_command_get_collations_by_id_without_charset_returns_all() {
         "utf8mb4_general_ci must be present"
     );
     assert!(
-        collations.iter().any(|c| c == "utf8_general_ci"),
-        "utf8_general_ci must be present"
+        collations
+            .iter()
+            .any(|c| c == "utf8_general_ci" || c == "utf8mb3_general_ci"),
+        "utf8_general_ci or utf8mb3_general_ci must be present"
     );
     assert!(
         collations.windows(2).all(|w| w[0] <= w[1]),
