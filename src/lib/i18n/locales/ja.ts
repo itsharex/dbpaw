@@ -297,6 +297,7 @@ export const ja: Translations = {
       refreshTables: "テーブルを更新",
       newQuery: "新規クエリ",
       newTable: "新規テーブル",
+      alterTable: "テーブルフィールドの変更",
       newDatabase: "新規 Database",
       importSql: "SQL をインポート",
       importSqlReadOnly: "SQL をインポート（読み取り専用で未対応）",
@@ -527,6 +528,29 @@ export const ja: Translations = {
     toast: {
       success: 'テーブル "{{table}}" を作成しました',
       error: "テーブルの作成に失敗しました",
+    },
+  },
+  alterTable: {
+    tab: {
+      title: "フィールドを変更: {{table}}",
+    },
+    form: {
+      tableName: "テーブル名",
+    },
+    sqlPreview: {
+      noChanges: "— 変更が検出されませんでした —",
+    },
+    actions: {
+      execute: "変更を適用",
+      executing: "適用中...",
+    },
+    unsupported: {
+      title: "このデータベースではサポートされていない操作があります:",
+    },
+    toast: {
+      loadError: "テーブルのメタデータの読み込みに失敗しました",
+      success: 'テーブル "{{table}}" を更新しました',
+      error: "変更の適用に失敗しました",
     },
   },
 };

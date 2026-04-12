@@ -294,6 +294,7 @@ export const en = {
       refreshTables: "Refresh Tables",
       newQuery: "New Query",
       newTable: "New Table",
+      alterTable: "Modify Table Fields",
       newDatabase: "New Database",
       importSql: "Import SQL",
       importSqlReadOnly: "Import SQL (Read-only, unsupported)",
@@ -521,6 +522,29 @@ export const en = {
     toast: {
       success: 'Table "{{table}}" created successfully',
       error: "Failed to create table",
+    },
+  },
+  alterTable: {
+    tab: {
+      title: "Modify Fields: {{table}}",
+    },
+    form: {
+      tableName: "Table Name",
+    },
+    sqlPreview: {
+      noChanges: "— No changes detected —",
+    },
+    actions: {
+      execute: "Apply Changes",
+      executing: "Applying...",
+    },
+    unsupported: {
+      title: "Some operations are not supported by this database:",
+    },
+    toast: {
+      loadError: "Failed to load table metadata",
+      success: 'Table "{{table}}" updated successfully',
+      error: "Failed to apply changes",
     },
   },
 } as const;

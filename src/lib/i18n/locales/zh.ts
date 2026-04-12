@@ -289,6 +289,7 @@ export const zh: Translations = {
       refreshTables: "刷新数据表",
       newQuery: "新建查询",
       newTable: "新建数据表",
+      alterTable: "修改表字段",
       newDatabase: "新建 Database",
       importSql: "导入 SQL",
       importSqlReadOnly: "导入 SQL（只读，不支持）",
@@ -505,6 +506,29 @@ export const zh: Translations = {
     toast: {
       success: "数据表「{{table}}」创建成功",
       error: "创建数据表失败",
+    },
+  },
+  alterTable: {
+    tab: {
+      title: "修改字段：{{table}}",
+    },
+    form: {
+      tableName: "数据表名",
+    },
+    sqlPreview: {
+      noChanges: "— 未检测到任何变更 —",
+    },
+    actions: {
+      execute: "应用变更",
+      executing: "应用中...",
+    },
+    unsupported: {
+      title: "以下操作当前数据库不支持：",
+    },
+    toast: {
+      loadError: "加载表结构失败",
+      success: "数据表「{{table}}」修改成功",
+      error: "应用变更失败",
     },
   },
 };

@@ -69,7 +69,7 @@ import { getSetting } from "@/services/store";
 
 interface TabItem {
   id: string;
-  type: "editor" | "table" | "ddl" | "create-table";
+  type: "editor" | "table" | "ddl" | "create-table" | "alter-table";
   title: string;
   connection?: string;
   database?: string;
@@ -148,6 +148,11 @@ const SettingsDialog = lazy(async () => {
 const CreateTableView = lazy(async () => {
   const mod = await import("@/components/business/CreateTable/CreateTableView");
   return { default: mod.CreateTableView };
+});
+
+const AlterTableView = lazy(async () => {
+  const mod = await import("@/components/business/CreateTable/AlterTableView");
+  return { default: mod.AlterTableView };
 });
 
 function LazyPanelFallback({
@@ -960,6 +965,37 @@ export default function App() {
     });
   };
 
+  const handleAlterTable = (
+    connectionId: number,
+    database: string,
+    schema: string,
+    table: string,
+    driver: string,
+  ) => {
+    const tabId = `alter-table-${connectionId}-${database}-${schema}-${table}`;
+    const existingTab = tabs.find((t) => t.id === tabId);
+    if (existingTab) {
+      setActiveTab(tabId);
+      return;
+    }
+    const newTab: TabItem = {
+      id: tabId,
+      type: "alter-table",
+      title: t("alterTable.tab.title", { table }),
+      connectionId,
+      database,
+      schema,
+      tableName: table,
+      driver,
+    };
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTab(tabId);
+  };
+
+  const handleAlterTableSuccess = (tabId: string) => {
+    closeTabNow(tabId);
+  };
+
   const handleTableRefresh = async (
     tabId: string,
     overrides?: TableRefreshOverrides,
@@ -1561,6 +1597,7 @@ export default function App() {
               onExportTable={handleExportTableFromTree}
               onExportDatabase={handleExportDatabaseFromTree}
               onCreateTable={handleCreateTable}
+              onAlterTable={handleAlterTable}
               onSelectSavedQuery={handleOpenSavedQuery}
               lastUpdated={queriesLastUpdated}
               activeTableTarget={activeTableTarget}
@@ -1837,6 +1874,28 @@ export default function App() {
                                   tableName,
                                   tab.driver!,
                                 )
+                              }
+                              onCancel={() => handleCloseTab(tab.id)}
+                            />
+                          </Suspense>
+                        ) : tab.type === "alter-table" &&
+                          tab.connectionId !== undefined &&
+                          tab.database &&
+                          tab.tableName &&
+                          tab.driver ? (
+                          <Suspense
+                            fallback={
+                              <LazyPanelFallback label={t("common.loading")} />
+                            }
+                          >
+                            <AlterTableView
+                              connectionId={tab.connectionId}
+                              database={tab.database}
+                              schema={tab.schema ?? ""}
+                              table={tab.tableName}
+                              driver={tab.driver}
+                              onSuccess={() =>
+                                handleAlterTableSuccess(tab.id)
                               }
                               onCancel={() => handleCloseTab(tab.id)}
                             />

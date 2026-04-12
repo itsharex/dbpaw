@@ -329,6 +329,13 @@ interface ConnectionListProps {
     schema: string,
     driver: string,
   ) => void;
+  onAlterTable?: (
+    connectionId: number,
+    database: string,
+    schema: string,
+    table: string,
+    driver: string,
+  ) => void;
   activeTableTarget?: {
     connectionId: number;
     database: string;
@@ -354,6 +361,7 @@ export function ConnectionList({
   onExportTable,
   onExportDatabase,
   onCreateTable,
+  onAlterTable,
   activeTableTarget,
   sidebarRevealRequest,
   onSelectSavedQuery,
@@ -2774,6 +2782,22 @@ export function ConnectionList({
                                   <Download className="w-4 h-4 mr-2" />
                                   {t("connection.menu.exportSqlFull")}
                                 </ContextMenuItem>
+                                {onAlterTable && (
+                                  <ContextMenuItem
+                                    onClick={() =>
+                                      onAlterTable(
+                                        Number(connection.id),
+                                        database.name,
+                                        table.schema ?? "",
+                                        table.name,
+                                        connection.type,
+                                      )
+                                    }
+                                  >
+                                    <TableIcon className="w-4 h-4 mr-2" />
+                                    {t("connection.menu.alterTable")}
+                                  </ContextMenuItem>
+                                )}
                               </ContextMenuContent>
                             </ContextMenu>
                           );
@@ -3033,6 +3057,22 @@ export function ConnectionList({
                                 <Download className="w-4 h-4 mr-2" />
                                 {t("connection.menu.exportSqlFull")}
                               </ContextMenuItem>
+                              {onAlterTable && (
+                                <ContextMenuItem
+                                  onClick={() =>
+                                    onAlterTable(
+                                      Number(connection.id),
+                                      database.name,
+                                      table.schema ?? "",
+                                      table.name,
+                                      connection.type,
+                                    )
+                                  }
+                                >
+                                  <TableIcon className="w-4 h-4 mr-2" />
+                                  {t("connection.menu.alterTable")}
+                                </ContextMenuItem>
+                              )}
                             </ContextMenuContent>
                           </ContextMenu>
                         );
