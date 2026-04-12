@@ -111,6 +111,7 @@ interface DatabaseInfo {
 }
 
 type DatabaseExportFormat = "sql_dml" | "sql_ddl" | "sql_full";
+type TableExportFormat = "csv" | "json" | "sql_dml" | "sql_ddl" | "sql_full";
 
 interface Connection {
   id: string;
@@ -468,6 +469,15 @@ export function ConnectionList({
   const [isDatabaseExportDialogOpen, setIsDatabaseExportDialogOpen] =
     useState(false);
   const [isExportingDatabaseSql, setIsExportingDatabaseSql] = useState(false);
+  const [pendingTableExport, setPendingTableExport] = useState<{
+    connection: Connection;
+    database: DatabaseInfo;
+    table: TableInfo;
+  } | null>(null);
+  const [isTableExportDialogOpen, setIsTableExportDialogOpen] = useState(false);
+  const [isExportingTable, setIsExportingTable] = useState(false);
+  const [tableExportFormat, setTableExportFormat] =
+    useState<TableExportFormat>("csv");
 
   const supportsCreateDatabaseForDriver = (driver: Driver) =>
     supportsCreateDatabase(driver);
@@ -1770,28 +1780,35 @@ export function ConnectionList({
     }
   };
 
-  const handleTableExport = async (
+  const handleTableExportDialog = (
     connection: Connection,
     database: DatabaseInfo,
     table: TableInfo,
-    format: "csv" | "json" | "sql_dml" | "sql_ddl" | "sql_full",
   ) => {
     if (!onExportTable) return;
     if (!isTauri()) {
       toast.error(t("connection.toast.exportDesktopOnly"));
       return;
     }
+    setPendingTableExport({ connection, database, table });
+    setTableExportFormat("csv");
+    setIsTableExportDialogOpen(true);
+  };
 
+  const handleTableExportConfirm = async () => {
+    if (!pendingTableExport || !onExportTable) return;
+    const { connection, database, table } = pendingTableExport;
     try {
+      setIsExportingTable(true);
       const selected = await save({
         title: t("connection.toast.saveExportFile"),
-        defaultPath: getExportDefaultName(table.name, format),
-        filters: getExportFilter(format),
+        defaultPath: getExportDefaultName(table.name, tableExportFormat),
+        filters: getExportFilter(tableExportFormat),
       });
       if (!selected) return;
       const filePath = Array.isArray(selected) ? selected[0] : selected;
       if (!filePath) return;
-
+      setIsTableExportDialogOpen(false);
       onExportTable(
         {
           connectionId: Number(connection.id),
@@ -1800,13 +1817,16 @@ export function ConnectionList({
           table: table.name,
           driver: connection.type,
         },
-        format,
+        tableExportFormat,
         filePath,
       );
+      setPendingTableExport(null);
     } catch (e) {
       toast.error(t("connection.toast.openSaveDialogFailed"), {
         description: e instanceof Error ? e.message : String(e),
       });
+    } finally {
+      setIsExportingTable(false);
     }
   };
 
@@ -2719,68 +2739,15 @@ export function ConnectionList({
                                 </ContextMenuItem>
                                 <ContextMenuItem
                                   onClick={() =>
-                                    void handleTableExport(
+                                    handleTableExportDialog(
                                       connection,
                                       database,
                                       table,
-                                      "csv",
                                     )
                                   }
                                 >
                                   <Download className="w-4 h-4 mr-2" />
-                                  {t("connection.menu.exportCsv")}
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onClick={() =>
-                                    void handleTableExport(
-                                      connection,
-                                      database,
-                                      table,
-                                      "json",
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4 mr-2" />
-                                  {t("connection.menu.exportJson")}
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onClick={() =>
-                                    void handleTableExport(
-                                      connection,
-                                      database,
-                                      table,
-                                      "sql_dml",
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4 mr-2" />
-                                  {t("connection.menu.exportSqlDml")}
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onClick={() =>
-                                    void handleTableExport(
-                                      connection,
-                                      database,
-                                      table,
-                                      "sql_ddl",
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4 mr-2" />
-                                  {t("connection.menu.exportSqlDdl")}
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onClick={() =>
-                                    void handleTableExport(
-                                      connection,
-                                      database,
-                                      table,
-                                      "sql_full",
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4 mr-2" />
-                                  {t("connection.menu.exportSqlFull")}
+                                  {t("connection.menu.exportTable")}
                                 </ContextMenuItem>
                                 {onAlterTable && (
                                   <ContextMenuItem
@@ -2994,68 +2961,15 @@ export function ConnectionList({
                               </ContextMenuItem>
                               <ContextMenuItem
                                 onClick={() =>
-                                  void handleTableExport(
+                                  handleTableExportDialog(
                                     connection,
                                     database,
                                     table,
-                                    "csv",
                                   )
                                 }
                               >
                                 <Download className="w-4 h-4 mr-2" />
-                                {t("connection.menu.exportCsv")}
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onClick={() =>
-                                  void handleTableExport(
-                                    connection,
-                                    database,
-                                    table,
-                                    "json",
-                                  )
-                                }
-                              >
-                                <Download className="w-4 h-4 mr-2" />
-                                {t("connection.menu.exportJson")}
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onClick={() =>
-                                  void handleTableExport(
-                                    connection,
-                                    database,
-                                    table,
-                                    "sql_dml",
-                                  )
-                                }
-                              >
-                                <Download className="w-4 h-4 mr-2" />
-                                {t("connection.menu.exportSqlDml")}
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onClick={() =>
-                                  void handleTableExport(
-                                    connection,
-                                    database,
-                                    table,
-                                    "sql_ddl",
-                                  )
-                                }
-                              >
-                                <Download className="w-4 h-4 mr-2" />
-                                {t("connection.menu.exportSqlDdl")}
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onClick={() =>
-                                  void handleTableExport(
-                                    connection,
-                                    database,
-                                    table,
-                                    "sql_full",
-                                  )
-                                }
-                              >
-                                <Download className="w-4 h-4 mr-2" />
-                                {t("connection.menu.exportSqlFull")}
+                                {t("connection.menu.exportTable")}
                               </ContextMenuItem>
                               {onAlterTable && (
                                 <ContextMenuItem
@@ -3783,6 +3697,123 @@ export function ConnectionList({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <Dialog
+        open={isTableExportDialogOpen}
+        onOpenChange={(open) => {
+          setIsTableExportDialogOpen(open);
+          if (!open && !isExportingTable) {
+            setPendingTableExport(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("connection.tableExportDialog.title")}</DialogTitle>
+            <DialogDescription>
+              {t("connection.tableExportDialog.description", {
+                table: pendingTableExport?.table.name || "",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <RadioGroup
+              value={tableExportFormat}
+              onValueChange={(value: TableExportFormat) =>
+                setTableExportFormat(value)
+              }
+            >
+              <label className="flex items-start gap-3 rounded-md border p-3 cursor-pointer">
+                <RadioGroupItem value="csv" id="table-export-csv" />
+                <div className="grid gap-1">
+                  <Label htmlFor="table-export-csv" className="cursor-pointer">
+                    {t("connection.tableExportDialog.formatCsv")}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t("connection.tableExportDialog.formatCsvDesc")}
+                  </p>
+                </div>
+              </label>
+              <label className="flex items-start gap-3 rounded-md border p-3 cursor-pointer">
+                <RadioGroupItem value="json" id="table-export-json" />
+                <div className="grid gap-1">
+                  <Label htmlFor="table-export-json" className="cursor-pointer">
+                    {t("connection.tableExportDialog.formatJson")}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t("connection.tableExportDialog.formatJsonDesc")}
+                  </p>
+                </div>
+              </label>
+              <label className="flex items-start gap-3 rounded-md border p-3 cursor-pointer">
+                <RadioGroupItem value="sql_ddl" id="table-export-sql-ddl" />
+                <div className="grid gap-1">
+                  <Label
+                    htmlFor="table-export-sql-ddl"
+                    className="cursor-pointer"
+                  >
+                    {t("connection.tableExportDialog.formatSqlDdl")}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t("connection.tableExportDialog.formatSqlDdlDesc")}
+                  </p>
+                </div>
+              </label>
+              <label className="flex items-start gap-3 rounded-md border p-3 cursor-pointer">
+                <RadioGroupItem value="sql_dml" id="table-export-sql-dml" />
+                <div className="grid gap-1">
+                  <Label
+                    htmlFor="table-export-sql-dml"
+                    className="cursor-pointer"
+                  >
+                    {t("connection.tableExportDialog.formatSqlDml")}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t("connection.tableExportDialog.formatSqlDmlDesc")}
+                  </p>
+                </div>
+              </label>
+              <label className="flex items-start gap-3 rounded-md border p-3 cursor-pointer">
+                <RadioGroupItem value="sql_full" id="table-export-sql-full" />
+                <div className="grid gap-1">
+                  <Label
+                    htmlFor="table-export-sql-full"
+                    className="cursor-pointer"
+                  >
+                    {t("connection.tableExportDialog.formatSqlFull")}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t("connection.tableExportDialog.formatSqlFullDesc")}
+                  </p>
+                </div>
+              </label>
+            </RadioGroup>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isExportingTable}
+                onClick={() => setIsTableExportDialogOpen(false)}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="button"
+                disabled={isExportingTable || !pendingTableExport}
+                onClick={() => void handleTableExportConfirm()}
+              >
+                {isExportingTable ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t("connection.exportDialog.exporting")}
+                  </>
+                ) : (
+                  t("connection.tableExportDialog.exportButton")
+                )}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={isDatabaseExportDialogOpen}
         onOpenChange={(open) => {

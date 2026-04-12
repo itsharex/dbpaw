@@ -1894,9 +1894,7 @@ export default function App() {
                               schema={tab.schema ?? ""}
                               table={tab.tableName}
                               driver={tab.driver}
-                              onSuccess={() =>
-                                handleAlterTableSuccess(tab.id)
-                              }
+                              onSuccess={() => handleAlterTableSuccess(tab.id)}
                               onCancel={() => handleCloseTab(tab.id)}
                             />
                           </Suspense>

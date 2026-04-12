@@ -230,14 +230,10 @@ function buildTableRef(
         ? `[${schema}].${quotedTable}`
         : `[dbo].${quotedTable}`;
     case "oracle":
-      return schema.trim()
-        ? `"${schema}".${quotedTable}`
-        : quotedTable;
+      return schema.trim() ? `"${schema}".${quotedTable}` : quotedTable;
     default:
       // postgres
-      return schema.trim()
-        ? `"${schema}".${quotedTable}`
-        : quotedTable;
+      return schema.trim() ? `"${schema}".${quotedTable}` : quotedTable;
   }
 }
 

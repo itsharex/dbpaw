@@ -116,7 +116,15 @@ export function CreateTableView({
     );
     // starrocksDistribution is derived from srDistType/srDistColumns/srBuckets
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableName, schema, columns, dbDriver, srDistType, srDistColumns, srBuckets]);
+  }, [
+    tableName,
+    schema,
+    columns,
+    dbDriver,
+    srDistType,
+    srDistColumns,
+    srBuckets,
+  ]);
 
   // ── validation ──────────────────────────────────────────────────────────────
 

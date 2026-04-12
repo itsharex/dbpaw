@@ -132,7 +132,13 @@ export function AlterTableView({
     if (loading || originalCols.length === 0) {
       return { sql: "", unsupportedOps: [] };
     }
-    return generateAlterTableSQL(schema, table, originalCols, columns, dbDriver);
+    return generateAlterTableSQL(
+      schema,
+      table,
+      originalCols,
+      columns,
+      dbDriver,
+    );
   }, [loading, schema, table, originalCols, columns, dbDriver]);
 
   // ── validation ──────────────────────────────────────────────────────────────
@@ -284,7 +290,10 @@ export function AlterTableView({
               {t("alterTable.unsupported.title")}
             </div>
             {unsupportedOps.map((op, i) => (
-              <p key={i} className="text-xs text-yellow-700/80 dark:text-yellow-400/80 pl-5">
+              <p
+                key={i}
+                className="text-xs text-yellow-700/80 dark:text-yellow-400/80 pl-5"
+              >
                 {op}
               </p>
             ))}
@@ -356,7 +365,8 @@ export function AlterTableView({
                       isExisting ? "" : "bg-green-500/5"
                     }`}
                     style={{
-                      gridTemplateColumns: columnGridTemplate(showAutoIncrement),
+                      gridTemplateColumns:
+                        columnGridTemplate(showAutoIncrement),
                     }}
                   >
                     {/* Move up/down */}

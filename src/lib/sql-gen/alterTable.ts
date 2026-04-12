@@ -1,5 +1,10 @@
 import type { ColumnInfo } from "@/services/api";
-import { ColumnDef, DbDriver, formatDefault, supportsAutoIncrement } from "./createTable";
+import {
+  ColumnDef,
+  DbDriver,
+  formatDefault,
+  supportsAutoIncrement,
+} from "./createTable";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -85,7 +90,6 @@ function colTypePart(col: ColumnDef): string {
   return t;
 }
 
-
 function supportsComment(driver: DbDriver): boolean {
   return ["mysql", "mariadb", "tidb", "starrocks", "clickhouse"].includes(
     driver,
@@ -93,7 +97,11 @@ function supportsComment(driver: DbDriver): boolean {
 }
 
 /** Build the inline column definition for ADD / CHANGE / MODIFY statements. */
-function buildColDef(col: ColumnDef, driver: DbDriver, includePk = true): string {
+function buildColDef(
+  col: ColumnDef,
+  driver: DbDriver,
+  includePk = true,
+): string {
   const parts = [`${q(col.name, driver)} ${colTypePart(col)}`];
   if (col.notNull) parts.push("NOT NULL");
   if (col.defaultValue.trim())
@@ -129,7 +137,9 @@ export function generateAlterTableSQL(
   const keptOriginalNames = new Set(
     newCols.filter((c) => c.originalName !== null).map((c) => c.originalName!),
   );
-  const droppedCols = originalCols.filter((c) => !keptOriginalNames.has(c.name));
+  const droppedCols = originalCols.filter(
+    (c) => !keptOriginalNames.has(c.name),
+  );
 
   // 1. DROP columns ─────────────────────────────────────────────────────────
   for (const col of droppedCols) {
@@ -163,13 +173,11 @@ export function generateAlterTableSQL(
     const renamed = col.name !== col.originalName;
     const origTypeRaw = orig.type;
     const newType = colTypePart(col);
-    const typeChanged =
-      newType.toUpperCase() !== origTypeRaw.toUpperCase();
+    const typeChanged = newType.toUpperCase() !== origTypeRaw.toUpperCase();
     const notNullChanged = col.notNull !== !orig.nullable;
     const defaultChanged =
       col.defaultValue.trim() !== (orig.defaultValue ?? "").trim();
-    const commentChanged =
-      col.comment.trim() !== (orig.comment ?? "").trim();
+    const commentChanged = col.comment.trim() !== (orig.comment ?? "").trim();
     const hasPropertyChange =
       typeChanged || notNullChanged || defaultChanged || commentChanged;
 
