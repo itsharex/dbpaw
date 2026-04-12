@@ -66,13 +66,14 @@ bun run test:rust:unit
 bun run test:integration
 ```
 
-### 集成测试自动化（MySQL + MariaDB + Postgres + ClickHouse + SQL Server + DuckDB）
+### 集成测试自动化（MySQL + MariaDB + Doris + Postgres + ClickHouse + SQL Server + DuckDB）
 
 - 默认执行 `bun run test:integration` 会自动启动/销毁 MySQL、MariaDB、Postgres、ClickHouse 与 SQL Server 容器（DuckDB 使用本地临时文件，不依赖容器）。
 - 可通过 `IT_DB` 指定目标数据库：
   ```bash
   IT_DB=mysql bun run test:integration
   IT_DB=mariadb bun run test:integration
+  IT_DB=doris bun run test:integration
   IT_DB=postgres bun run test:integration
   IT_DB=clickhouse bun run test:integration
   IT_DB=mssql bun run test:integration

@@ -38,6 +38,7 @@ bun run test:rust:unit     # Rust unit tests
 # Integration tests (requires Docker)
 bun run test:integration   # All databases
 IT_DB=mysql bun run test:integration      # MySQL only
+IT_DB=doris bun run test:integration      # Doris only
 IT_DB=postgres bun run test:integration   # PostgreSQL only
 ```
 
@@ -67,7 +68,7 @@ When you modify files, run the appropriate test suite:
 
 ### Environment Variables
 
-- `IT_DB` - Which database to test: `mysql`, `postgres`, `mariadb`, `mssql`, `clickhouse`, `sqlite`, `duckdb`, `all`
+- `IT_DB` - Which database to test: `mysql`, `starrocks`, `doris`, `postgres`, `mariadb`, `mssql`, `clickhouse`, `sqlite`, `duckdb`, `all`
 - `IT_REUSE_LOCAL_DB=1` - Reuse existing local database (faster for development)
 - `IT_CONTAINER_PREFIX` - Custom container name prefix (default: `dbpaw-it-$$-`)
 
@@ -111,6 +112,7 @@ cargo test --manifest-path src-tauri/Cargo.toml \
 | **PostgreSQL** | ✅ | ✅ | ✅ | Complete coverage |
 | **MariaDB** | ✅ | ✅ | ⏳ | Driver + Command (stateful pending) |
 | **SQL Server** | ✅ | ✅ | ⏳ | Driver + Command (stateful pending) |
+| **Apache Doris** | 🟢 | 🟢 | ⏳ | Reuses MySQL driver, command coverage added |
 | **ClickHouse** | ✅ | ✅ | ⏳ | Driver + Command (stateful pending) |
 | **SQLite** | ✅ | ✅ | ⏳ | Driver + Command (stateful pending) |
 | **DuckDB** | ✅ | ✅ | ⏳ | Driver + Command (stateful pending) |

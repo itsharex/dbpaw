@@ -20,7 +20,7 @@ pub mod postgres;
 pub mod sqlite;
 
 pub fn is_mysql_family_driver(driver: &str) -> bool {
-    matches!(driver, "mysql" | "mariadb" | "tidb" | "starrocks")
+    matches!(driver, "mysql" | "mariadb" | "tidb" | "starrocks" | "doris")
 }
 
 /// Build a `[CONN_FAILED]` error message with a context-aware hint derived from the
@@ -257,9 +257,10 @@ mod tests {
     }
 
     #[test]
-    fn mysql_family_helper_includes_starrocks() {
+    fn mysql_family_helper_includes_doris_and_starrocks() {
         assert!(is_mysql_family_driver("mysql"));
         assert!(is_mysql_family_driver("starrocks"));
+        assert!(is_mysql_family_driver("doris"));
         assert!(!is_mysql_family_driver("postgres"));
     }
 }

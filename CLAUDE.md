@@ -118,7 +118,7 @@ Database Drivers  → Driver integration tests (*_integration.rs)
 - All integration tests:
   - Use testcontainers for real database instances
   - Marked with `#[ignore]` (only run explicitly)
-  - Environment: `IT_DB` (mysql/postgres/mariadb/clickhouse/mssql/sqlite/duckdb/all)
+  - Environment: `IT_DB` (mysql/starrocks/doris/postgres/mariadb/clickhouse/mssql/sqlite/duckdb/all)
   - Helpers in `src-tauri/tests/common/` provide database context setup
 
 ### Database Driver Development

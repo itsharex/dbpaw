@@ -68,6 +68,7 @@ describe("normalizeImportDriver", () => {
       "mariadb",
       "tidb",
       "starrocks",
+      "doris",
       "sqlite",
       "duckdb",
       "mssql",
@@ -96,6 +97,10 @@ describe("getImportDriverCapability", () => {
 
   test("starrocks import is unsupported", () => {
     expect(getImportDriverCapability("starrocks")).toBe("unsupported");
+  });
+
+  test("doris import is unsupported", () => {
+    expect(getImportDriverCapability("doris")).toBe("unsupported");
   });
 
   test("all writable drivers are supported", () => {

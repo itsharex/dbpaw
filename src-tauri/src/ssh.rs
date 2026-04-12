@@ -8,7 +8,11 @@ use std::thread;
 
 fn default_target_port(driver: &str) -> i64 {
     if crate::db::drivers::is_mysql_family_driver(driver) {
-        return if driver == "starrocks" { 9030 } else { 3306 };
+        return if matches!(driver, "starrocks" | "doris") {
+            9030
+        } else {
+            3306
+        };
     }
 
     match driver {
@@ -326,6 +330,24 @@ mod tests {
                 "StarRocks default port (9030) should pass validation, got: {e}"
             );
         }
+
+        let config_doris = ConnectionForm {
+            driver: "doris".to_string(),
+            host: Some("127.0.0.1".to_string()),
+            port: None, // should default to 9030
+            ssh_host: Some("127.0.0.1".to_string()),
+            ssh_port: Some(22),
+            ssh_username: Some("user".to_string()),
+            ssh_password: Some("pass".to_string()),
+            ..Default::default()
+        };
+        let result = start_ssh_tunnel(&config_doris);
+        if let Err(e) = result {
+            assert!(
+                !e.contains("Target port must be between 1 and 65535"),
+                "Doris default port (9030) should pass validation, got: {e}"
+            );
+        }
     }
 
     #[test]
@@ -334,6 +356,7 @@ mod tests {
         assert_eq!(default_target_port("mariadb"), 3306);
         assert_eq!(default_target_port("tidb"), 3306);
         assert_eq!(default_target_port("starrocks"), 9030);
+        assert_eq!(default_target_port("doris"), 9030);
         assert_eq!(default_target_port("clickhouse"), 9000);
     }
 

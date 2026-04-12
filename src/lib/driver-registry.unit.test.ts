@@ -15,19 +15,20 @@ import {
 // ─── Registry completeness ────────────────────────────────────────────────────
 
 describe("DRIVER_REGISTRY", () => {
-  test("contains all 10 supported drivers", () => {
+  test("contains all 11 supported drivers", () => {
     const ids = DRIVER_REGISTRY.map((d) => d.id);
     expect(ids).toContain("postgres");
     expect(ids).toContain("mysql");
     expect(ids).toContain("mariadb");
     expect(ids).toContain("tidb");
     expect(ids).toContain("starrocks");
+    expect(ids).toContain("doris");
     expect(ids).toContain("sqlite");
     expect(ids).toContain("duckdb");
     expect(ids).toContain("clickhouse");
     expect(ids).toContain("mssql");
     expect(ids).toContain("oracle");
-    expect(DRIVER_REGISTRY).toHaveLength(10);
+    expect(DRIVER_REGISTRY).toHaveLength(11);
   });
 
   test("has no duplicate IDs", () => {
@@ -101,6 +102,7 @@ describe("getDriverConfig", () => {
     expect(getDriverConfig("postgres").label).toBe("PostgreSQL");
     expect(getDriverConfig("mysql").label).toBe("MySQL");
     expect(getDriverConfig("starrocks").label).toBe("StarRocks");
+    expect(getDriverConfig("doris").label).toBe("Apache Doris");
     expect(getDriverConfig("mssql").label).toBe("SQL Server");
     expect(getDriverConfig("clickhouse").label).toBe("ClickHouse");
     expect(getDriverConfig("duckdb").label).toBe("DuckDB");
@@ -116,6 +118,7 @@ describe("getDefaultPort", () => {
     expect(getDefaultPort("mariadb")).toBe(3306);
     expect(getDefaultPort("tidb")).toBe(4000);
     expect(getDefaultPort("starrocks")).toBe(9030);
+    expect(getDefaultPort("doris")).toBe(9030);
     expect(getDefaultPort("clickhouse")).toBe(8123);
     expect(getDefaultPort("mssql")).toBe(1433);
   });
@@ -141,6 +144,7 @@ describe("isFileBasedDriver", () => {
       "mariadb",
       "tidb",
       "starrocks",
+      "doris",
       "clickhouse",
       "mssql",
     ];
@@ -158,6 +162,7 @@ describe("isMysqlFamilyDriver", () => {
     expect(isMysqlFamilyDriver("mariadb")).toBe(true);
     expect(isMysqlFamilyDriver("tidb")).toBe(true);
     expect(isMysqlFamilyDriver("starrocks")).toBe(true);
+    expect(isMysqlFamilyDriver("doris")).toBe(true);
   });
 
   test("returns false for non-MySQL drivers", () => {
@@ -183,6 +188,7 @@ describe("supportsSSLCA", () => {
     expect(supportsSSLCA("mariadb")).toBe(true);
     expect(supportsSSLCA("tidb")).toBe(true);
     expect(supportsSSLCA("starrocks")).toBe(true);
+    expect(supportsSSLCA("doris")).toBe(true);
   });
 
   test("returns false for drivers without SSL CA support", () => {
@@ -202,6 +208,7 @@ describe("supportsCreateDatabase", () => {
     expect(supportsCreateDatabase("mariadb")).toBe(true);
     expect(supportsCreateDatabase("tidb")).toBe(true);
     expect(supportsCreateDatabase("starrocks")).toBe(true);
+    expect(supportsCreateDatabase("doris")).toBe(true);
     expect(supportsCreateDatabase("clickhouse")).toBe(true);
     expect(supportsCreateDatabase("mssql")).toBe(true);
   });
@@ -226,6 +233,7 @@ describe("supportsSchemaBrowsing", () => {
       "mariadb",
       "tidb",
       "starrocks",
+      "doris",
       "sqlite",
       "duckdb",
       "clickhouse",
@@ -251,6 +259,10 @@ describe("importCapability", () => {
 
   test("starrocks import is unsupported", () => {
     expect(getDriverConfig("starrocks").importCapability).toBe("unsupported");
+  });
+
+  test("doris import is unsupported", () => {
+    expect(getDriverConfig("doris").importCapability).toBe("unsupported");
   });
 
   test("all other drivers are supported", () => {

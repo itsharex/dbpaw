@@ -208,6 +208,14 @@ fn is_prepared_protocol_unsupported_error(err: &str) -> bool {
         || lower.contains("preparedoes not support") // PolarDB-X
 }
 
+fn is_missing_mysql_json_object_function(err: &str) -> bool {
+    let lower = err.to_ascii_lowercase();
+    (lower.contains("1305")
+        || lower.contains("does not exist")
+        || lower.contains("unknown function"))
+        && (lower.contains("json_object") || lower.contains("json object"))
+}
+
 impl Drop for MysqlDriver {
     fn drop(&mut self) {
         cleanup_ca_file_opt(self.ca_cert_path.as_ref());
@@ -314,10 +322,22 @@ impl MysqlDriver {
         for bind in binds {
             q = q.bind(*bind);
         }
-        let rows = q
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", query, e))?;
+        let rows = match q.fetch_all(&self.pool).await {
+            Ok(rows) => rows,
+            Err(e) => {
+                let error_text = e.to_string();
+                if is_missing_mysql_json_object_function(&error_text) {
+                    return self
+                        .fetch_rows_as_json_without_projection(
+                            base_query,
+                            binds,
+                            high_precision_cols,
+                        )
+                        .await;
+                }
+                return Err(format!("[QUERY_ERROR] SQL: {} | {}", query, e));
+            }
+        };
 
         let mut data = Vec::with_capacity(rows.len());
         for row in rows {
@@ -326,6 +346,28 @@ impl MysqlDriver {
             data.push(row_json);
         }
         Ok(data)
+    }
+
+    async fn fetch_rows_as_json_without_projection(
+        &self,
+        base_query: &str,
+        binds: &[i64],
+        high_precision_cols: &HashSet<String>,
+    ) -> Result<Vec<serde_json::Value>, String> {
+        let mut q = sqlx::query(base_query);
+        for bind in binds {
+            q = q.bind(*bind);
+        }
+
+        let rows = q
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", base_query, e))?;
+
+        Ok(decode_mysql_rows_without_projection(
+            &rows,
+            high_precision_cols,
+        ))
     }
 }
 
@@ -430,6 +472,118 @@ fn normalize_mysql_row_json(
     }
 
     Ok(())
+}
+
+fn is_high_precision_mysql_column(
+    column_name: &str,
+    high_precision_cols: &HashSet<String>,
+) -> bool {
+    high_precision_cols
+        .iter()
+        .any(|col| col.eq_ignore_ascii_case(column_name))
+}
+
+fn decimal_to_json_number_or_string(value: rust_decimal::Decimal) -> serde_json::Value {
+    let normalized = value.normalize().to_string();
+    serde_json::Number::from_f64(normalized.parse::<f64>().unwrap_or(f64::NAN))
+        .map(serde_json::Value::Number)
+        .unwrap_or_else(|| serde_json::Value::String(normalized))
+}
+
+fn decode_mysql_cell_to_json(
+    row: &sqlx::mysql::MySqlRow,
+    column_name: &str,
+    high_precision_cols: &HashSet<String>,
+) -> serde_json::Value {
+    if let Ok(v) = row.try_get::<Option<sqlx::types::Json<serde_json::Value>>, _>(column_name) {
+        return v.map(|json| json.0).unwrap_or(serde_json::Value::Null);
+    }
+    if let Ok(v) = row.try_get::<Option<bool>, _>(column_name) {
+        return v
+            .map(serde_json::Value::Bool)
+            .unwrap_or(serde_json::Value::Null);
+    }
+    if let Ok(v) = row.try_get::<Option<i64>, _>(column_name) {
+        return match v {
+            Some(value) if is_high_precision_mysql_column(column_name, high_precision_cols) => {
+                serde_json::Value::String(value.to_string())
+            }
+            Some(value) => serde_json::Value::Number(value.into()),
+            None => serde_json::Value::Null,
+        };
+    }
+    if let Ok(v) = row.try_get::<Option<u64>, _>(column_name) {
+        return match v {
+            Some(value) if is_high_precision_mysql_column(column_name, high_precision_cols) => {
+                serde_json::Value::String(value.to_string())
+            }
+            Some(value) => serde_json::Value::Number(serde_json::Number::from(value)),
+            None => serde_json::Value::Null,
+        };
+    }
+    if let Ok(v) = row.try_get::<Option<rust_decimal::Decimal>, _>(column_name) {
+        return match v {
+            Some(value) if is_high_precision_mysql_column(column_name, high_precision_cols) => {
+                serde_json::Value::String(value.normalize().to_string())
+            }
+            Some(value) => decimal_to_json_number_or_string(value),
+            None => serde_json::Value::Null,
+        };
+    }
+    if let Ok(v) = row.try_get::<Option<f64>, _>(column_name) {
+        return match v {
+            Some(value) => serde_json::Number::from_f64(value)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null),
+            None => serde_json::Value::Null,
+        };
+    }
+    if let Ok(v) = row.try_get::<Option<chrono::NaiveDateTime>, _>(column_name) {
+        return v
+            .map(|value| serde_json::Value::String(value.to_string()))
+            .unwrap_or(serde_json::Value::Null);
+    }
+    if let Ok(v) = row.try_get::<Option<chrono::NaiveDate>, _>(column_name) {
+        return v
+            .map(|value| serde_json::Value::String(value.to_string()))
+            .unwrap_or(serde_json::Value::Null);
+    }
+    if let Ok(v) = row.try_get::<Option<chrono::NaiveTime>, _>(column_name) {
+        return v
+            .map(|value| serde_json::Value::String(value.to_string()))
+            .unwrap_or(serde_json::Value::Null);
+    }
+    if let Ok(v) = row.try_get::<Option<String>, _>(column_name) {
+        return v
+            .map(serde_json::Value::String)
+            .unwrap_or(serde_json::Value::Null);
+    }
+    if let Ok(v) = row.try_get::<Option<Vec<u8>>, _>(column_name) {
+        return v
+            .map(|bytes| serde_json::Value::String(String::from_utf8_lossy(&bytes).to_string()))
+            .unwrap_or(serde_json::Value::Null);
+    }
+
+    serde_json::Value::Null
+}
+
+fn decode_mysql_rows_without_projection(
+    rows: &[sqlx::mysql::MySqlRow],
+    high_precision_cols: &HashSet<String>,
+) -> Vec<serde_json::Value> {
+    let mut data = Vec::with_capacity(rows.len());
+    for row in rows {
+        let mut obj = serde_json::Map::new();
+        for col in row.columns() {
+            let name = col.name();
+            obj.insert(
+                name.to_string(),
+                decode_mysql_cell_to_json(row, name, high_precision_cols),
+            );
+        }
+        data.push(serde_json::Value::Object(obj));
+    }
+    data
 }
 
 fn decode_mysql_json_cell(
@@ -1439,6 +1593,19 @@ mod tests {
         ));
         assert!(!is_prepared_protocol_unsupported_error(
             "syntax error near ...",
+        ));
+    }
+
+    #[test]
+    fn test_is_missing_mysql_json_object_function() {
+        assert!(is_missing_mysql_json_object_function(
+            "error returned from database: 1305 (42000): FUNCTION JSON_OBJECT does not exist"
+        ));
+        assert!(is_missing_mysql_json_object_function(
+            "unknown function json object"
+        ));
+        assert!(!is_missing_mysql_json_object_function(
+            "error returned from database: 1146 (42S02): Table 'demo.missing' doesn't exist"
         ));
     }
 }

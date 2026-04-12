@@ -43,6 +43,10 @@ case "${it_db}" in
     run_integration_test "starrocks_integration"
     run_integration_test "starrocks_command_integration"
     ;;
+  doris)
+    run_integration_test "doris_integration"
+    run_integration_test "doris_command_integration"
+    ;;
   mariadb)
     run_integration_test "mariadb_integration"
     run_integration_test "mariadb_command_integration"
@@ -78,6 +82,8 @@ case "${it_db}" in
     run_integration_test "mysql_stateful_command_integration"
     run_integration_test "mariadb_integration"
     run_integration_test "mariadb_command_integration"
+    run_integration_test "doris_integration"
+    run_integration_test "doris_command_integration"
     run_integration_test "postgres_integration"
     run_integration_test "postgres_command_integration"
     run_integration_test "postgres_stateful_command_integration"
@@ -93,7 +99,7 @@ case "${it_db}" in
     run_integration_test "oracle_command_integration"
     ;;
   *)
-    echo "[error] Invalid IT_DB='${it_db}'. Expected one of: mysql|starrocks|mariadb|postgres|clickhouse|mssql|duckdb|sqlite|oracle|all"
+    echo "[error] Invalid IT_DB='${it_db}'. Expected one of: mysql|starrocks|doris|mariadb|postgres|clickhouse|mssql|duckdb|sqlite|oracle|all"
     exit 1
     ;;
 esac

@@ -125,6 +125,21 @@ mod tests {
     }
 
     #[test]
+    fn normalize_prefers_embedded_doris_port_over_existing_port() {
+        let form = ConnectionForm {
+            driver: "doris".to_string(),
+            host: Some("127.0.0.1:9031".to_string()),
+            port: Some(9030),
+            username: Some("root".to_string()),
+            ..Default::default()
+        };
+
+        let normalized = normalize_connection_form(form).unwrap();
+        assert_eq!(normalized.host, Some("127.0.0.1".to_string()));
+        assert_eq!(normalized.port, Some(9031));
+    }
+
+    #[test]
     fn normalize_prefers_embedded_mysql_port_over_existing_port() {
         let form = ConnectionForm {
             driver: "mysql".to_string(),

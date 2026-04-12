@@ -688,10 +688,10 @@ fn import_transaction_sql<'a>(
 ) -> Result<(&'a str, &'a str, &'a str), String> {
     match normalized_driver {
         "mysql" | "mariadb" | "tidb" => Ok(("START TRANSACTION", "COMMIT", "ROLLBACK")),
-        "starrocks" => Err(
-            "[UNSUPPORTED] Driver starrocks does not support transactional SQL import in this flow"
-                .to_string(),
-        ),
+        "starrocks" | "doris" => Err(format!(
+            "[UNSUPPORTED] Driver {} does not support transactional SQL import in this flow",
+            original_driver
+        )),
         "postgres" | "sqlite" | "duckdb" => Ok(("BEGIN", "COMMIT", "ROLLBACK")),
         "mssql" => Ok((
             "BEGIN TRANSACTION",
