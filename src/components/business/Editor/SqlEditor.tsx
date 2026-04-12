@@ -72,6 +72,7 @@ import { collectSelectedSql } from "./sqlSelection";
 import { getThemePreset, type ThemeId } from "@/theme/themeRegistry";
 import { CLICKHOUSE_COMPLETIONS } from "./clickhouseKeywords";
 import { useTranslation } from "react-i18next";
+import { buildSqlContextualCompletion } from "./sqlCompletionContext";
 
 const editorFontSizeExtension = EditorView.theme({
   ".cm-scroller": {
@@ -553,42 +554,15 @@ export function SqlEditor({
     return schemaMap;
   }, [schemaOverview]);
 
-  // Create a custom completion source for global column suggestions
   const globalCompletion = useMemo(() => {
     if (!schemaOverview) return null;
 
-    // Flatten all columns from all tables
-    const options = schemaOverview.tables.flatMap((t) =>
-      t.columns.map((c) => ({
-        label: c.name,
-        type: "property", // Icon type
-        detail: t.name, // Show table name as detail
-        boost: -1, // Lower priority than keywords/tables usually, but available
-      })),
-    );
-
-    // Add tables as well for quick access without context
-    const tableOptions = schemaOverview.tables.map((t) => ({
-      label: t.name,
-      type: "class",
-      detail: t.schema || "table",
-      boost: 0,
-    }));
-
-    const allOptions = [...options, ...tableOptions];
-
-    return (context: CompletionContext) => {
-      let word = context.matchBefore(/[\w\.]*/);
-      if (!word || (word.from === word.to && !context.explicit)) return null;
-
-      // If typing after a dot, let the default SQL completer handle it (it's context aware)
-      if (word.text.includes(".")) return null;
-
-      return {
-        from: word.from,
-        options: allOptions,
-      };
-    };
+    return (context: CompletionContext): CompletionResult | null =>
+      buildSqlContextualCompletion({
+        textBeforeCursor: context.state.sliceDoc(0, context.pos),
+        explicit: context.explicit,
+        schemaOverview,
+      });
   }, [schemaOverview]);
 
   const clickhouseCompletion = useMemo(() => {
