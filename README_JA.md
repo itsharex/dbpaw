@@ -29,13 +29,19 @@
 
 </div>
 
-**DbPaw** は PostgreSQL / MySQL / MariaDB（MySQL 互換）/ TiDB（MySQL 互換）/ SQLite / SQL Server / ClickHouse（プレビュー）に接続し、SQL の作成・実行とデータ確認を、クリーンなデスクトップ UI で快適に行えます。
+**DbPaw** は PostgreSQL / MySQL / MariaDB（MySQL 互換）/ TiDB（MySQL 互換）/ SQLite / SQL Server / ClickHouse（プレビュー）/ DuckDB（テスト中）/ StarRocks（テスト中）/ Doris（テスト中）/ Oracle（テスト中）に接続し、SQL の作成・実行とデータ確認を、クリーンなデスクトップ UI で快適に行えます。
 
 ## ✅ できること
 
-- PostgreSQL、MySQL、MariaDB（MySQL 互換）、TiDB（MySQL 互換）、SQLite、SQL Server、ClickHouse（プレビュー、現状は読み取り専用）に接続
+- PostgreSQL、MySQL、MariaDB（MySQL 互換）、TiDB（MySQL 互換）、SQLite、SQL Server、ClickHouse（プレビュー、現状は読み取り専用）、DuckDB（テスト中）、StarRocks（テスト中）、Doris（テスト中）、Oracle（テスト中）に接続
 - SQL の作成・実行（シンタックスハイライト、補完、ワンクリック整形）
-- データグリッドで結果を閲覧（フィルタ、ソート、ページネーション、エクスポート）
+- データグリッドで結果を閲覧（フィルタ、ソート、ページネーション）
+- テーブルデータやクエリ結果を **CSV・JSON・SQL**（DDL のみ / DML のみ / DDL+DML）でエクスポート。範囲は現在ページ・フィルタ済み行・全件から選択可
+- データベース全体を SQL ファイル（スキーマ＋データ）としてエクスポート
+- `.sql` ファイルを MySQL/MariaDB/TiDB/PostgreSQL/SQLite/DuckDB/SQL Server へインポート（失敗時は全量ロールバック）
+- GUI で**テーブルを作成・変更** — DDL を手書きせず操作可能
+- テーブル構造（列・型・主キー・インデックス）と DDL を確認
+- **SQL 実行ログ**で全クエリの履歴・実行時間・ステータスを追跡
 - `Saved Queries` でよく使う SQL を保存・再利用
 - AI サイドバーで SQL 作成補助やクエリ説明（任意）
 - SSH トンネル経由でリモート DB に安全に接続
@@ -59,7 +65,9 @@
 - **超軽量**: インストーラは約 10MB、インストール後は約 80MB。常駐メモリも極小（Electron 系ツールを大きく下回ります）。
 - **真にモダン**: DBeaver の「コックピット」的な複雑 UI から卒業。開発者が一生使わない 99% をそぎ落とし、よく使うシナリオに集中。より直感的でスムーズな操作感。
 - **クロスプラットフォーム**: macOS / Windows / Linux をサポート（職場と自宅で別アプリを使い分ける必要なし）。
-- **DB 互換**: 現在は MySQL、MariaDB（MySQL 互換）、PostgreSQL、ClickHouse、TiDB、SQL Server、SQLite に対応（対応拡大中）。
+- **DB 互換**: 現在は MySQL、MariaDB（MySQL 互換）、PostgreSQL、ClickHouse、TiDB、SQL Server、SQLite、DuckDB（テスト中）、StarRocks（テスト中）、Doris（テスト中）、Oracle（テスト中）に対応（対応拡大中）。
+- **豊富なデータ転送**: CSV / JSON / SQL（DDL・DML・両方）へのエクスポート、トランザクション付き SQL インポート＆ロールバック、データベース全体の SQL ダンプに対応。
+- **スキーマ管理**: テーブル構造・DDL を閲覧でき、GUI でテーブルの作成・変更も可能。DDL を手書きする必要なし。
 - **ルックス良し**: 多数のテーマ（ダーク/ライト、高彩度/低彩度など）を同梱。
 - **組み込み AI 支援（実験的）**: SQL 要約、スキーマ説明、遅いクエリ分析などに対応（セキュリティは継続改善中。今後はローカル/選択式クラウドモードを追加予定）。
 - **完全無料**: ログイン不要、課金なし、会員機能なし、広告なし。
