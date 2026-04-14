@@ -2433,6 +2433,27 @@ export function ConnectionList({
                       </div>
                     </div>
                   )}
+                  {form.driver === "sqlite" && (
+                    <div className="grid gap-2">
+                      <Label htmlFor="sqliteKey">
+                        {t("connection.dialog.fields.sqliteKey")}
+                      </Label>
+                      <Input
+                        id="sqliteKey"
+                        type="password"
+                        placeholder={t(
+                          "connection.dialog.placeholders.sqliteKey",
+                        )}
+                        value={form.password || ""}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            password: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button

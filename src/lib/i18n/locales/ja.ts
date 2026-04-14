@@ -226,6 +226,7 @@ export const ja: Translations = {
         sshPassword: "SSH パスワード",
         sshKeyPath: "SSH キーパス",
         sqliteFilePath: "SQLite ファイルパス",
+        sqliteKey: "暗号化キー（SQLCipher）",
         duckdbFilePath: "DuckDB ファイルパス",
       },
       placeholders: {
@@ -238,6 +239,7 @@ export const ja: Translations = {
         sshPassword: "キー利用時は任意",
         sshKeyPath: "/path/to/private_key",
         sqlitePath: "/path/to/db.sqlite",
+        sqliteKey: "暗号化されていないデータベースは空欄のまま",
         duckdbPath: "/path/to/db.duckdb",
       },
       fileDialogTitle: "SQLite データベースファイルを選択",

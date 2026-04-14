@@ -998,3 +998,142 @@ async fn test_sqlite_prepared_statements_prepare_execute_and_deallocate() {
     driver.close().await;
     let _ = std::fs::remove_file(db_path);
 }
+
+// ── SQLCipher encryption tests ──────────────────────────────────────────────
+
+/// Create an encrypted SQLite file at `path_str` using `key`, create a probe
+/// table inside it, then close the connection.  Used as test setup.
+async fn create_encrypted_sqlite(path_str: &str, key: &str, table: &str) {
+    let form = ConnectionForm {
+        driver: "sqlite".to_string(),
+        file_path: Some(path_str.to_string()),
+        password: Some(key.to_string()),
+        ..Default::default()
+    };
+    let driver = SqliteDriver::connect(&form)
+        .await
+        .expect("setup: connect with key should succeed");
+    driver
+        .execute_query(format!("CREATE TABLE {table} (id INTEGER PRIMARY KEY)"))
+        .await
+        .expect("setup: create probe table should succeed");
+    driver.close().await;
+}
+
+/// Connect to a SQLite file with the given optional key and try to read `table`.
+/// Returns Ok if the read succeeds, Err (from either connect or query) otherwise.
+///
+/// Note: `SELECT 1` would pass even on an encrypted file opened without the
+/// correct key because it never reads disk pages.  Querying a real table is the
+/// reliable way to detect a wrong / missing key.
+async fn try_read_table(path_str: &str, key: Option<&str>, table: &str) -> Result<(), String> {
+    let form = ConnectionForm {
+        driver: "sqlite".to_string(),
+        file_path: Some(path_str.to_string()),
+        password: key.map(str::to_string),
+        ..Default::default()
+    };
+    match SqliteDriver::connect(&form).await {
+        Err(e) => Err(e),
+        Ok(d) => d
+            .execute_query(format!("SELECT * FROM {table}"))
+            .await
+            .map(|_| ()),
+    }
+}
+
+/// Create an encrypted database, write and read data back, then reopen it with
+/// the same key and verify the data is still there.
+#[tokio::test]
+#[ignore]
+async fn test_sqlite_sqlcipher_basic_operations_with_key() {
+    let db_path = sqlite_test_path();
+    let db_path_str = db_path.to_string_lossy().to_string();
+
+    let form = ConnectionForm {
+        driver: "sqlite".to_string(),
+        file_path: Some(db_path_str.clone()),
+        password: Some("test_secret_key".to_string()),
+        ..Default::default()
+    };
+
+    // --- create & populate ---
+    let driver = SqliteDriver::connect(&form)
+        .await
+        .expect("connect with key should succeed");
+    driver
+        .test_connection()
+        .await
+        .expect("test_connection on encrypted db should succeed");
+    driver
+        .execute_query(
+            "CREATE TABLE dbpaw_cipher_probe (id INTEGER PRIMARY KEY, label TEXT)".to_string(),
+        )
+        .await
+        .expect("create table on encrypted db should succeed");
+    driver
+        .execute_query(
+            "INSERT INTO dbpaw_cipher_probe (id, label) VALUES (1, 'hello_cipher')".to_string(),
+        )
+        .await
+        .expect("insert into encrypted db should succeed");
+    let result = driver
+        .execute_query("SELECT label FROM dbpaw_cipher_probe WHERE id = 1".to_string())
+        .await
+        .expect("select from encrypted db should succeed");
+    assert_eq!(result.data.len(), 1);
+    assert_eq!(result.data[0]["label"], "hello_cipher");
+    driver.close().await;
+
+    // --- reopen with same key, verify persistence ---
+    let driver2 = SqliteDriver::connect(&form)
+        .await
+        .expect("re-connect with same key should succeed");
+    let reopen = driver2
+        .execute_query("SELECT label FROM dbpaw_cipher_probe WHERE id = 1".to_string())
+        .await
+        .expect("select after reopen should succeed");
+    assert_eq!(reopen.data.len(), 1);
+    assert_eq!(reopen.data[0]["label"], "hello_cipher");
+    driver2.close().await;
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+/// Opening an encrypted database without providing a key must fail.
+#[tokio::test]
+#[ignore]
+async fn test_sqlite_sqlcipher_open_without_key_fails() {
+    let db_path = sqlite_test_path();
+    let db_path_str = db_path.to_string_lossy().to_string();
+
+    create_encrypted_sqlite(&db_path_str, "correct_key", "dbpaw_nokey_probe").await;
+
+    assert!(
+        try_read_table(&db_path_str, None, "dbpaw_nokey_probe")
+            .await
+            .is_err(),
+        "expected error when querying encrypted db without key"
+    );
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+/// Opening an encrypted database with the wrong key must fail.
+#[tokio::test]
+#[ignore]
+async fn test_sqlite_sqlcipher_open_with_wrong_key_fails() {
+    let db_path = sqlite_test_path();
+    let db_path_str = db_path.to_string_lossy().to_string();
+
+    create_encrypted_sqlite(&db_path_str, "correct_key", "dbpaw_wrongkey_probe").await;
+
+    assert!(
+        try_read_table(&db_path_str, Some("wrong_key"), "dbpaw_wrongkey_probe")
+            .await
+            .is_err(),
+        "expected error when querying encrypted db with wrong key"
+    );
+
+    let _ = std::fs::remove_file(db_path);
+}

@@ -224,6 +224,7 @@ export const en = {
         sshPassword: "SSH Password",
         sshKeyPath: "SSH Key Path",
         sqliteFilePath: "SQLite File Path",
+        sqliteKey: "Encryption Key (SQLCipher)",
         duckdbFilePath: "DuckDB File Path",
       },
       placeholders: {
@@ -236,6 +237,7 @@ export const en = {
         sshPassword: "Optional if using key",
         sshKeyPath: "/path/to/private_key",
         sqlitePath: "/path/to/db.sqlite",
+        sqliteKey: "Leave empty for unencrypted databases",
         duckdbPath: "/path/to/db.duckdb",
       },
       fileDialogTitle: "Select SQLite Database File",

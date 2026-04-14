@@ -220,6 +220,7 @@ export const zh: Translations = {
         sshPassword: "SSH 密码",
         sshKeyPath: "SSH 密钥路径",
         sqliteFilePath: "SQLite 文件路径",
+        sqliteKey: "加密密钥（SQLCipher）",
         duckdbFilePath: "DuckDB 文件路径",
       },
       placeholders: {
@@ -232,6 +233,7 @@ export const zh: Translations = {
         sshPassword: "使用密钥时可选填",
         sshKeyPath: "/path/to/private_key",
         sqlitePath: "/path/to/db.sqlite",
+        sqliteKey: "未加密数据库请留空",
         duckdbPath: "/path/to/db.duckdb",
       },
       fileDialogTitle: "选择 SQLite 数据库文件",

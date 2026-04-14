@@ -5,7 +5,10 @@ use crate::models::{
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, NaiveTime, Utc};
-use sqlx::{sqlite::SqlitePoolOptions, Column, Executor, Row, TypeInfo, ValueRef};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    Column, Executor, Row, TypeInfo, ValueRef,
+};
 use std::collections::HashMap;
 
 #[derive(Debug)]
@@ -13,24 +16,34 @@ pub struct SqliteDriver {
     pub pool: sqlx::SqlitePool,
 }
 
-fn build_dsn(form: &ConnectionForm) -> Result<String, String> {
-    let file_path = form
-        .file_path
-        .clone()
-        .filter(|v| !v.trim().is_empty())
-        .ok_or("[VALIDATION_ERROR] file_path cannot be empty")?;
-    Ok(format!("sqlite://{}?mode=rwc", file_path))
-}
-
 impl SqliteDriver {
     pub async fn connect(form: &ConnectionForm) -> Result<Self, String> {
-        let dsn = build_dsn(form)?;
+        let file_path = form
+            .file_path
+            .as_deref()
+            .filter(|v| !v.trim().is_empty())
+            .ok_or("[VALIDATION_ERROR] file_path cannot be empty")?;
+
+        let mut opts = SqliteConnectOptions::new()
+            .filename(file_path)
+            .create_if_missing(true);
+
+        if let Some(key) = form.password.as_deref().filter(|k| !k.is_empty()) {
+            opts = opts.pragma("key", key.to_string());
+        }
+
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .acquire_timeout(std::time::Duration::from_secs(3))
-            .connect(&dsn)
+            .connect_with(opts)
             .await
-            .map_err(|e| format!("[CONN_FAILED] {e}"))?;
+            .map_err(|e| {
+                if e.to_string().contains("not a database") {
+                    "[CONN_FAILED] Cannot open database: the file is encrypted or the key is incorrect. Please provide the correct SQLCipher passphrase.".to_string()
+                } else {
+                    format!("[CONN_FAILED] {e}")
+                }
+            })?;
 
         Ok(Self { pool })
     }
