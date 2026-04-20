@@ -518,8 +518,7 @@ async fn test_starrocks_command_execute_query_by_id_invalid_sql_returns_error() 
     wait_until_starrocks_ready(&form).await;
 
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_starrocks_connection_for_state(&state, &form, "query-by-id-invalid").await;
+    let conn_id = create_starrocks_connection_for_state(&state, &form, "query-by-id-invalid").await;
 
     let db_name = unique_name("dbpaw_starrocks_invalid_query_db");
     let driver = MysqlDriver::connect(&form)

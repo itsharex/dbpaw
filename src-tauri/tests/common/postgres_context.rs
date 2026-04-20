@@ -43,10 +43,7 @@ fn postgres_form_from_env(host: &str, port: u16) -> ConnectionForm {
             &["POSTGRES_PORT", "PG_PORT"],
             i64::from(port),
         )),
-        username: Some(shared::env_or_any(
-            &["POSTGRES_USER", "PGUSER"],
-            "postgres",
-        )),
+        username: Some(shared::env_or_any(&["POSTGRES_USER", "PGUSER"], "postgres")),
         password: Some(shared::env_or_any(
             &["POSTGRES_PASSWORD", "PGPASSWORD"],
             "postgres",
@@ -70,8 +67,8 @@ pub fn shared_postgres_form() -> ConnectionForm {
 
     let (_container, form) = SHARED_CONTAINER.get_or_init(|| {
         let cli: &'static Cli = Box::leak(Box::new(Cli::default()));
-        let runnable = postgres_image()
-            .with_container_name(shared::unique_container_name("postgres-shared"));
+        let runnable =
+            postgres_image().with_container_name(shared::unique_container_name("postgres-shared"));
         let container: &'static Container<'static, GenericImage> =
             Box::leak(Box::new(cli.run(runnable)));
         let port = container.get_host_port_ipv4(5432);
@@ -94,8 +91,7 @@ pub fn postgres_form_from_test_context<'a>(
     shared::ensure_docker_available();
 
     let docker = docker.expect("docker client is required when IT_REUSE_LOCAL_DB is not set");
-    let runnable =
-        postgres_image().with_container_name(shared::unique_container_name("postgres"));
+    let runnable = postgres_image().with_container_name(shared::unique_container_name("postgres"));
     let container = docker.run(runnable);
     let port = container.get_host_port_ipv4(5432);
     shared::wait_for_port("127.0.0.1", port, Duration::from_secs(45));

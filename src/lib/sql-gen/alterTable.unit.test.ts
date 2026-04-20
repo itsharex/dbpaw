@@ -20,7 +20,9 @@ function alterCol(
   name: string,
   dataType: string,
   originalName: string | null,
-  opts: Partial<Omit<AlterColumnDef, "id" | "name" | "dataType" | "originalName">> = {},
+  opts: Partial<
+    Omit<AlterColumnDef, "id" | "name" | "dataType" | "originalName">
+  > = {},
 ): AlterColumnDef {
   return {
     id: name,
@@ -90,7 +92,13 @@ describe("generateAlterTableSQL: no changes", () => {
       alterCol("id", "integer", "id"),
       alterCol("name", "text", "name"),
     ];
-    const result = generateAlterTableSQL("public", "users", orig, next, "postgres");
+    const result = generateAlterTableSQL(
+      "public",
+      "users",
+      orig,
+      next,
+      "postgres",
+    );
     expect(result.sql).toBe("");
     expect(result.unsupportedOps).toEqual([]);
   });
@@ -105,7 +113,13 @@ describe("generateAlterTableSQL: ADD COLUMN", () => {
       alterCol("id", "integer", "id"),
       alterCol("email", "TEXT", null),
     ];
-    const { sql } = generateAlterTableSQL("public", "users", orig, next, "postgres");
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "users",
+      orig,
+      next,
+      "postgres",
+    );
     expect(sql).toBe(`ALTER TABLE "public"."users" ADD COLUMN "email" TEXT;`);
   });
 
@@ -145,8 +159,16 @@ describe("generateAlterTableSQL: ADD COLUMN", () => {
       alterCol("id", "NUMBER", "id"),
       alterCol("email", "VARCHAR2", null, { length: "255" }),
     ];
-    const { sql } = generateAlterTableSQL("hr", "employees", orig, next, "oracle");
-    expect(sql).toBe(`ALTER TABLE "hr"."employees" ADD ("email" VARCHAR2(255));`);
+    const { sql } = generateAlterTableSQL(
+      "hr",
+      "employees",
+      orig,
+      next,
+      "oracle",
+    );
+    expect(sql).toBe(
+      `ALTER TABLE "hr"."employees" ADD ("email" VARCHAR2(255));`,
+    );
   });
 
   test("clickhouse — uses ADD COLUMN with backtick table (no schema prefix)", () => {
@@ -155,7 +177,13 @@ describe("generateAlterTableSQL: ADD COLUMN", () => {
       alterCol("id", "UInt64", "id"),
       alterCol("score", "Float64", null),
     ];
-    const { sql } = generateAlterTableSQL("default", "events", orig, next, "clickhouse");
+    const { sql } = generateAlterTableSQL(
+      "default",
+      "events",
+      orig,
+      next,
+      "clickhouse",
+    );
     expect(sql).toBe("ALTER TABLE `events` ADD COLUMN `score` Float64;");
   });
 
@@ -165,7 +193,13 @@ describe("generateAlterTableSQL: ADD COLUMN", () => {
       alterCol("id", "INTEGER", "id"),
       alterCol("note", "TEXT", null),
     ];
-    const { sql } = generateAlterTableSQL("main", "tasks", orig, next, "sqlite");
+    const { sql } = generateAlterTableSQL(
+      "main",
+      "tasks",
+      orig,
+      next,
+      "sqlite",
+    );
     expect(sql).toBe(`ALTER TABLE "tasks" ADD COLUMN "note" TEXT;`);
   });
 
@@ -175,7 +209,13 @@ describe("generateAlterTableSQL: ADD COLUMN", () => {
       alterCol("id", "INTEGER", "id"),
       alterCol("note", "TEXT", null),
     ];
-    const { sql } = generateAlterTableSQL("main", "tasks", orig, next, "duckdb");
+    const { sql } = generateAlterTableSQL(
+      "main",
+      "tasks",
+      orig,
+      next,
+      "duckdb",
+    );
     expect(sql).toBe(`ALTER TABLE "tasks" ADD COLUMN "note" TEXT;`);
   });
 
@@ -185,8 +225,16 @@ describe("generateAlterTableSQL: ADD COLUMN", () => {
       alterCol("id", "integer", "id"),
       alterCol("status", "TEXT", null, { notNull: true }),
     ];
-    const { sql } = generateAlterTableSQL("public", "t", orig, next, "postgres");
-    expect(sql).toBe(`ALTER TABLE "public"."t" ADD COLUMN "status" TEXT NOT NULL;`);
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "t",
+      orig,
+      next,
+      "postgres",
+    );
+    expect(sql).toBe(
+      `ALTER TABLE "public"."t" ADD COLUMN "status" TEXT NOT NULL;`,
+    );
   });
 
   test("ADD COLUMN with default value", () => {
@@ -195,8 +243,16 @@ describe("generateAlterTableSQL: ADD COLUMN", () => {
       alterCol("id", "integer", "id"),
       alterCol("active", "BOOLEAN", null, { defaultValue: "TRUE" }),
     ];
-    const { sql } = generateAlterTableSQL("public", "t", orig, next, "postgres");
-    expect(sql).toBe(`ALTER TABLE "public"."t" ADD COLUMN "active" BOOLEAN DEFAULT TRUE;`);
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "t",
+      orig,
+      next,
+      "postgres",
+    );
+    expect(sql).toBe(
+      `ALTER TABLE "public"."t" ADD COLUMN "active" BOOLEAN DEFAULT TRUE;`,
+    );
   });
 
   test("skips new column with blank name or type", () => {
@@ -205,7 +261,13 @@ describe("generateAlterTableSQL: ADD COLUMN", () => {
       alterCol("id", "integer", "id"),
       alterCol("", "TEXT", null), // blank name — should be skipped
     ];
-    const { sql } = generateAlterTableSQL("public", "t", orig, next, "postgres");
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "t",
+      orig,
+      next,
+      "postgres",
+    );
     expect(sql).toBe("");
   });
 });
@@ -263,7 +325,9 @@ describe("generateAlterTableSQL: DROP COLUMN", () => {
 describe("generateAlterTableSQL: RENAME COLUMN", () => {
   test("mysql — uses CHANGE COLUMN for rename (no type change)", () => {
     const orig = [col("old_name", "VARCHAR(255)")];
-    const next = [alterCol("new_name", "VARCHAR", "old_name", { length: "255" })];
+    const next = [
+      alterCol("new_name", "VARCHAR", "old_name", { length: "255" }),
+    ];
     const { sql } = generateAlterTableSQL("mydb", "users", orig, next, "mysql");
     expect(sql).toBe(
       "ALTER TABLE `users` CHANGE COLUMN `old_name` `new_name` VARCHAR(255);",
@@ -274,20 +338,30 @@ describe("generateAlterTableSQL: RENAME COLUMN", () => {
     const orig = [col("old_name", "TEXT")];
     const next = [alterCol("new_name", "TEXT", "old_name")];
     const { sql } = generateAlterTableSQL("mydb", "t", orig, next, "mariadb");
-    expect(sql).toBe("ALTER TABLE `t` CHANGE COLUMN `old_name` `new_name` TEXT;");
+    expect(sql).toBe(
+      "ALTER TABLE `t` CHANGE COLUMN `old_name` `new_name` TEXT;",
+    );
   });
 
   test("tidb — uses CHANGE COLUMN for rename", () => {
     const orig = [col("old_name", "BIGINT")];
     const next = [alterCol("new_name", "BIGINT", "old_name")];
     const { sql } = generateAlterTableSQL("mydb", "t", orig, next, "tidb");
-    expect(sql).toBe("ALTER TABLE `t` CHANGE COLUMN `old_name` `new_name` BIGINT;");
+    expect(sql).toBe(
+      "ALTER TABLE `t` CHANGE COLUMN `old_name` `new_name` BIGINT;",
+    );
   });
 
   test("postgres — uses RENAME COLUMN", () => {
     const orig = [col("old_name", "text")];
     const next = [alterCol("new_name", "text", "old_name")];
-    const { sql } = generateAlterTableSQL("public", "users", orig, next, "postgres");
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "users",
+      orig,
+      next,
+      "postgres",
+    );
     expect(sql).toBe(
       `ALTER TABLE "public"."users" RENAME COLUMN "old_name" TO "new_name";`,
     );
@@ -297,9 +371,7 @@ describe("generateAlterTableSQL: RENAME COLUMN", () => {
     const orig = [col("old_name", "TEXT")];
     const next = [alterCol("new_name", "TEXT", "old_name")];
     const { sql } = generateAlterTableSQL("main", "t", orig, next, "duckdb");
-    expect(sql).toBe(
-      `ALTER TABLE "t" RENAME COLUMN "old_name" TO "new_name";`,
-    );
+    expect(sql).toBe(`ALTER TABLE "t" RENAME COLUMN "old_name" TO "new_name";`);
   });
 
   test("sqlite — uses RENAME COLUMN", () => {
@@ -330,7 +402,13 @@ describe("generateAlterTableSQL: RENAME COLUMN", () => {
   test("clickhouse — uses RENAME COLUMN", () => {
     const orig = [col("old_name", "String")];
     const next = [alterCol("new_name", "String", "old_name")];
-    const { sql } = generateAlterTableSQL("default", "events", orig, next, "clickhouse");
+    const { sql } = generateAlterTableSQL(
+      "default",
+      "events",
+      orig,
+      next,
+      "clickhouse",
+    );
     expect(sql).toBe(
       "ALTER TABLE `events` RENAME COLUMN `old_name` TO `new_name`;",
     );
@@ -339,7 +417,13 @@ describe("generateAlterTableSQL: RENAME COLUMN", () => {
   test("oracle — uses RENAME COLUMN", () => {
     const orig = [col("old_name", "VARCHAR2")];
     const next = [alterCol("new_name", "VARCHAR2", "old_name")];
-    const { sql } = generateAlterTableSQL("hr", "employees", orig, next, "oracle");
+    const { sql } = generateAlterTableSQL(
+      "hr",
+      "employees",
+      orig,
+      next,
+      "oracle",
+    );
     expect(sql).toBe(
       `ALTER TABLE "hr"."employees" RENAME COLUMN "old_name" TO "new_name";`,
     );
@@ -367,7 +451,13 @@ describe("generateAlterTableSQL: type change", () => {
   test("postgres — ALTER COLUMN ... TYPE", () => {
     const orig = [col("bio", "text")];
     const next = [alterCol("bio", "VARCHAR", "bio", { length: "500" })];
-    const { sql } = generateAlterTableSQL("public", "users", orig, next, "postgres");
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "users",
+      orig,
+      next,
+      "postgres",
+    );
     expect(sql).toBe(
       `ALTER TABLE "public"."users" ALTER COLUMN "bio" TYPE VARCHAR(500);`,
     );
@@ -376,7 +466,13 @@ describe("generateAlterTableSQL: type change", () => {
   test("duckdb — ALTER COLUMN ... TYPE (same path as postgres)", () => {
     const orig = [col("bio", "TEXT")];
     const next = [alterCol("bio", "VARCHAR", "bio", { length: "500" })];
-    const { sql } = generateAlterTableSQL("main", "users", orig, next, "duckdb");
+    const { sql } = generateAlterTableSQL(
+      "main",
+      "users",
+      orig,
+      next,
+      "duckdb",
+    );
     expect(sql).toBe(
       `ALTER TABLE "users" ALTER COLUMN "bio" TYPE VARCHAR(500);`,
     );
@@ -421,7 +517,13 @@ describe("generateAlterTableSQL: NOT NULL change", () => {
   test("postgres — SET NOT NULL", () => {
     const orig = [col("email", "text", { nullable: true })];
     const next = [alterCol("email", "text", "email", { notNull: true })];
-    const { sql } = generateAlterTableSQL("public", "users", orig, next, "postgres");
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "users",
+      orig,
+      next,
+      "postgres",
+    );
     expect(sql).toBe(
       `ALTER TABLE "public"."users" ALTER COLUMN "email" SET NOT NULL;`,
     );
@@ -430,7 +532,13 @@ describe("generateAlterTableSQL: NOT NULL change", () => {
   test("postgres — DROP NOT NULL", () => {
     const orig = [col("email", "text", { nullable: false })];
     const next = [alterCol("email", "text", "email", { notNull: false })];
-    const { sql } = generateAlterTableSQL("public", "users", orig, next, "postgres");
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "users",
+      orig,
+      next,
+      "postgres",
+    );
     expect(sql).toBe(
       `ALTER TABLE "public"."users" ALTER COLUMN "email" DROP NOT NULL;`,
     );
@@ -453,8 +561,16 @@ describe("generateAlterTableSQL: NOT NULL change", () => {
 describe("generateAlterTableSQL: DEFAULT change", () => {
   test("postgres — SET DEFAULT", () => {
     const orig = [col("status", "text", { defaultValue: null })];
-    const next = [alterCol("status", "text", "status", { defaultValue: "active" })];
-    const { sql } = generateAlterTableSQL("public", "t", orig, next, "postgres");
+    const next = [
+      alterCol("status", "text", "status", { defaultValue: "active" }),
+    ];
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "t",
+      orig,
+      next,
+      "postgres",
+    );
     expect(sql).toContain("SET DEFAULT");
     expect(sql).toContain("'active'");
   });
@@ -462,7 +578,13 @@ describe("generateAlterTableSQL: DEFAULT change", () => {
   test("postgres — DROP DEFAULT when new default is empty", () => {
     const orig = [col("status", "text", { defaultValue: "active" })];
     const next = [alterCol("status", "text", "status", { defaultValue: "" })];
-    const { sql } = generateAlterTableSQL("public", "t", orig, next, "postgres");
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "t",
+      orig,
+      next,
+      "postgres",
+    );
     expect(sql).toBe(
       `ALTER TABLE "public"."t" ALTER COLUMN "status" DROP DEFAULT;`,
     );
@@ -494,8 +616,16 @@ describe("generateAlterTableSQL: DEFAULT change", () => {
 describe("generateAlterTableSQL: COMMENT change", () => {
   test("postgres — emits COMMENT ON COLUMN", () => {
     const orig = [col("email", "text", { comment: null })];
-    const next = [alterCol("email", "text", "email", { comment: "user email" })];
-    const { sql } = generateAlterTableSQL("public", "users", orig, next, "postgres");
+    const next = [
+      alterCol("email", "text", "email", { comment: "user email" }),
+    ];
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "users",
+      orig,
+      next,
+      "postgres",
+    );
     expect(sql).toBe(
       `COMMENT ON COLUMN "public"."users"."email" IS 'user email';`,
     );
@@ -504,15 +634,21 @@ describe("generateAlterTableSQL: COMMENT change", () => {
   test("postgres — sets comment to NULL when cleared", () => {
     const orig = [col("email", "text", { comment: "user email" })];
     const next = [alterCol("email", "text", "email", { comment: "" })];
-    const { sql } = generateAlterTableSQL("public", "users", orig, next, "postgres");
-    expect(sql).toBe(
-      `COMMENT ON COLUMN "public"."users"."email" IS NULL;`,
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "users",
+      orig,
+      next,
+      "postgres",
     );
+    expect(sql).toBe(`COMMENT ON COLUMN "public"."users"."email" IS NULL;`);
   });
 
   test("mysql — includes COMMENT in CHANGE COLUMN", () => {
     const orig = [col("email", "TEXT", { comment: null })];
-    const next = [alterCol("email", "TEXT", "email", { comment: "user email" })];
+    const next = [
+      alterCol("email", "TEXT", "email", { comment: "user email" }),
+    ];
     const { sql } = generateAlterTableSQL("mydb", "users", orig, next, "mysql");
     expect(sql).toBe(
       "ALTER TABLE `users` CHANGE COLUMN `email` `email` TEXT COMMENT 'user email';",
@@ -521,8 +657,16 @@ describe("generateAlterTableSQL: COMMENT change", () => {
 
   test("duckdb — does NOT emit COMMENT ON COLUMN (postgres-only feature)", () => {
     const orig = [col("email", "TEXT", { comment: null })];
-    const next = [alterCol("email", "TEXT", "email", { comment: "user email" })];
-    const { sql } = generateAlterTableSQL("main", "users", orig, next, "duckdb");
+    const next = [
+      alterCol("email", "TEXT", "email", { comment: "user email" }),
+    ];
+    const { sql } = generateAlterTableSQL(
+      "main",
+      "users",
+      orig,
+      next,
+      "duckdb",
+    );
     // duckdb shares postgres rename/type path but NOT the COMMENT ON COLUMN path
     expect(sql).not.toContain("COMMENT ON COLUMN");
   });
@@ -534,7 +678,13 @@ describe("generateAlterTableSQL: combined operations", () => {
   test("postgres — rename + type change produces two statements", () => {
     const orig = [col("old_bio", "text")];
     const next = [alterCol("bio", "VARCHAR", "old_bio", { length: "500" })];
-    const { sql } = generateAlterTableSQL("public", "users", orig, next, "postgres");
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "users",
+      orig,
+      next,
+      "postgres",
+    );
     const lines = sql.split("\n");
     expect(lines.length).toBe(2);
     expect(lines[0]).toContain("RENAME COLUMN");
@@ -559,13 +709,15 @@ describe("generateAlterTableSQL: combined operations", () => {
   });
 
   test("multiple drops produce multiple statements", () => {
-    const orig = [
-      col("id", "integer"),
-      col("a", "text"),
-      col("b", "text"),
-    ];
+    const orig = [col("id", "integer"), col("a", "text"), col("b", "text")];
     const next = [alterCol("id", "integer", "id")];
-    const { sql } = generateAlterTableSQL("public", "t", orig, next, "postgres");
+    const { sql } = generateAlterTableSQL(
+      "public",
+      "t",
+      orig,
+      next,
+      "postgres",
+    );
     expect(sql).toContain('"a"');
     expect(sql).toContain('"b"');
     expect(sql.split("\n").length).toBe(2);
@@ -578,7 +730,13 @@ describe("generateAlterTableSQL: schema qualification", () => {
   test("postgres with schema", () => {
     const orig = [col("id", "integer")];
     const next = [alterCol("id", "BIGINT", "id")];
-    const { sql } = generateAlterTableSQL("myschema", "t", orig, next, "postgres");
+    const { sql } = generateAlterTableSQL(
+      "myschema",
+      "t",
+      orig,
+      next,
+      "postgres",
+    );
     expect(sql).toContain('"myschema"."t"');
   });
 
@@ -593,7 +751,13 @@ describe("generateAlterTableSQL: schema qualification", () => {
   test("mssql with schema", () => {
     const orig = [col("id", "INT")];
     const next = [alterCol("id", "BIGINT", "id", { notNull: true })];
-    const { sql } = generateAlterTableSQL("sales", "orders", orig, next, "mssql");
+    const { sql } = generateAlterTableSQL(
+      "sales",
+      "orders",
+      orig,
+      next,
+      "mssql",
+    );
     expect(sql).toContain("[sales].[orders]");
   });
 
@@ -607,7 +771,13 @@ describe("generateAlterTableSQL: schema qualification", () => {
   test("oracle with schema", () => {
     const orig = [col("id", "NUMBER")];
     const next = [alterCol("new_id", "NUMBER", "id")];
-    const { sql } = generateAlterTableSQL("hr", "employees", orig, next, "oracle");
+    const { sql } = generateAlterTableSQL(
+      "hr",
+      "employees",
+      orig,
+      next,
+      "oracle",
+    );
     expect(sql).toContain('"hr"."employees"');
   });
 

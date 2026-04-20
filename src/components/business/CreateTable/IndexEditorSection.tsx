@@ -47,12 +47,15 @@ export function IndexEditorSection({
   const showIndexMethod = indexMethodOptions.length > 0;
   const showIndexClustered = driver === "mssql";
   const showIndexConcurrently = driver === "postgres";
-  const showMethodCol = showIndexMethod || showIndexClustered || showIndexConcurrently;
+  const showMethodCol =
+    showIndexMethod || showIndexClustered || showIndexConcurrently;
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium">{t("manageIndexes.form.indexes")}</span>
+        <span className="text-sm font-medium">
+          {t("manageIndexes.form.indexes")}
+        </span>
         {indexSupported && (
           <Button size="sm" variant="outline" onClick={onAdd}>
             <Plus className="w-3.5 h-3.5 mr-1" />
@@ -89,7 +92,9 @@ export function IndexEditorSection({
             <div
               key={def.id}
               className={`grid items-start px-2 py-2 gap-2 border-b last:border-b-0 hover:bg-muted/20 ${
-                highlightNew && def.originalName === null ? "bg-green-500/5" : ""
+                highlightNew && def.originalName === null
+                  ? "bg-green-500/5"
+                  : ""
               }`}
               style={{ gridTemplateColumns: indexGridTemplate(showMethodCol) }}
             >
@@ -127,7 +132,9 @@ export function IndexEditorSection({
                             : "bg-muted/40 border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground"
                         }`}
                       >
-                        {selected && <span className="mr-0.5 text-primary">✓</span>}
+                        {selected && (
+                          <span className="mr-0.5 text-primary">✓</span>
+                        )}
                         {col}
                       </button>
                     );
@@ -141,18 +148,26 @@ export function IndexEditorSection({
                     <Select
                       value={def.indexMethod || "__default__"}
                       onValueChange={(v) =>
-                        onUpdate(def.id, { indexMethod: v === "__default__" ? "" : v })
+                        onUpdate(def.id, {
+                          indexMethod: v === "__default__" ? "" : v,
+                        })
                       }
                     >
                       <SelectTrigger className="h-7 text-xs px-2 font-mono w-full">
-                        <SelectValue placeholder={t("manageIndexes.form.method")} />
+                        <SelectValue
+                          placeholder={t("manageIndexes.form.method")}
+                        />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__default__" className="text-xs">
                           default
                         </SelectItem>
                         {indexMethodOptions.map((m) => (
-                          <SelectItem key={m} value={m} className="text-xs font-mono">
+                          <SelectItem
+                            key={m}
+                            value={m}
+                            className="text-xs font-mono"
+                          >
                             {m}
                           </SelectItem>
                         ))}
@@ -163,7 +178,9 @@ export function IndexEditorSection({
                     <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
                       <Checkbox
                         checked={def.clustered}
-                        onCheckedChange={(v) => onUpdate(def.id, { clustered: !!v })}
+                        onCheckedChange={(v) =>
+                          onUpdate(def.id, { clustered: !!v })
+                        }
                       />
                       {t("manageIndexes.form.clustered")}
                     </label>
@@ -172,7 +189,9 @@ export function IndexEditorSection({
                     <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
                       <Checkbox
                         checked={def.concurrently}
-                        onCheckedChange={(v) => onUpdate(def.id, { concurrently: !!v })}
+                        onCheckedChange={(v) =>
+                          onUpdate(def.id, { concurrently: !!v })
+                        }
                       />
                       {t("manageIndexes.form.concurrently")}
                     </label>

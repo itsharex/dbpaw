@@ -47,12 +47,17 @@ function newDef(
 // ─── supportsIndexManagement ──────────────────────────────────────────────────
 
 describe("supportsIndexManagement", () => {
-  test.each(["mysql", "mariadb", "tidb", "postgres", "sqlite", "mssql", "duckdb"])(
-    "returns true for %s",
-    (driver) => {
-      expect(supportsIndexManagement(driver as never)).toBe(true);
-    },
-  );
+  test.each([
+    "mysql",
+    "mariadb",
+    "tidb",
+    "postgres",
+    "sqlite",
+    "mssql",
+    "duckdb",
+  ])("returns true for %s", (driver) => {
+    expect(supportsIndexManagement(driver as never)).toBe(true);
+  });
 
   test.each(["clickhouse", "starrocks"])("returns false for %s", (driver) => {
     expect(supportsIndexManagement(driver as never)).toBe(false);
@@ -97,12 +102,16 @@ describe("indexInfoToIndexDef", () => {
   });
 
   test("maps indexMethod from indexType", () => {
-    const def = indexInfoToIndexDef(idxInfo("i", ["col"], { indexType: "BTREE" }));
+    const def = indexInfoToIndexDef(
+      idxInfo("i", ["col"], { indexType: "BTREE" }),
+    );
     expect(def.indexMethod).toBe("BTREE");
   });
 
   test("MSSQL CLUSTERED indexType sets clustered=true", () => {
-    const def = indexInfoToIndexDef(idxInfo("i", ["col"], { indexType: "CLUSTERED" }));
+    const def = indexInfoToIndexDef(
+      idxInfo("i", ["col"], { indexType: "CLUSTERED" }),
+    );
     expect(def.clustered).toBe(true);
   });
 });
@@ -120,12 +129,24 @@ describe("generateManageIndexSQL — no changes", () => {
 
 describe("generateManageIndexSQL — new index", () => {
   test("mysql: CREATE INDEX with backtick quoting", () => {
-    const { sql } = generateManageIndexSQL("", "users", [], [newDef("idx_email", ["email"])], "mysql");
+    const { sql } = generateManageIndexSQL(
+      "",
+      "users",
+      [],
+      [newDef("idx_email", ["email"])],
+      "mysql",
+    );
     expect(sql).toBe("CREATE INDEX `idx_email` ON `users` (`email`);");
   });
 
   test("mysql: UNIQUE index", () => {
-    const { sql } = generateManageIndexSQL("", "t", [], [newDef("u", ["col"], { unique: true })], "mysql");
+    const { sql } = generateManageIndexSQL(
+      "",
+      "t",
+      [],
+      [newDef("u", ["col"], { unique: true })],
+      "mysql",
+    );
     expect(sql).toContain("UNIQUE");
   });
 
@@ -141,7 +162,13 @@ describe("generateManageIndexSQL — new index", () => {
   });
 
   test("postgres: double-quoted identifiers with schema", () => {
-    const { sql } = generateManageIndexSQL("public", "users", [], [newDef("idx_name", ["name"])], "postgres");
+    const { sql } = generateManageIndexSQL(
+      "public",
+      "users",
+      [],
+      [newDef("idx_name", ["name"])],
+      "postgres",
+    );
     expect(sql).toContain('"idx_name"');
     expect(sql).toContain('"public"."users"');
   });
@@ -169,13 +196,25 @@ describe("generateManageIndexSQL — new index", () => {
   });
 
   test("sqlite: no schema prefix", () => {
-    const { sql } = generateManageIndexSQL("main", "t", [], [newDef("i", ["col"])], "sqlite");
+    const { sql } = generateManageIndexSQL(
+      "main",
+      "t",
+      [],
+      [newDef("i", ["col"])],
+      "sqlite",
+    );
     expect(sql).not.toContain("main");
     expect(sql).toContain('"i"');
   });
 
   test("mssql: NONCLUSTERED by default", () => {
-    const { sql } = generateManageIndexSQL("dbo", "t", [], [newDef("i", ["col"])], "mssql");
+    const { sql } = generateManageIndexSQL(
+      "dbo",
+      "t",
+      [],
+      [newDef("i", ["col"])],
+      "mssql",
+    );
     expect(sql).toContain("NONCLUSTERED");
   });
 
@@ -192,13 +231,25 @@ describe("generateManageIndexSQL — new index", () => {
   });
 
   test("mssql: bracket quoting", () => {
-    const { sql } = generateManageIndexSQL("dbo", "t", [], [newDef("i", ["col"])], "mssql");
+    const { sql } = generateManageIndexSQL(
+      "dbo",
+      "t",
+      [],
+      [newDef("i", ["col"])],
+      "mssql",
+    );
     expect(sql).toContain("[i]");
     expect(sql).toContain("[dbo].[t]");
   });
 
   test("duckdb: no UNIQUE support (falls back to plain CREATE)", () => {
-    const { sql } = generateManageIndexSQL("", "t", [], [newDef("i", ["col"])], "duckdb");
+    const { sql } = generateManageIndexSQL(
+      "",
+      "t",
+      [],
+      [newDef("i", ["col"])],
+      "duckdb",
+    );
     expect(sql).toContain("CREATE INDEX");
   });
 
@@ -273,7 +324,13 @@ describe("generateManageIndexSQL — multi-statement output", () => {
   test("statements array matches sql lines", () => {
     const orig = [idxInfo("idx_a", ["a"])];
     const defs = [newDef("idx_b", ["b"])];
-    const { sql, statements } = generateManageIndexSQL("", "t", orig, defs, "mysql");
+    const { sql, statements } = generateManageIndexSQL(
+      "",
+      "t",
+      orig,
+      defs,
+      "mysql",
+    );
     expect(statements).toHaveLength(2);
     expect(sql.split("\n")).toHaveLength(2);
   });

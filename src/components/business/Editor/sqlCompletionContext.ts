@@ -1,10 +1,7 @@
 import type { Completion, CompletionResult } from "@codemirror/autocomplete";
 import type { SchemaOverview } from "@/services/api";
 
-type SqlCompletionClause =
-  | "table"
-  | "column"
-  | null;
+type SqlCompletionClause = "table" | "column" | null;
 
 type SqlCompletionContextInfo = {
   clause: SqlCompletionClause;

@@ -169,8 +169,7 @@ async fn test_mariadb_command_create_database_by_id_if_not_exists_idempotent() {
     let form = shared_mariadb_form();
     wait_until_ready(&form).await;
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_mariadb_connection_for_state(&state, &form, "create-db-idempotent").await;
+    let conn_id = create_mariadb_connection_for_state(&state, &form, "create-db-idempotent").await;
 
     let db_name = unique_name("dbpaw_cmd_idempotent_db");
     let payload = CreateDatabasePayload {
@@ -200,8 +199,7 @@ async fn test_mariadb_command_create_database_by_id_invalid_name_returns_validat
     let form = shared_mariadb_form();
     wait_until_ready(&form).await;
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_mariadb_connection_for_state(&state, &form, "invalid-db-name").await;
+    let conn_id = create_mariadb_connection_for_state(&state, &form, "invalid-db-name").await;
 
     let payload = CreateDatabasePayload {
         name: "   ".to_string(),
@@ -330,8 +328,7 @@ async fn test_mariadb_command_get_table_structure_missing_table_returns_error() 
         .unwrap_or_else(|| "test_db".to_string());
     let missing_table = unique_name("dbpaw_meta_missing");
 
-    let result =
-        metadata::get_table_structure_direct(&state, conn_id, schema, missing_table).await;
+    let result = metadata::get_table_structure_direct(&state, conn_id, schema, missing_table).await;
     assert!(result.is_err());
     let err = result.err().unwrap_or_default();
     assert!(!err.trim().is_empty());
@@ -376,8 +373,7 @@ async fn test_mariadb_command_get_table_metadata_contains_indexes_and_foreign_ke
     let form = shared_mariadb_form();
     wait_until_ready(&form).await;
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_mariadb_connection_for_state(&state, &form, "meta-metadata-success").await;
+    let conn_id = create_mariadb_connection_for_state(&state, &form, "meta-metadata-success").await;
     let schema = form
         .database
         .clone()
@@ -408,8 +404,7 @@ async fn test_mariadb_command_get_schema_overview_contains_target_schema() {
     let form = shared_mariadb_form();
     wait_until_ready(&form).await;
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_mariadb_connection_for_state(&state, &form, "meta-schema-overview").await;
+    let conn_id = create_mariadb_connection_for_state(&state, &form, "meta-schema-overview").await;
     let schema = form
         .database
         .clone()
@@ -441,8 +436,7 @@ async fn test_mariadb_command_execute_query_by_id_success() {
     let form = shared_mariadb_form();
     wait_until_ready(&form).await;
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_mariadb_connection_for_state(&state, &form, "query-by-id-success").await;
+    let conn_id = create_mariadb_connection_for_state(&state, &form, "query-by-id-success").await;
     let schema = form
         .database
         .clone()
@@ -471,8 +465,7 @@ async fn test_mariadb_command_execute_query_by_id_invalid_sql_returns_error() {
     let form = shared_mariadb_form();
     wait_until_ready(&form).await;
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_mariadb_connection_for_state(&state, &form, "query-by-id-invalid").await;
+    let conn_id = create_mariadb_connection_for_state(&state, &form, "query-by-id-invalid").await;
     let schema = form
         .database
         .clone()
@@ -500,8 +493,7 @@ async fn test_mariadb_command_list_sql_execution_logs_contains_recent_entries() 
     let form = shared_mariadb_form();
     wait_until_ready(&form).await;
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_mariadb_connection_for_state(&state, &form, "query-log-list").await;
+    let conn_id = create_mariadb_connection_for_state(&state, &form, "query-log-list").await;
     let schema = form
         .database
         .clone()
@@ -537,8 +529,7 @@ async fn test_mariadb_command_cancel_query_non_clickhouse_returns_false() {
     let form = shared_mariadb_form();
     wait_until_ready(&form).await;
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_mariadb_connection_for_state(&state, &form, "query-cancel-non-ch").await;
+    let conn_id = create_mariadb_connection_for_state(&state, &form, "query-cancel-non-ch").await;
 
     let canceled =
         query::cancel_query_direct(&state, conn_id.to_string(), "phase4-qid-cancel".to_string())
@@ -599,8 +590,7 @@ async fn test_mariadb_command_transfer_export_and_import_minimal_flow() {
     let form = shared_mariadb_form();
     wait_until_ready(&form).await;
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_mariadb_connection_for_state(&state, &form, "transfer-minimal").await;
+    let conn_id = create_mariadb_connection_for_state(&state, &form, "transfer-minimal").await;
     let schema = form
         .database
         .clone()
@@ -719,8 +709,7 @@ async fn test_mariadb_command_import_sql_file_supports_delimiter_script() {
     let form = shared_mariadb_form();
     wait_until_ready(&form).await;
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_mariadb_connection_for_state(&state, &form, "import-delimiter").await;
+    let conn_id = create_mariadb_connection_for_state(&state, &form, "import-delimiter").await;
     let schema = form
         .database
         .clone()
@@ -944,8 +933,7 @@ async fn test_mariadb_command_get_charsets_by_id_returns_standard_charsets() {
     let form = shared_mariadb_form();
     wait_until_ready(&form).await;
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_mariadb_connection_for_state(&state, &form, "get-charsets").await;
+    let conn_id = create_mariadb_connection_for_state(&state, &form, "get-charsets").await;
 
     let charsets = connection::get_mysql_charsets_by_id_direct(&state, conn_id)
         .await
@@ -991,8 +979,7 @@ async fn test_mariadb_command_get_collations_by_id_without_charset_returns_all()
     let form = shared_mariadb_form();
     wait_until_ready(&form).await;
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_mariadb_connection_for_state(&state, &form, "get-collations-all").await;
+    let conn_id = create_mariadb_connection_for_state(&state, &form, "get-collations-all").await;
 
     let collations = connection::get_mysql_collations_by_id_direct(&state, conn_id, None)
         .await

@@ -104,7 +104,9 @@ describe("indexGridTemplate", () => {
   test("includes method column when enabled", () => {
     const withMethod = indexGridTemplate(true);
     const withoutMethod = indexGridTemplate(false);
-    expect(withMethod.split(" ").length).toBe(withoutMethod.split(" ").length + 1);
+    expect(withMethod.split(" ").length).toBe(
+      withoutMethod.split(" ").length + 1,
+    );
   });
 });
 

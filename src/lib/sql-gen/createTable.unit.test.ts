@@ -126,13 +126,19 @@ describe("supportsAutoIncrement", () => {
 describe("generateCreateTableSQL: empty inputs", () => {
   test("returns empty string for blank table name", () => {
     expect(
-      generateCreateTableSQL(def("", "public", [col("id", "INTEGER")]), "postgres"),
+      generateCreateTableSQL(
+        def("", "public", [col("id", "INTEGER")]),
+        "postgres",
+      ),
     ).toBe("");
   });
 
   test("returns empty string for whitespace-only table name", () => {
     expect(
-      generateCreateTableSQL(def("   ", "public", [col("id", "INTEGER")]), "postgres"),
+      generateCreateTableSQL(
+        def("   ", "public", [col("id", "INTEGER")]),
+        "postgres",
+      ),
     ).toBe("");
   });
 
@@ -154,7 +160,9 @@ describe("generateCreateTableSQL: empty inputs", () => {
 describe("generateCreateTableSQL: postgres", () => {
   test("simple table with schema prefix", () => {
     const result = generateCreateTableSQL(
-      def("users", "public", [col("id", "BIGINT", { notNull: true, primaryKey: true })]),
+      def("users", "public", [
+        col("id", "BIGINT", { notNull: true, primaryKey: true }),
+      ]),
       "postgres",
     );
     expect(result).toBe(
@@ -233,7 +241,9 @@ describe("generateCreateTableSQL: postgres", () => {
 describe("generateCreateTableSQL: mysql", () => {
   test("uses backtick quoting and no schema prefix", () => {
     const result = generateCreateTableSQL(
-      def("users", "mydb", [col("id", "BIGINT", { primaryKey: true, notNull: true })]),
+      def("users", "mydb", [
+        col("id", "BIGINT", { primaryKey: true, notNull: true }),
+      ]),
       "mysql",
     );
     expect(result).toContain("CREATE TABLE `users`");
@@ -256,7 +266,9 @@ describe("generateCreateTableSQL: mysql", () => {
 
   test("COMMENT clause on column", () => {
     const result = generateCreateTableSQL(
-      def("users", "mydb", [col("email", "VARCHAR", { comment: "user email" })]),
+      def("users", "mydb", [
+        col("email", "VARCHAR", { comment: "user email" }),
+      ]),
       "mysql",
     );
     expect(result).toContain("COMMENT 'user email'");
@@ -283,7 +295,9 @@ describe("generateCreateTableSQL: mysql", () => {
 describe("generateCreateTableSQL: mssql", () => {
   test("uses bracket quoting with schema prefix", () => {
     const result = generateCreateTableSQL(
-      def("users", "dbo", [col("id", "INT", { primaryKey: true, notNull: true })]),
+      def("users", "dbo", [
+        col("id", "INT", { primaryKey: true, notNull: true }),
+      ]),
       "mssql",
     );
     expect(result).toContain("CREATE TABLE [dbo].[users]");
@@ -308,7 +322,9 @@ describe("generateCreateTableSQL: mssql", () => {
 
   test("no COMMENT clause (MSSQL does not support inline COMMENT)", () => {
     const result = generateCreateTableSQL(
-      def("users", "dbo", [col("email", "NVARCHAR", { comment: "user email" })]),
+      def("users", "dbo", [
+        col("email", "NVARCHAR", { comment: "user email" }),
+      ]),
       "mssql",
     );
     expect(result).not.toContain("COMMENT");
@@ -407,18 +423,13 @@ describe("generateCreateTableSQL: duckdb", () => {
 describe("generateCreateTableSQL: starrocks", () => {
   test("includes DISTRIBUTED BY when distribution is provided", () => {
     const result = generateCreateTableSQL(
-      def(
-        "events",
-        "mydb",
-        [col("id", "BIGINT")],
-        {
-          starrocksDistribution: {
-            type: "hash",
-            columns: ["id"],
-            buckets: "10",
-          },
+      def("events", "mydb", [col("id", "BIGINT")], {
+        starrocksDistribution: {
+          type: "hash",
+          columns: ["id"],
+          buckets: "10",
         },
-      ),
+      }),
       "starrocks",
     );
     expect(result).toContain("DISTRIBUTED BY HASH(`id`) BUCKETS 10");
@@ -426,14 +437,9 @@ describe("generateCreateTableSQL: starrocks", () => {
 
   test("random distribution", () => {
     const result = generateCreateTableSQL(
-      def(
-        "events",
-        "mydb",
-        [col("id", "BIGINT")],
-        {
-          starrocksDistribution: { type: "random", columns: [], buckets: "4" },
-        },
-      ),
+      def("events", "mydb", [col("id", "BIGINT")], {
+        starrocksDistribution: { type: "random", columns: [], buckets: "4" },
+      }),
       "starrocks",
     );
     expect(result).toContain("DISTRIBUTED BY RANDOM BUCKETS 4");

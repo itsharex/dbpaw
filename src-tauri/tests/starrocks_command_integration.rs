@@ -379,24 +379,14 @@ async fn test_starrocks_command_get_table_data_by_conn_pagination_works() {
     let mut form_with_db = form.clone();
     form_with_db.database = Some(db_name.clone());
 
-    let page1 = query::get_table_data_by_conn(
-        form_with_db.clone(),
-        db_name.clone(),
-        table.clone(),
-        1,
-        2,
-    )
-    .await
-    .expect("page 1 should succeed");
-    let page2 = query::get_table_data_by_conn(
-        form_with_db.clone(),
-        db_name.clone(),
-        table.clone(),
-        2,
-        2,
-    )
-    .await
-    .expect("page 2 should succeed");
+    let page1 =
+        query::get_table_data_by_conn(form_with_db.clone(), db_name.clone(), table.clone(), 1, 2)
+            .await
+            .expect("page 1 should succeed");
+    let page2 =
+        query::get_table_data_by_conn(form_with_db.clone(), db_name.clone(), table.clone(), 2, 2)
+            .await
+            .expect("page 2 should succeed");
 
     assert_eq!(page1.total, 3);
     assert_eq!(page1.limit, 2);
@@ -435,14 +425,9 @@ async fn test_starrocks_command_get_table_data_by_conn_invalid_pagination_return
     form_with_db.database = Some(db_name.clone());
     prepare_query_test_table(&form_with_db, &db_name, &table).await;
 
-    let result = query::get_table_data_by_conn(
-        form_with_db.clone(),
-        db_name.clone(),
-        table.clone(),
-        0,
-        10,
-    )
-    .await;
+    let result =
+        query::get_table_data_by_conn(form_with_db.clone(), db_name.clone(), table.clone(), 0, 10)
+            .await;
     assert!(result.is_err());
     let error = result.err().unwrap_or_default();
     assert!(error.contains("[VALIDATION_ERROR]"));

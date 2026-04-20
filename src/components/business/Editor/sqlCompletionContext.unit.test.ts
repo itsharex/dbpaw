@@ -45,12 +45,12 @@ describe("detectSqlCompletionContext", () => {
   });
 
   test("detects table completion while typing after JOIN", () => {
-    expect(detectSqlCompletionContext("SELECT * FROM users u JOIN ord")).toEqual(
-      {
-        clause: "table",
-        from: 27,
-      },
-    );
+    expect(
+      detectSqlCompletionContext("SELECT * FROM users u JOIN ord"),
+    ).toEqual({
+      clause: "table",
+      from: 27,
+    });
   });
 
   test("detects column completion after WHERE", () => {

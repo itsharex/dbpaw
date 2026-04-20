@@ -433,10 +433,7 @@ async fn test_doris_execute_query_reports_affected_rows() {
         .await;
 
     driver
-        .execute_query(format!(
-            "CREATE TABLE {} (id INT, name STRING)",
-            qualified
-        ))
+        .execute_query(format!("CREATE TABLE {} (id INT, name STRING)", qualified))
         .await
         .expect("create affected_rows probe table failed");
 

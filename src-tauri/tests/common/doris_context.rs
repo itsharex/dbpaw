@@ -54,8 +54,8 @@ pub fn shared_doris_form() -> ConnectionForm {
 
     let (_container, form) = SHARED_CONTAINER.get_or_init(|| {
         let cli: &'static Cli = Box::leak(Box::new(Cli::default()));
-        let runnable = doris_image()
-            .with_container_name(shared::unique_container_name("doris-shared"));
+        let runnable =
+            doris_image().with_container_name(shared::unique_container_name("doris-shared"));
         let container: &'static Container<'static, GenericImage> =
             Box::leak(Box::new(cli.run(runnable)));
         let port = container.get_host_port_ipv4(9030);
@@ -125,7 +125,9 @@ pub async fn wait_until_ready(form: &ConnectionForm) {
             }
         }
     }
-    panic!("Doris at {}:{} did not become ready in time: {last_error}",
+    panic!(
+        "Doris at {}:{} did not become ready in time: {last_error}",
         form.host.as_deref().unwrap_or("?"),
-        form.port.unwrap_or(9030));
+        form.port.unwrap_or(9030)
+    );
 }

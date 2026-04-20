@@ -246,15 +246,15 @@ async fn test_sqlite_command_get_table_structure_success() {
     let db_path = sqlite_test_path();
     let form = sqlite_form(&db_path);
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_sqlite_connection_for_state(&state, &form, "meta-structure-success").await;
+    let conn_id = create_sqlite_connection_for_state(&state, &form, "meta-structure-success").await;
     let parent = unique_name("dbpaw_meta_parent");
     let child = unique_name("dbpaw_meta_child");
     prepare_metadata_fixture(&form, &parent, &child).await;
 
-    let structure = metadata::get_table_structure_direct(&state, conn_id, "main".to_string(), child.clone())
-        .await
-        .expect("get_table_structure should succeed");
+    let structure =
+        metadata::get_table_structure_direct(&state, conn_id, "main".to_string(), child.clone())
+            .await
+            .expect("get_table_structure should succeed");
     assert!(structure.columns.iter().any(|c| c.name == "id"));
     assert!(structure.columns.iter().any(|c| c.name == "parent_id"));
 
@@ -269,8 +269,7 @@ async fn test_sqlite_command_get_table_structure_missing_table_returns_error() {
     let db_path = sqlite_test_path();
     let form = sqlite_form(&db_path);
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_sqlite_connection_for_state(&state, &form, "meta-structure-missing").await;
+    let conn_id = create_sqlite_connection_for_state(&state, &form, "meta-structure-missing").await;
     let missing_table = unique_name("dbpaw_meta_missing");
 
     let result =
@@ -318,8 +317,7 @@ async fn test_sqlite_command_get_table_metadata_contains_indexes_and_foreign_key
     let db_path = sqlite_test_path();
     let form = sqlite_form(&db_path);
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_sqlite_connection_for_state(&state, &form, "meta-metadata-success").await;
+    let conn_id = create_sqlite_connection_for_state(&state, &form, "meta-metadata-success").await;
     let parent = unique_name("dbpaw_meta_parent");
     let child = unique_name("dbpaw_meta_child");
     prepare_metadata_fixture(&form, &parent, &child).await;
@@ -355,8 +353,7 @@ async fn test_sqlite_command_get_schema_overview_contains_target_schema() {
     let db_path = sqlite_test_path();
     let form = sqlite_form(&db_path);
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_sqlite_connection_for_state(&state, &form, "meta-schema-overview").await;
+    let conn_id = create_sqlite_connection_for_state(&state, &form, "meta-schema-overview").await;
     let parent = unique_name("dbpaw_meta_parent");
     let child = unique_name("dbpaw_meta_child");
     prepare_metadata_fixture(&form, &parent, &child).await;
@@ -388,8 +385,7 @@ async fn test_sqlite_command_execute_query_by_id_success() {
     let db_path = sqlite_test_path();
     let form = sqlite_form(&db_path);
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_sqlite_connection_for_state(&state, &form, "query-by-id-success").await;
+    let conn_id = create_sqlite_connection_for_state(&state, &form, "query-by-id-success").await;
 
     let result = query::execute_query_by_id_direct(
         &state,
@@ -415,8 +411,7 @@ async fn test_sqlite_command_execute_query_by_id_invalid_sql_returns_error() {
     let db_path = sqlite_test_path();
     let form = sqlite_form(&db_path);
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_sqlite_connection_for_state(&state, &form, "query-by-id-invalid").await;
+    let conn_id = create_sqlite_connection_for_state(&state, &form, "query-by-id-invalid").await;
 
     let result = query::execute_query_by_id_direct(
         &state,
@@ -441,8 +436,7 @@ async fn test_sqlite_command_list_sql_execution_logs_contains_recent_entries() {
     let db_path = sqlite_test_path();
     let form = sqlite_form(&db_path);
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_sqlite_connection_for_state(&state, &form, "query-log-list").await;
+    let conn_id = create_sqlite_connection_for_state(&state, &form, "query-log-list").await;
 
     query::execute_query_by_id_direct(
         &state,
@@ -475,8 +469,7 @@ async fn test_sqlite_command_cancel_query_non_clickhouse_returns_false() {
     let db_path = sqlite_test_path();
     let form = sqlite_form(&db_path);
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_sqlite_connection_for_state(&state, &form, "query-cancel-non-ch").await;
+    let conn_id = create_sqlite_connection_for_state(&state, &form, "query-cancel-non-ch").await;
 
     let canceled =
         query::cancel_query_direct(&state, conn_id.to_string(), "phase4-qid-cancel".to_string())
@@ -538,8 +531,7 @@ async fn test_sqlite_command_transfer_export_and_import_minimal_flow() {
     let db_path = sqlite_test_path();
     let form = sqlite_form(&db_path);
     let state = init_state_with_local_db().await;
-    let conn_id =
-        create_sqlite_connection_for_state(&state, &form, "transfer-minimal").await;
+    let conn_id = create_sqlite_connection_for_state(&state, &form, "transfer-minimal").await;
 
     let table = unique_name("dbpaw_transfer_src");
     let driver = SqliteDriver::connect(&form)

@@ -59,7 +59,11 @@ function quoteIdent(name: string, driver: DbDriver): string {
   return `"${name}"`;
 }
 
-function buildTableRef(schema: string, table: string, driver: DbDriver): string {
+function buildTableRef(
+  schema: string,
+  table: string,
+  driver: DbDriver,
+): string {
   const q = (n: string) => quoteIdent(n, driver);
   if (driver === "sqlite" || driver === "duckdb") return q(table);
   if (schema) return `${q(schema)}.${q(table)}`;
@@ -174,8 +178,7 @@ export function generateManageIndexSQL(
       const colsChanged =
         JSON.stringify(def.columns) !== JSON.stringify(orig.columns);
       const methodChanged =
-        def.indexMethod !== (orig.indexType ?? "") &&
-        def.indexMethod !== "";
+        def.indexMethod !== (orig.indexType ?? "") && def.indexMethod !== "";
 
       if (nameChanged || uniqueChanged || colsChanged || methodChanged) {
         statements.push(buildDropSQL(def.originalName, schema, table, driver));

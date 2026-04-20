@@ -44,8 +44,8 @@ pub fn shared_mariadb_form() -> ConnectionForm {
 
     let (_container, form) = SHARED_CONTAINER.get_or_init(|| {
         let cli: &'static Cli = Box::leak(Box::new(Cli::default()));
-        let runnable = mariadb_image()
-            .with_container_name(shared::unique_container_name("mariadb-shared"));
+        let runnable =
+            mariadb_image().with_container_name(shared::unique_container_name("mariadb-shared"));
         let container: &'static Container<'static, GenericImage> =
             Box::leak(Box::new(cli.run(runnable)));
         let port = container.get_host_port_ipv4(3306);
@@ -65,8 +65,7 @@ pub fn mariadb_form_from_test_context<'a>(
     shared::ensure_docker_available();
 
     let docker = docker.expect("docker client is required when IT_REUSE_LOCAL_DB is not set");
-    let runnable =
-        mariadb_image().with_container_name(shared::unique_container_name("mariadb"));
+    let runnable = mariadb_image().with_container_name(shared::unique_container_name("mariadb"));
     let container = docker.run(runnable);
     let port = container.get_host_port_ipv4(3306);
     shared::wait_for_port("127.0.0.1", port, Duration::from_secs(45));

@@ -10,9 +10,9 @@ use dbpaw_lib::db::drivers::DatabaseDriver;
 use dbpaw_lib::db::local::LocalDb;
 use dbpaw_lib::models::{AiProviderForm, ConnectionForm};
 use dbpaw_lib::state::AppState;
+use postgres_context::{shared_postgres_form, unique_name, wait_until_ready};
 use std::fs;
 use std::sync::Arc;
-use postgres_context::{shared_postgres_form, unique_name, wait_until_ready};
 
 async fn init_state_with_local_db() -> AppState {
     let state = AppState::new();
@@ -783,7 +783,11 @@ EXECUTE FUNCTION "{schema}"."{func_name}"();
         .expect("verify postgres trigger should succeed");
     let count = verify.data[0]["c"]
         .as_i64()
-        .or_else(|| verify.data[0]["c"].as_str().and_then(|v| v.parse::<i64>().ok()))
+        .or_else(|| {
+            verify.data[0]["c"]
+                .as_str()
+                .and_then(|v| v.parse::<i64>().ok())
+        })
         .expect("touch_count should parse");
     assert_eq!(count, 2);
 

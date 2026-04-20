@@ -53,12 +53,16 @@ describe("validateColumns — name/type required", () => {
 
   test("empty name produces error", () => {
     const errs = validateColumns([col("", "INT")], opts);
-    expect(errs.some((e) => e.includes("createTable.validation.columnNameRequired"))).toBe(true);
+    expect(
+      errs.some((e) => e.includes("createTable.validation.columnNameRequired")),
+    ).toBe(true);
   });
 
   test("empty type produces error", () => {
     const errs = validateColumns([col("id", "")], opts);
-    expect(errs.some((e) => e.includes("createTable.validation.columnTypeRequired"))).toBe(true);
+    expect(
+      errs.some((e) => e.includes("createTable.validation.columnTypeRequired")),
+    ).toBe(true);
   });
 
   test("valid name+type produces no error", () => {
@@ -85,8 +89,10 @@ describe("validateColumns — AUTO_INCREMENT (MySQL)", () => {
 
   test("multiple AUTO_INCREMENT columns produce error", () => {
     const errs = validateColumns(
-      [col("a", "INT", { autoIncrement: true, primaryKey: true }),
-       col("b", "INT", { autoIncrement: true, primaryKey: true })],
+      [
+        col("a", "INT", { autoIncrement: true, primaryKey: true }),
+        col("b", "INT", { autoIncrement: true, primaryKey: true }),
+      ],
       opts,
     );
     expect(errs.some((e) => e.includes("multipleAutoIncrement"))).toBe(true);
@@ -111,8 +117,10 @@ describe("validateColumns — AUTO_INCREMENT (MySQL)", () => {
 
   test("showAutoIncrement=false skips check even with AI columns", () => {
     const errs = validateColumns(
-      [col("a", "INT", { autoIncrement: true, primaryKey: false }),
-       col("b", "INT", { autoIncrement: true, primaryKey: false })],
+      [
+        col("a", "INT", { autoIncrement: true, primaryKey: false }),
+        col("b", "INT", { autoIncrement: true, primaryKey: false }),
+      ],
       { ...opts, showAutoIncrement: false },
     );
     expect(errs.filter((e) => e.includes("AutoIncrement"))).toHaveLength(0);
@@ -123,36 +131,42 @@ describe("validateColumns — VARCHAR length (MySQL/MariaDB/TiDB/MSSQL)", () => 
   test.each(["mysql", "mariadb", "tidb", "mssql"] as DbDriver[])(
     "%s: VARCHAR without length produces error",
     (driver) => {
-      const errs = validateColumns(
-        [col("name", "VARCHAR")],
-        { driver, showAutoIncrement: false, t },
-      );
+      const errs = validateColumns([col("name", "VARCHAR")], {
+        driver,
+        showAutoIncrement: false,
+        t,
+      });
       expect(errs.some((e) => e.includes("varcharNeedsLength"))).toBe(true);
     },
   );
 
   test("postgres: VARCHAR without length is allowed", () => {
-    const errs = validateColumns(
-      [col("name", "VARCHAR")],
-      { driver: "postgres", showAutoIncrement: false, t },
+    const errs = validateColumns([col("name", "VARCHAR")], {
+      driver: "postgres",
+      showAutoIncrement: false,
+      t,
+    });
+    expect(errs.filter((e) => e.includes("varcharNeedsLength"))).toHaveLength(
+      0,
     );
-    expect(errs.filter((e) => e.includes("varcharNeedsLength"))).toHaveLength(0);
   });
 
   test("mysql: VARCHAR(0) produces zero-length error", () => {
-    const errs = validateColumns(
-      [col("name", "VARCHAR", { length: "0" })],
-      { driver: "mysql", showAutoIncrement: false, t },
-    );
+    const errs = validateColumns([col("name", "VARCHAR", { length: "0" })], {
+      driver: "mysql",
+      showAutoIncrement: false,
+      t,
+    });
     expect(errs.some((e) => e.includes("varcharZeroLength"))).toBe(true);
   });
 
   test("mysql: VARCHAR with valid length is fine", () => {
     expect(
-      validateColumns(
-        [col("name", "VARCHAR", { length: "255" })],
-        { driver: "mysql", showAutoIncrement: false, t },
-      ),
+      validateColumns([col("name", "VARCHAR", { length: "255" })], {
+        driver: "mysql",
+        showAutoIncrement: false,
+        t,
+      }),
     ).toEqual([]);
   });
 });
@@ -165,7 +179,9 @@ describe("validateColumns — DECIMAL scale", () => {
       [col("price", "DECIMAL", { length: "2,5" })],
       opts,
     );
-    expect(errs.some((e) => e.includes("decimalScaleExceedsPrecision"))).toBe(true);
+    expect(errs.some((e) => e.includes("decimalScaleExceedsPrecision"))).toBe(
+      true,
+    );
   });
 
   test("scale == precision is valid", () => {
@@ -190,35 +206,35 @@ describe("validateColumns — DECIMAL scale", () => {
 // ─── validateIndexDefs ────────────────────────────────────────────────────────
 
 describe("validateIndexDefs — TEXT/BLOB columns (MySQL prefix restriction)", () => {
-  const colTypeMap = new Map([["body", "TEXT"], ["name", "VARCHAR"]]);
+  const colTypeMap = new Map([
+    ["body", "TEXT"],
+    ["name", "VARCHAR"],
+  ]);
 
   test.each(["mysql", "mariadb", "tidb"] as DbDriver[])(
     "%s: TEXT column in index produces error",
     (driver) => {
-      const errs = validateIndexDefs(
-        [idx("i", ["body"])],
-        colTypeMap,
-        { driver, t },
-      );
+      const errs = validateIndexDefs([idx("i", ["body"])], colTypeMap, {
+        driver,
+        t,
+      });
       expect(errs.some((e) => e.includes("indexTextColumn"))).toBe(true);
     },
   );
 
   test("postgres: TEXT column in index is allowed", () => {
-    const errs = validateIndexDefs(
-      [idx("i", ["body"])],
-      colTypeMap,
-      { driver: "postgres", t },
-    );
+    const errs = validateIndexDefs([idx("i", ["body"])], colTypeMap, {
+      driver: "postgres",
+      t,
+    });
     expect(errs.filter((e) => e.includes("indexTextColumn"))).toHaveLength(0);
   });
 
   test("varchar column in index is always fine", () => {
-    const errs = validateIndexDefs(
-      [idx("i", ["name"])],
-      colTypeMap,
-      { driver: "mysql", t },
-    );
+    const errs = validateIndexDefs([idx("i", ["name"])], colTypeMap, {
+      driver: "mysql",
+      t,
+    });
     expect(errs).toEqual([]);
   });
 });
@@ -227,11 +243,10 @@ describe("validateIndexDefs — duplicate columns within an index", () => {
   const colTypeMap = new Map<string, string>();
 
   test("duplicate column in same index produces error", () => {
-    const errs = validateIndexDefs(
-      [idx("i", ["a", "a"])],
-      colTypeMap,
-      { driver: "postgres", t },
-    );
+    const errs = validateIndexDefs([idx("i", ["a", "a"])], colTypeMap, {
+      driver: "postgres",
+      t,
+    });
     expect(errs.some((e) => e.includes("indexDuplicateColumn"))).toBe(true);
   });
 
@@ -245,11 +260,10 @@ describe("validateIndexDefs — duplicate columns within an index", () => {
   });
 
   test("no duplicates produces no error", () => {
-    const errs = validateIndexDefs(
-      [idx("i", ["a", "b", "c"])],
-      colTypeMap,
-      { driver: "mysql", t },
-    );
+    const errs = validateIndexDefs([idx("i", ["a", "b", "c"])], colTypeMap, {
+      driver: "mysql",
+      t,
+    });
     expect(errs).toEqual([]);
   });
 });
@@ -257,11 +271,10 @@ describe("validateIndexDefs — duplicate columns within an index", () => {
 describe("validateIndexDefs — unknown column type", () => {
   test("unknown column treated as non-text (no false-positive error)", () => {
     const colTypeMap = new Map<string, string>(); // empty — col type unknown
-    const errs = validateIndexDefs(
-      [idx("i", ["some_col"])],
-      colTypeMap,
-      { driver: "mysql", t },
-    );
+    const errs = validateIndexDefs([idx("i", ["some_col"])], colTypeMap, {
+      driver: "mysql",
+      t,
+    });
     expect(errs.filter((e) => e.includes("indexTextColumn"))).toHaveLength(0);
   });
 });

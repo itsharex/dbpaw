@@ -865,8 +865,7 @@ impl DatabaseDriver for MysqlDriver {
             let non_unique: i64 = row.try_get(1).unwrap_or(1);
             let index_type = decode_mysql_optional_text_cell(&row, 2).ok().flatten();
             let seq: i64 = row.try_get(3).unwrap_or(0);
-            let Some(column_name) = decode_mysql_optional_text_cell(&row, 4).ok().flatten()
-            else {
+            let Some(column_name) = decode_mysql_optional_text_cell(&row, 4).ok().flatten() else {
                 continue;
             };
 
@@ -929,9 +928,7 @@ impl DatabaseDriver for MysqlDriver {
             foreign_keys.push(ForeignKeyInfo {
                 name: decode_mysql_text_cell(&row, 0).unwrap_or_default(),
                 column: decode_mysql_text_cell(&row, 1).unwrap_or_default(),
-                referenced_schema: decode_mysql_optional_text_cell(&row, 2)
-                    .ok()
-                    .flatten(),
+                referenced_schema: decode_mysql_optional_text_cell(&row, 2).ok().flatten(),
                 referenced_table: decode_mysql_text_cell(&row, 3).unwrap_or_default(),
                 referenced_column: decode_mysql_text_cell(&row, 4).unwrap_or_default(),
                 on_update: decode_mysql_optional_text_cell(&row, 5).ok().flatten(),
