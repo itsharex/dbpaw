@@ -23,7 +23,7 @@ static SHARED_CONTAINER: OnceLock<(&'static Container<'static, GenericImage>, Co
 
 /// Build the standard Apache Doris test image.
 fn doris_image() -> RunnableImage<GenericImage> {
-    let image = GenericImage::new("apache/doris", "doris-all-in-one-2.1.7")
+    let image = GenericImage::new("apache/doris", "doris-all-in-one-2.1.0")
         .with_wait_for(WaitFor::seconds(25))
         .with_exposed_port(9030);
     RunnableImage::from(image)
