@@ -59,14 +59,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
 
-      - name: Setup OpenSSL (Windows)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: |
-          "OPENSSL_DIR=C:\Strawberry\c" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "OPENSSL_LIB_DIR=C:\Strawberry\c\lib" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "OPENSSL_INCLUDE_DIR=C:\Strawberry\c\include" | Out-File -FilePath $env:GITHUB_ENV -Append
-
       - name: Build Tauri app
         run: bun tauri build
 
