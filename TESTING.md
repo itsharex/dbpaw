@@ -81,6 +81,10 @@ IT_DB=mysql bun run test:integration
 # Reuse local database (no Docker container startup)
 IT_REUSE_LOCAL_DB=1 IT_DB=mysql bun run test:integration
 
+# Run Oracle tests against a local Oracle instance
+# Requires Oracle Instant Client and DYLD_LIBRARY_PATH/LD_LIBRARY_PATH set to the directory containing libclntsh
+IT_REUSE_LOCAL_DB=1 ORACLE_HOST=127.0.0.1 ORACLE_PORT=1521 ORACLE_USER=system ORACLE_PASSWORD=... ORACLE_SERVICE=FREE IT_DB=oracle bun run test:integration
+
 # Test all databases (CI mode)
 IT_DB=all bun run test:integration
 ```

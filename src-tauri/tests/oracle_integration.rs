@@ -16,7 +16,11 @@ fn unique_table_name() -> String {
 #[tokio::test]
 #[ignore]
 async fn test_oracle_integration_flow() {
-    let form = oracle_context::oracle_form_from_test_context();
+    let Some(form) =
+        oracle_context::oracle_test_context_or_skip("test_oracle_integration_flow").await
+    else {
+        return;
+    };
     let schema = form
         .schema
         .clone()
@@ -181,7 +185,11 @@ async fn test_oracle_integration_flow() {
 #[tokio::test]
 #[ignore]
 async fn test_oracle_integration_pagination() {
-    let form = oracle_context::oracle_form_from_test_context();
+    let Some(form) =
+        oracle_context::oracle_test_context_or_skip("test_oracle_integration_pagination").await
+    else {
+        return;
+    };
     let schema = form
         .schema
         .clone()
@@ -237,7 +245,12 @@ async fn test_oracle_integration_pagination() {
 #[tokio::test]
 #[ignore]
 async fn test_oracle_integration_connection_failure() {
-    let mut form = oracle_context::oracle_form_from_test_context();
+    let Some(mut form) =
+        oracle_context::oracle_test_context_or_skip("test_oracle_integration_connection_failure")
+            .await
+    else {
+        return;
+    };
     form.password = Some("dbpaw_wrong_password_xyz".to_string());
     let result = OracleDriver::connect(&form).await;
     assert!(result.is_err(), "wrong password should fail");

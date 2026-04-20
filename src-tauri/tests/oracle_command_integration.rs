@@ -84,7 +84,12 @@ async fn cleanup_table(schema: &str, table: &str, form: &dbpaw_lib::models::Conn
 #[tokio::test]
 #[ignore]
 async fn test_oracle_command_test_connection_success() {
-    let form = oracle_context::oracle_form_from_test_context();
+    let Some(form) =
+        oracle_context::oracle_test_context_or_skip("test_oracle_command_test_connection_success")
+            .await
+    else {
+        return;
+    };
     let result = connection::test_connection_ephemeral(form)
         .await
         .expect("test_connection_ephemeral should succeed");
@@ -95,7 +100,13 @@ async fn test_oracle_command_test_connection_success() {
 #[tokio::test]
 #[ignore]
 async fn test_oracle_command_test_connection_invalid_password_returns_error() {
-    let mut form = oracle_context::oracle_form_from_test_context();
+    let Some(mut form) = oracle_context::oracle_test_context_or_skip(
+        "test_oracle_command_test_connection_invalid_password_returns_error",
+    )
+    .await
+    else {
+        return;
+    };
     form.password = Some("dbpaw_wrong_password_xyz".to_string());
     let result = connection::test_connection_ephemeral(form).await;
     assert!(result.is_err());
@@ -106,7 +117,13 @@ async fn test_oracle_command_test_connection_invalid_password_returns_error() {
 #[tokio::test]
 #[ignore]
 async fn test_oracle_command_list_databases_returns_schemas() {
-    let form = oracle_context::oracle_form_from_test_context();
+    let Some(form) = oracle_context::oracle_test_context_or_skip(
+        "test_oracle_command_list_databases_returns_schemas",
+    )
+    .await
+    else {
+        return;
+    };
     let schema = form
         .schema
         .clone()
@@ -126,7 +143,13 @@ async fn test_oracle_command_list_databases_returns_schemas() {
 #[tokio::test]
 #[ignore]
 async fn test_oracle_command_list_tables_by_conn_contains_created_table() {
-    let form = oracle_context::oracle_form_from_test_context();
+    let Some(form) = oracle_context::oracle_test_context_or_skip(
+        "test_oracle_command_list_tables_by_conn_contains_created_table",
+    )
+    .await
+    else {
+        return;
+    };
     let schema = form
         .schema
         .clone()
@@ -149,7 +172,13 @@ async fn test_oracle_command_list_tables_by_conn_contains_created_table() {
 #[tokio::test]
 #[ignore]
 async fn test_oracle_command_execute_select_returns_rows() {
-    let form = oracle_context::oracle_form_from_test_context();
+    let Some(form) = oracle_context::oracle_test_context_or_skip(
+        "test_oracle_command_execute_select_returns_rows",
+    )
+    .await
+    else {
+        return;
+    };
     let schema = form
         .schema
         .clone()
@@ -176,7 +205,13 @@ async fn test_oracle_command_execute_select_returns_rows() {
 #[tokio::test]
 #[ignore]
 async fn test_oracle_command_execute_invalid_sql_returns_error() {
-    let form = oracle_context::oracle_form_from_test_context();
+    let Some(form) = oracle_context::oracle_test_context_or_skip(
+        "test_oracle_command_execute_invalid_sql_returns_error",
+    )
+    .await
+    else {
+        return;
+    };
     let result =
         query::execute_by_conn_direct(form, "SELECT * FROM __dbpaw_no_such_table".to_string())
             .await;
@@ -188,7 +223,13 @@ async fn test_oracle_command_execute_invalid_sql_returns_error() {
 #[tokio::test]
 #[ignore]
 async fn test_oracle_command_execute_insert_affects_rows() {
-    let form = oracle_context::oracle_form_from_test_context();
+    let Some(form) = oracle_context::oracle_test_context_or_skip(
+        "test_oracle_command_execute_insert_affects_rows",
+    )
+    .await
+    else {
+        return;
+    };
     let schema = form
         .schema
         .clone()
@@ -229,7 +270,13 @@ async fn test_oracle_command_execute_insert_affects_rows() {
 #[tokio::test]
 #[ignore]
 async fn test_oracle_command_get_table_data_pagination_works() {
-    let form = oracle_context::oracle_form_from_test_context();
+    let Some(form) = oracle_context::oracle_test_context_or_skip(
+        "test_oracle_command_get_table_data_pagination_works",
+    )
+    .await
+    else {
+        return;
+    };
     let schema = form
         .schema
         .clone()
@@ -282,7 +329,13 @@ async fn test_oracle_command_get_table_data_pagination_works() {
 #[tokio::test]
 #[ignore]
 async fn test_oracle_command_import_sql_file_supports_create_or_replace_script() {
-    let form = oracle_context::oracle_form_from_test_context();
+    let Some(form) = oracle_context::oracle_test_context_or_skip(
+        "test_oracle_command_import_sql_file_supports_create_or_replace_script",
+    )
+    .await
+    else {
+        return;
+    };
     let schema = form
         .schema
         .clone()
@@ -361,7 +414,13 @@ END;
 #[tokio::test]
 #[ignore]
 async fn test_oracle_command_get_table_data_invalid_pagination_returns_error() {
-    let form = oracle_context::oracle_form_from_test_context();
+    let Some(form) = oracle_context::oracle_test_context_or_skip(
+        "test_oracle_command_get_table_data_invalid_pagination_returns_error",
+    )
+    .await
+    else {
+        return;
+    };
     let schema = form
         .schema
         .clone()
