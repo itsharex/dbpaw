@@ -216,7 +216,7 @@ impl LocalDb {
         }
 
         let mut key = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut key);
+        rand::rng().fill_bytes(&mut key);
         fs::write(&key_path, &key).map_err(|e| format!("[AI_MASTER_KEY_WRITE] {e}"))?;
         #[cfg(unix)]
         {
@@ -231,7 +231,7 @@ impl LocalDb {
         let cipher =
             Aes256Gcm::new_from_slice(master_key).map_err(|e| format!("[AI_KEY_CIPHER] {e}"))?;
         let mut nonce_bytes = [0u8; 12];
-        rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+        rand::rng().fill_bytes(&mut nonce_bytes);
         let nonce = Nonce::from_slice(&nonce_bytes);
         let ciphertext = cipher
             .encrypt(nonce, plaintext.as_bytes())
