@@ -6,31 +6,36 @@ use dbpaw_lib::db::drivers::mssql::MssqlDriver;
 use dbpaw_lib::db::drivers::DatabaseDriver;
 use dbpaw_lib::models::ConnectionForm;
 
-use mssql_context::{shared_mssql_form, unique_name, wait_until_ready};
+use mssql_context::{
+    default_mssql_object_name, default_mssql_schema, qualify_default_mssql_table,
+    shared_mssql_form, unique_name, wait_until_ready,
+};
 
 async fn prepare_query_test_table(form: &ConnectionForm, table: &str) {
     let driver = MssqlDriver::connect(form)
         .await
         .expect("failed to connect mssql driver");
+    let qualified = qualify_default_mssql_table(table);
+    let object_name = default_mssql_object_name(table);
 
     driver
         .execute_query(format!(
-            "IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}",
-            table, table
+            "IF OBJECT_ID(N'{}', N'U') IS NOT NULL DROP TABLE {}",
+            object_name, qualified
         ))
         .await
         .ok();
     driver
         .execute_query(format!(
             "CREATE TABLE {} (id INT PRIMARY KEY, name NVARCHAR(64))",
-            table
+            qualified
         ))
         .await
         .expect("create table should succeed");
     driver
         .execute_query(format!(
             "INSERT INTO {} (id, name) VALUES (1, N'DbPaw')",
-            table
+            qualified
         ))
         .await
         .expect("insert row should succeed");
@@ -41,10 +46,12 @@ async fn cleanup_table(form: &ConnectionForm, table: &str) {
     let driver = MssqlDriver::connect(form)
         .await
         .expect("failed to connect mssql driver for cleanup");
+    let qualified = qualify_default_mssql_table(table);
+    let object_name = default_mssql_object_name(table);
     driver
         .execute_query(format!(
-            "IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}",
-            table, table
+            "IF OBJECT_ID(N'{}', N'U') IS NOT NULL DROP TABLE {}",
+            object_name, qualified
         ))
         .await
         .ok();
@@ -197,27 +204,29 @@ async fn test_mssql_command_execute_by_conn_insert_affects_rows() {
     let form = shared_mssql_form();
     wait_until_ready(&form).await;
     let table = unique_name("dbpaw_cmd_exec_insert");
+    let qualified = qualify_default_mssql_table(&table);
+    let object_name = default_mssql_object_name(&table);
 
     let driver = MssqlDriver::connect(&form)
         .await
         .expect("failed to connect mssql driver");
     driver
         .execute_query(format!(
-            "IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}",
-            table, table
+            "IF OBJECT_ID(N'{}', N'U') IS NOT NULL DROP TABLE {}",
+            object_name, qualified
         ))
         .await
         .ok();
     driver
         .execute_query(format!(
             "CREATE TABLE {} (id INT PRIMARY KEY, name NVARCHAR(64))",
-            table
+            qualified
         ))
         .await
         .expect("create table should succeed");
     driver.close().await;
 
-    let sql = format!("INSERT INTO {} (id, name) VALUES (1, N'alpha')", table);
+    let sql = format!("INSERT INTO {} (id, name) VALUES (1, N'alpha')", qualified);
     let result = execute_by_conn_sql(form.clone(), sql)
         .await
         .expect("execute_by_conn insert should succeed");
@@ -233,42 +242,41 @@ async fn test_mssql_command_get_table_data_by_conn_pagination_works() {
     let form = shared_mssql_form();
     wait_until_ready(&form).await;
 
-    let database = form
-        .database
-        .clone()
-        .unwrap_or_else(|| "master".to_string());
+    let schema = default_mssql_schema();
     let table = unique_name("dbpaw_cmd_page");
+    let qualified = qualify_default_mssql_table(&table);
+    let object_name = default_mssql_object_name(&table);
 
     let driver = MssqlDriver::connect(&form)
         .await
         .expect("failed to connect mssql driver");
     driver
         .execute_query(format!(
-            "IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}",
-            table, table
+            "IF OBJECT_ID(N'{}', N'U') IS NOT NULL DROP TABLE {}",
+            object_name, qualified
         ))
         .await
         .ok();
     driver
         .execute_query(format!(
             "CREATE TABLE {} (id INT PRIMARY KEY, name NVARCHAR(64))",
-            table
+            qualified
         ))
         .await
         .expect("create table should succeed");
     driver
         .execute_query(format!(
             "INSERT INTO {} (id, name) VALUES (1, N'a'), (2, N'b'), (3, N'c')",
-            table
+            qualified
         ))
         .await
         .expect("insert rows should succeed");
     driver.close().await;
 
-    let page1 = query::get_table_data_by_conn(form.clone(), database.clone(), table.clone(), 1, 2)
+    let page1 = query::get_table_data_by_conn(form.clone(), schema.clone(), table.clone(), 1, 2)
         .await
         .expect("page 1 should succeed");
-    let page2 = query::get_table_data_by_conn(form.clone(), database, table.clone(), 2, 2)
+    let page2 = query::get_table_data_by_conn(form.clone(), schema, table.clone(), 2, 2)
         .await
         .expect("page 2 should succeed");
 
@@ -287,14 +295,11 @@ async fn test_mssql_command_get_table_data_by_conn_invalid_pagination_returns_er
     let form = shared_mssql_form();
     wait_until_ready(&form).await;
 
-    let database = form
-        .database
-        .clone()
-        .unwrap_or_else(|| "master".to_string());
+    let schema = default_mssql_schema();
     let table = unique_name("dbpaw_cmd_invalid_page");
     prepare_query_test_table(&form, &table).await;
 
-    let result = query::get_table_data_by_conn(form.clone(), database, table.clone(), 0, 10).await;
+    let result = query::get_table_data_by_conn(form.clone(), schema, table.clone(), 0, 10).await;
     assert!(result.is_err());
     let error = result.err().unwrap_or_default();
     assert!(error.contains("[VALIDATION_ERROR]"));

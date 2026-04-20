@@ -12,8 +12,30 @@ use tokio::time::sleep;
 #[allow(unused_imports)]
 pub use shared::{connect_with_retry, should_reuse_local_db, unique_name};
 
+#[allow(dead_code)]
+pub const DEFAULT_MSSQL_SCHEMA: &str = "dbo";
+
 static SHARED_CONTAINER: OnceLock<(&'static Container<'static, GenericImage>, ConnectionForm)> =
     OnceLock::new();
+
+#[allow(dead_code)]
+pub fn default_mssql_schema() -> String {
+    DEFAULT_MSSQL_SCHEMA.to_string()
+}
+
+#[allow(dead_code)]
+pub fn qualify_default_mssql_table(table: &str) -> String {
+    format!(
+        "[{}].[{}]",
+        DEFAULT_MSSQL_SCHEMA,
+        table.trim().replace(']', "]]")
+    )
+}
+
+#[allow(dead_code)]
+pub fn default_mssql_object_name(table: &str) -> String {
+    format!("{}.{}", DEFAULT_MSSQL_SCHEMA, table.trim())
+}
 
 fn mssql_image() -> RunnableImage<GenericImage> {
     let image = GenericImage::new("mcr.microsoft.com/mssql/server", "2022-latest")
