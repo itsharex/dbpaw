@@ -15,7 +15,7 @@ function idxInfo(
   columns: string[],
   opts: Partial<IndexInfo> = {},
 ): IndexInfo {
-  return { name, columns, unique: false, primary: false, ...opts };
+  return { name, columns, unique: false, ...opts };
 }
 
 function idxDef(

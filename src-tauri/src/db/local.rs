@@ -288,7 +288,7 @@ impl LocalDb {
         }
 
         let id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, ssl_mode, ssl_ca_cert, file_path, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path) 
+            "INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, ssl_mode, ssl_ca_cert, file_path, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
         )
         .bind(&uuid)
@@ -360,11 +360,11 @@ impl LocalDb {
 
     pub async fn list_connections(&self) -> Result<Vec<Connection>, String> {
         let rows = sqlx::query_as::<_, Connection>(
-            r#"SELECT 
-                id, uuid, name, type as db_type, host, port, database, username, ssl, ssl_mode, ssl_ca_cert, file_path, 
+            r#"SELECT
+                id, uuid, name, type as db_type, host, port, database, username, ssl, ssl_mode, ssl_ca_cert, file_path,
                 ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path,
-                created_at, updated_at 
-               FROM connections 
+                created_at, updated_at
+               FROM connections
                ORDER BY created_at DESC, id DESC"#,
         )
         .fetch_all(&self.pool)
@@ -375,11 +375,11 @@ impl LocalDb {
 
     pub async fn get_connection_by_id(&self, id: i64) -> Result<Connection, String> {
         sqlx::query_as::<_, Connection>(
-            r#"SELECT 
-                id, uuid, name, type as db_type, host, port, database, username, ssl, ssl_mode, ssl_ca_cert, file_path, 
+            r#"SELECT
+                id, uuid, name, type as db_type, host, port, database, username, ssl, ssl_mode, ssl_ca_cert, file_path,
                 ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path,
-                created_at, updated_at 
-               FROM connections 
+                created_at, updated_at
+               FROM connections
                WHERE id = ?"#,
         )
         .bind(id)
@@ -937,7 +937,7 @@ mod tests {
         }
 
         let mut ai_master_key = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut ai_master_key);
+        rand::rng().fill_bytes(&mut ai_master_key);
 
         LocalDb {
             pool,
@@ -967,7 +967,7 @@ mod tests {
     #[test]
     fn api_key_encrypt_decrypt_round_trip_and_format_validation() {
         let mut key = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut key);
+        rand::rng().fill_bytes(&mut key);
         let encrypted = LocalDb::encrypt_ai_api_key_raw(&key, "secret-123").unwrap();
         assert!(LocalDb::has_encrypted_ai_api_key(&encrypted));
         let decrypted = LocalDb::decrypt_ai_api_key_raw(&key, &encrypted).unwrap();
