@@ -5,7 +5,7 @@ use crate::models::{
 };
 use async_trait::async_trait;
 use sqlx::{
-    mysql::{MySqlConnectOptions, MySqlPoolOptions},
+    mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlQueryResult, MySqlRow},
     Column, Executor, Row, TypeInfo,
 };
 use std::collections::{HashMap, HashSet};
@@ -23,6 +23,7 @@ pub struct MysqlDriver {
     pub pool: sqlx::MySqlPool,
     pub ssh_tunnel: Option<SshTunnel>,
     pub ca_cert_path: Option<PathBuf>,
+    compatibility_mode: bool,
 }
 
 fn write_temp_cert_file(prefix: &str, pem: &str) -> Result<PathBuf, String> {
@@ -61,7 +62,7 @@ fn build_verify_ca_query_param(ca_path: &Path) -> String {
 }
 
 fn mysql_family_default_port(driver: &str) -> u16 {
-    if driver.eq_ignore_ascii_case("starrocks") {
+    if driver.eq_ignore_ascii_case("starrocks") || driver.eq_ignore_ascii_case("doris") {
         9030
     } else {
         3306
@@ -175,12 +176,13 @@ fn build_connect_options(dsn: &str, driver: &str) -> Result<MySqlConnectOptions,
     let mut options =
         MySqlConnectOptions::from_str(dsn).map_err(|e| format!("[CONN_FAILED] {e}"))?;
 
-    if driver.eq_ignore_ascii_case("starrocks") {
+    if driver.eq_ignore_ascii_case("starrocks") || driver.eq_ignore_ascii_case("doris") {
         // sqlx initializes MySQL connections with:
         // SET sql_mode=(SELECT CONCAT(@@sql_mode, ...))
         // plus timezone / SET NAMES session mutations tailored for MySQL.
-        // StarRocks rejects part of this initialization sequence, so skip the
-        // post-connect SET mutations entirely for the StarRocks compatibility path.
+        // StarRocks and Doris reject part of this initialization sequence, so
+        // skip the post-connect SET mutations entirely for those compatibility
+        // paths.
         options = options
             .pipes_as_concat(false)
             .no_engine_substitution(false)
@@ -206,6 +208,8 @@ fn is_prepared_protocol_unsupported_error(err: &str) -> bool {
     lower.contains("1295")
         || lower.contains("prepared statement protocol")
         || lower.contains("preparedoes not support") // PolarDB-X
+        || lower.contains("only support prepare selectstmt or insertstmt now") // Doris
+        || lower.contains("prepareok expected 12 bytes but got 10 bytes") // Doris/sqlx protocol mismatch
 }
 
 fn is_missing_mysql_json_object_function(err: &str) -> bool {
@@ -223,6 +227,14 @@ impl Drop for MysqlDriver {
 }
 
 impl MysqlDriver {
+    fn uses_mysql_compatibility_mode(driver: &str) -> bool {
+        driver.eq_ignore_ascii_case("starrocks") || driver.eq_ignore_ascii_case("doris")
+    }
+
+    fn is_compatibility_mode(&self) -> bool {
+        self.compatibility_mode
+    }
+
     fn cleanup_ca_file(&self) {
         cleanup_ca_file_opt(self.ca_cert_path.as_ref());
     }
@@ -240,9 +252,16 @@ impl MysqlDriver {
 
         let (dsn, ca_cert_path) = build_dsn_with_ca_path(&dsn_form)?;
         let connect_options = build_connect_options(&dsn, &dsn_form.driver)?;
-        let pool = MySqlPoolOptions::new()
+        let mut pool_options = MySqlPoolOptions::new()
             .max_connections(5)
-            .acquire_timeout(std::time::Duration::from_secs(3))
+            .acquire_timeout(std::time::Duration::from_secs(3));
+        if Self::uses_mysql_compatibility_mode(&dsn_form.driver) {
+            pool_options = pool_options
+                .test_before_acquire(false)
+                .after_release(|_, _| Box::pin(async move { Ok(false) }));
+        }
+
+        let pool = pool_options
             .connect_with(connect_options)
             .await
             .map_err(|e| super::conn_failed_error(&e))?;
@@ -251,10 +270,112 @@ impl MysqlDriver {
             pool,
             ssh_tunnel,
             ca_cert_path,
+            compatibility_mode: Self::uses_mysql_compatibility_mode(&dsn_form.driver),
         })
     }
 
+    async fn fetch_all_sql(&self, sql: &str) -> Result<Vec<MySqlRow>, String> {
+        if self.is_compatibility_mode() {
+            sqlx::raw_sql(sql)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", sql, e))
+        } else {
+            sqlx::query(sql)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", sql, e))
+        }
+    }
+
+    async fn fetch_one_sql(&self, sql: &str) -> Result<MySqlRow, String> {
+        if self.is_compatibility_mode() {
+            sqlx::raw_sql(sql)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", sql, e))
+        } else {
+            sqlx::query(sql)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", sql, e))
+        }
+    }
+
+    async fn execute_sql(&self, sql: &str) -> Result<MySqlQueryResult, String> {
+        if self.is_compatibility_mode() {
+            return sqlx::raw_sql(sql)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", sql, e));
+        }
+
+        match sqlx::query(sql).execute(&self.pool).await {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                let error_text = e.to_string();
+                if is_prepared_protocol_unsupported_error(&error_text) {
+                    sqlx::raw_sql(sql)
+                        .execute(&self.pool)
+                        .await
+                        .map_err(|raw_err| format!("[QUERY_ERROR] SQL: {} | {}", sql, raw_err))
+                } else {
+                    Err(format!("[QUERY_ERROR] SQL: {} | {}", sql, e))
+                }
+            }
+        }
+    }
+
+    async fn fetch_all_with_str_params(
+        &self,
+        sql: &str,
+        params: &[&str],
+    ) -> Result<Vec<MySqlRow>, String> {
+        if self.is_compatibility_mode() {
+            let rendered = render_mysql_query_with_str_params(sql, params)?;
+            self.fetch_all_sql(&rendered).await
+        } else {
+            let mut query = sqlx::query(sql);
+            for param in params {
+                query = query.bind(*param);
+            }
+            query
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", sql, e))
+        }
+    }
+
+    async fn current_database(&self) -> Result<Option<String>, String> {
+        let row = self.fetch_one_sql("SELECT DATABASE()").await?;
+        decode_mysql_optional_text_cell(&row, 0)
+    }
+
+    async fn fetch_i64_scalar_sql(&self, sql: &str) -> Result<i64, String> {
+        if self.is_compatibility_mode() {
+            let row = self.fetch_one_sql(sql).await?;
+            row.try_get::<i64, _>(0)
+                .or_else(|_| row.try_get::<u64, _>(0).map(|v| v as i64))
+                .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", sql, e))
+        } else {
+            sqlx::query_scalar(sql)
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", sql, e))
+        }
+    }
+
     async fn describe_query_columns(&self, sql: &str) -> Result<Vec<QueryColumn>, String> {
+        if self.is_compatibility_mode() {
+            let limited_sql = format!(
+                "SELECT * FROM ({}) AS {} LIMIT 0",
+                sanitize_mysql_subquery_sql(sql),
+                quote_mysql_ident("__dbpaw_describe")
+            );
+            let rows = self.fetch_all_sql(&limited_sql).await?;
+            return Ok(query_columns_from_rows(&rows));
+        }
+
         let describe = self
             .pool
             .describe(sql)
@@ -275,11 +396,9 @@ impl MysqlDriver {
         if !schema.trim().is_empty() {
             return Ok(schema.to_string());
         }
-        let row = sqlx::query("SELECT DATABASE()")
-            .fetch_one(&self.pool)
+        self.current_database()
             .await
-            .map_err(|e| format!("[QUERY_ERROR] Failed to resolve current database: {e}"))?;
-        decode_mysql_optional_text_cell(&row, 0)?
+            .map_err(|e| format!("[QUERY_ERROR] Failed to resolve current database: {e}"))?
             .ok_or("[QUERY_ERROR] No active MySQL database selected".to_string())
     }
 
@@ -288,17 +407,16 @@ impl MysqlDriver {
         schema: &str,
         table: &str,
     ) -> Result<Vec<(String, String)>, String> {
-        let rows = sqlx::query(
-            "SELECT column_name, data_type \
-            FROM information_schema.columns \
-            WHERE table_schema = ? AND table_name = ? \
-            ORDER BY ordinal_position",
-        )
-        .bind(schema)
-        .bind(table)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| format!("[QUERY_ERROR] Failed to load MySQL column metadata: {e}"))?;
+        let rows = self
+            .fetch_all_with_str_params(
+                "SELECT column_name, data_type \
+                 FROM information_schema.columns \
+                 WHERE table_schema = ? AND table_name = ? \
+                 ORDER BY ordinal_position",
+                &[schema, table],
+            )
+            .await
+            .map_err(|e| format!("[QUERY_ERROR] Failed to load MySQL column metadata: {e}"))?;
 
         let mut columns = Vec::with_capacity(rows.len());
         for row in rows {
@@ -424,6 +542,40 @@ fn quote_mysql_ident(ident: &str) -> String {
 
 fn quote_mysql_json_key(key: &str) -> String {
     format!("'{}'", key.replace('\'', "''"))
+}
+
+fn quote_mysql_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\\', "\\\\").replace('\'', "''"))
+}
+
+fn render_mysql_query_with_str_params(sql: &str, params: &[&str]) -> Result<String, String> {
+    let mut rendered = String::with_capacity(sql.len() + params.len() * 16);
+    let mut parts = sql.split('?');
+    if let Some(first) = parts.next() {
+        rendered.push_str(first);
+    }
+
+    let mut used = 0usize;
+    for part in parts {
+        let Some(param) = params.get(used) else {
+            return Err(format!(
+                "[QUERY_ERROR] Placeholder count does not match parameter count for SQL: {}",
+                sql
+            ));
+        };
+        rendered.push_str(&quote_mysql_string_literal(param));
+        rendered.push_str(part);
+        used += 1;
+    }
+
+    if used != params.len() {
+        return Err(format!(
+            "[QUERY_ERROR] Placeholder count does not match parameter count for SQL: {}",
+            sql
+        ));
+    }
+
+    Ok(rendered)
 }
 
 fn mysql_qualified_table(schema: &str, table: &str) -> String {
@@ -586,6 +738,20 @@ fn decode_mysql_rows_without_projection(
     data
 }
 
+fn query_columns_from_rows(rows: &[MySqlRow]) -> Vec<QueryColumn> {
+    rows.first()
+        .map(|row| {
+            row.columns()
+                .iter()
+                .map(|col| QueryColumn {
+                    name: col.name().to_string(),
+                    r#type: col.type_info().name().to_string(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn decode_mysql_json_cell(
     row: &sqlx::mysql::MySqlRow,
     column_name: &str,
@@ -663,23 +829,21 @@ impl MysqlDriver {
         schema: &str,
         table: &str,
     ) -> Result<HashSet<String>, String> {
-        let rows = sqlx::query(
-            "SELECT kcu.column_name \
-             FROM information_schema.table_constraints tc \
-             JOIN information_schema.key_column_usage kcu \
-               ON tc.constraint_name = kcu.constraint_name \
-              AND tc.table_schema = kcu.table_schema \
-              AND tc.table_name = kcu.table_name \
-             WHERE tc.constraint_type = 'PRIMARY KEY' \
-               AND tc.table_schema = ? \
-               AND tc.table_name = ? \
-             ORDER BY kcu.ordinal_position",
-        )
-        .bind(schema)
-        .bind(table)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+        let rows = self
+            .fetch_all_with_str_params(
+                "SELECT kcu.column_name \
+                 FROM information_schema.table_constraints tc \
+                 JOIN information_schema.key_column_usage kcu \
+                   ON tc.constraint_name = kcu.constraint_name \
+                  AND tc.table_schema = kcu.table_schema \
+                  AND tc.table_name = kcu.table_name \
+                 WHERE tc.constraint_type = 'PRIMARY KEY' \
+                   AND tc.table_schema = ? \
+                   AND tc.table_name = ? \
+                 ORDER BY kcu.ordinal_position",
+                &[schema, table],
+            )
+            .await?;
 
         let mut pk_set = HashSet::new();
         for row in rows {
@@ -697,6 +861,11 @@ impl DatabaseDriver for MysqlDriver {
     }
 
     async fn test_connection(&self) -> Result<(), String> {
+        if self.is_compatibility_mode() {
+            self.fetch_all_sql("SELECT 1").await?;
+            return Ok(());
+        }
+
         if let Err(e) = sqlx::query("SELECT 1").execute(&self.pool).await {
             let error_text = e.to_string();
             if is_prepared_protocol_unsupported_error(&error_text) {
@@ -712,10 +881,7 @@ impl DatabaseDriver for MysqlDriver {
     }
 
     async fn list_databases(&self) -> Result<Vec<String>, String> {
-        let rows = sqlx::query("SHOW DATABASES")
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+        let rows = self.fetch_all_sql("SHOW DATABASES").await?;
         rows.into_iter()
             .map(|row| decode_mysql_text_cell(&row, 0))
             .collect()
@@ -733,25 +899,21 @@ impl DatabaseDriver for MysqlDriver {
         let target_schema = if let Some(s) = schema {
             s
         } else {
-            // Fallback: try to get current database
-            let row = sqlx::query("SELECT DATABASE()")
-                .fetch_one(&self.pool)
+            self.current_database()
                 .await
-                .map_err(|e| format!("[QUERY_ERROR] Failed to get current database: {e}"))?;
-            decode_mysql_optional_text_cell(&row, 0)?
+                .map_err(|e| format!("[QUERY_ERROR] Failed to get current database: {e}"))?
                 .ok_or("[QUERY_ERROR] No database selected and no schema provided")?
         };
 
-        let rows = sqlx::query(
-            "SELECT table_schema, table_name, table_type \
-             FROM information_schema.tables \
-             WHERE table_schema = ? AND table_type IN ('BASE TABLE','VIEW') \
-             ORDER BY table_name",
-        )
-        .bind(&target_schema)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+        let rows = self
+            .fetch_all_with_str_params(
+                "SELECT table_schema, table_name, table_type \
+                 FROM information_schema.tables \
+                 WHERE table_schema = ? AND table_type IN ('BASE TABLE','VIEW') \
+                 ORDER BY table_name",
+                &[&target_schema],
+            )
+            .await?;
 
         let mut res = Vec::new();
         for row in rows {
@@ -778,17 +940,15 @@ impl DatabaseDriver for MysqlDriver {
     ) -> Result<TableStructure, String> {
         let pk_set = self.fetch_primary_key_columns(&schema, &table).await?;
 
-        let rows = sqlx::query(
-            "SELECT column_name, data_type, is_nullable, column_default \
-             FROM information_schema.columns \
-             WHERE table_schema = ? AND table_name = ? \
-             ORDER BY ordinal_position",
-        )
-        .bind(&schema)
-        .bind(&table)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+        let rows = self
+            .fetch_all_with_str_params(
+                "SELECT column_name, data_type, is_nullable, column_default \
+                 FROM information_schema.columns \
+                 WHERE table_schema = ? AND table_name = ? \
+                 ORDER BY ordinal_position",
+                &[&schema, &table],
+            )
+            .await?;
 
         let mut columns = Vec::new();
         for row in rows {
@@ -812,17 +972,15 @@ impl DatabaseDriver for MysqlDriver {
     ) -> Result<TableMetadata, String> {
         let pk_set = self.fetch_primary_key_columns(&schema, &table).await?;
 
-        let column_rows = sqlx::query(
-            "SELECT column_name, column_type, is_nullable, column_default, column_comment \
-             FROM information_schema.columns \
-             WHERE table_schema = ? AND table_name = ? \
-             ORDER BY ordinal_position",
-        )
-        .bind(&schema)
-        .bind(&table)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+        let column_rows = self
+            .fetch_all_with_str_params(
+                "SELECT column_name, column_type, is_nullable, column_default, column_comment \
+                 FROM information_schema.columns \
+                 WHERE table_schema = ? AND table_name = ? \
+                 ORDER BY ordinal_position",
+                &[&schema, &table],
+            )
+            .await?;
 
         let mut columns = Vec::new();
         for row in column_rows {
@@ -846,17 +1004,15 @@ impl DatabaseDriver for MysqlDriver {
             });
         }
 
-        let index_rows = sqlx::query(
-            "SELECT index_name, non_unique, index_type, seq_in_index, column_name \
-             FROM information_schema.statistics \
-             WHERE table_schema = ? AND table_name = ? \
-             ORDER BY index_name, seq_in_index",
-        )
-        .bind(&schema)
-        .bind(&table)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+        let index_rows = self
+            .fetch_all_with_str_params(
+                "SELECT index_name, non_unique, index_type, seq_in_index, column_name \
+                 FROM information_schema.statistics \
+                 WHERE table_schema = ? AND table_name = ? \
+                 ORDER BY index_name, seq_in_index",
+                &[&schema, &table],
+            )
+            .await?;
 
         let mut index_map: HashMap<String, (bool, Option<String>, Vec<(i64, String)>)> =
             HashMap::new();
@@ -895,33 +1051,31 @@ impl DatabaseDriver for MysqlDriver {
             .collect::<Vec<_>>();
         indexes.sort_by(|a, b| a.name.cmp(&b.name));
 
-        let fk_rows = sqlx::query(
-            "SELECT \
-               kcu.constraint_name, \
-               kcu.column_name, \
-               kcu.referenced_table_schema, \
-               kcu.referenced_table_name, \
-               kcu.referenced_column_name, \
-               rc.update_rule, \
-               rc.delete_rule \
-             FROM information_schema.table_constraints tc \
-             JOIN information_schema.key_column_usage kcu \
-               ON tc.constraint_name = kcu.constraint_name \
-              AND tc.table_schema = kcu.table_schema \
-              AND tc.table_name = kcu.table_name \
-             LEFT JOIN information_schema.referential_constraints rc \
-               ON rc.constraint_name = tc.constraint_name \
-              AND rc.constraint_schema = tc.table_schema \
-             WHERE tc.constraint_type = 'FOREIGN KEY' \
-               AND tc.table_schema = ? \
-               AND tc.table_name = ? \
-             ORDER BY kcu.constraint_name, kcu.ordinal_position",
-        )
-        .bind(&schema)
-        .bind(&table)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+        let fk_rows = self
+            .fetch_all_with_str_params(
+                "SELECT \
+                   kcu.constraint_name, \
+                   kcu.column_name, \
+                   kcu.referenced_table_schema, \
+                   kcu.referenced_table_name, \
+                   kcu.referenced_column_name, \
+                   rc.update_rule, \
+                   rc.delete_rule \
+                 FROM information_schema.table_constraints tc \
+                 JOIN information_schema.key_column_usage kcu \
+                   ON tc.constraint_name = kcu.constraint_name \
+                  AND tc.table_schema = kcu.table_schema \
+                  AND tc.table_name = kcu.table_name \
+                 LEFT JOIN information_schema.referential_constraints rc \
+                   ON rc.constraint_name = tc.constraint_name \
+                  AND rc.constraint_schema = tc.table_schema \
+                 WHERE tc.constraint_type = 'FOREIGN KEY' \
+                   AND tc.table_schema = ? \
+                   AND tc.table_name = ? \
+                 ORDER BY kcu.constraint_name, kcu.ordinal_position",
+                &[&schema, &table],
+            )
+            .await?;
 
         let mut foreign_keys = Vec::new();
         for row in fk_rows {
@@ -951,10 +1105,7 @@ impl DatabaseDriver for MysqlDriver {
             format!("`{}`.`{}`", schema, table)
         };
         let query = format!("SHOW CREATE TABLE {}", qualified);
-        let row = sqlx::query(&query)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+        let row = self.fetch_one_sql(&query).await?;
         decode_mysql_text_cell(&row, 1)
     }
 
@@ -982,10 +1133,7 @@ impl DatabaseDriver for MysqlDriver {
         };
 
         let count_query = format!("SELECT COUNT(*) FROM {}{}", qualified, where_clause);
-        let total: i64 = sqlx::query_scalar(&count_query)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| format!("[QUERY_ERROR] SQL: {} | {}", count_query, e))?;
+        let total = self.fetch_i64_scalar_sql(&count_query).await?;
 
         let order_clause = if let Some(ref ob) = order_by {
             if !ob.trim().is_empty() {
@@ -1015,18 +1163,26 @@ impl DatabaseDriver for MysqlDriver {
             .map(|(name, _)| name.clone())
             .collect();
         let json_expr = build_mysql_json_object_expr(&table_columns, Some("__dbpaw_row"));
-        let base_query = format!(
-            "SELECT * FROM {}{}{} LIMIT ? OFFSET ?",
-            qualified, where_clause, order_clause
-        );
-        let data = self
-            .fetch_rows_as_json(
+        let data = if self.is_compatibility_mode() {
+            let query = format!(
+                "SELECT * FROM {}{}{} LIMIT {} OFFSET {}",
+                qualified, where_clause, order_clause, limit, offset
+            );
+            let rows = self.fetch_all_sql(&query).await?;
+            decode_mysql_rows_without_projection(&rows, &high_precision_cols)
+        } else {
+            let base_query = format!(
+                "SELECT * FROM {}{}{} LIMIT ? OFFSET ?",
+                qualified, where_clause, order_clause
+            );
+            self.fetch_rows_as_json(
                 &base_query,
                 &[limit, offset],
                 &json_expr,
                 &high_precision_cols,
             )
-            .await?;
+            .await?
+        };
 
         let duration = start.elapsed();
         Ok(TableDataResponse {
@@ -1064,7 +1220,15 @@ impl DatabaseDriver for MysqlDriver {
 
     async fn execute_query(&self, sql: String) -> Result<QueryResult, String> {
         let start = std::time::Instant::now();
-        let (columns, data, row_count) = if is_json_projectable_statement(&sql) {
+        let (columns, data, row_count) = if self.is_compatibility_mode()
+            && is_json_projectable_statement(&sql)
+        {
+            let rows = self.fetch_all_sql(&sql).await?;
+            let columns = query_columns_from_rows(&rows);
+            let data = decode_mysql_rows_without_projection(&rows, &HashSet::new());
+            let row_count = data.len() as i64;
+            (columns, data, row_count)
+        } else if is_json_projectable_statement(&sql) {
             let columns = self.describe_query_columns(&sql).await?;
             let high_precision_cols: HashSet<String> = columns
                 .iter()
@@ -1082,10 +1246,7 @@ impl DatabaseDriver for MysqlDriver {
             let row_count = data.len() as i64;
             (columns, data, row_count)
         } else if is_affected_rows_statement(&sql) {
-            let result = sqlx::query(&sql)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+            let result = self.execute_sql(&sql).await?;
             (Vec::new(), Vec::new(), result.rows_affected() as i64)
         } else {
             let mut executed_with_raw_sql = false;
@@ -1158,12 +1319,13 @@ impl DatabaseDriver for MysqlDriver {
             .to_string();
 
         let rows = if let Some(s) = schema {
-            sqlx::query(&format!(
-                "{} WHERE table_schema = ? ORDER BY table_schema, table_name, ordinal_position",
-                sql
-            ))
-            .bind(s)
-            .fetch_all(&self.pool)
+            self.fetch_all_with_str_params(
+                &format!(
+                    "{} WHERE table_schema = ? ORDER BY table_schema, table_name, ordinal_position",
+                    sql
+                ),
+                &[&s],
+            )
             .await
         } else {
             // Try to use current DB if available in pool, otherwise exclude system schemas
@@ -1173,27 +1335,24 @@ impl DatabaseDriver for MysqlDriver {
             // If connected to a specific DB, `SHOW TABLES` works for that DB. But we query `information_schema`.
 
             // We can query SELECT DATABASE() first.
-            let db_row = sqlx::query("SELECT DATABASE()").fetch_one(&self.pool).await;
-
-            if let Ok(row) = db_row {
-                let current_db = decode_mysql_optional_text_cell(&row, 0).ok().flatten();
-                if let Some(db) = current_db {
-                    sqlx::query(&format!(
-                    "{} WHERE table_schema = ? ORDER BY table_schema, table_name, ordinal_position",
-                    sql
-                ))
-                    .bind(db)
-                    .fetch_all(&self.pool)
+            match self.current_database().await {
+                Ok(Some(db)) => {
+                    self.fetch_all_with_str_params(
+                        &format!(
+                            "{} WHERE table_schema = ? ORDER BY table_schema, table_name, ordinal_position",
+                            sql
+                        ),
+                        &[&db],
+                    )
                     .await
-                } else {
-                    sqlx::query(&format!("{} WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') ORDER BY table_schema, table_name, ordinal_position", sql))
-                        .fetch_all(&self.pool)
-                        .await
                 }
-            } else {
-                sqlx::query(&format!("{} WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') ORDER BY table_schema, table_name, ordinal_position", sql))
-                .fetch_all(&self.pool)
-                .await
+                Ok(None) | Err(_) => {
+                    self.fetch_all_sql(&format!(
+                        "{} WHERE table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys') ORDER BY table_schema, table_name, ordinal_position",
+                        sql
+                    ))
+                    .await
+                }
             }
         };
 
@@ -1275,6 +1434,25 @@ mod tests {
             conn_str,
             "mysql://root:password@localhost:3306/test_db?ssl-mode=DISABLED"
         );
+    }
+
+    #[test]
+    fn test_render_mysql_query_with_str_params_quotes_values() {
+        let sql =
+            "SELECT * FROM information_schema.tables WHERE table_schema = ? AND table_name = ?";
+        let rendered = render_mysql_query_with_str_params(sql, &["demo's", r#"a\b"#]).unwrap();
+        assert_eq!(
+            rendered,
+            "SELECT * FROM information_schema.tables WHERE table_schema = 'demo''s' AND table_name = 'a\\\\b'"
+        );
+    }
+
+    #[test]
+    fn test_render_mysql_query_with_str_params_rejects_mismatched_param_count() {
+        let err =
+            render_mysql_query_with_str_params("SELECT * FROM t WHERE a = ? AND b = ?", &["x"])
+                .unwrap_err();
+        assert!(err.contains("Placeholder count does not match parameter count"));
     }
 
     #[test]
@@ -1370,10 +1548,41 @@ mod tests {
     }
 
     #[test]
+    fn test_conn_string_uses_doris_default_port_when_port_missing() {
+        let form = ConnectionForm {
+            driver: "doris".to_string(),
+            host: Some("localhost".to_string()),
+            port: None,
+            username: Some("root".to_string()),
+            password: Some("password".to_string()),
+            database: Some("analytics".to_string()),
+            ..Default::default()
+        };
+
+        let conn_str = build_dsn(&form).unwrap();
+        assert_eq!(
+            conn_str,
+            "mysql://root:password@localhost:9030/analytics?ssl-mode=DISABLED"
+        );
+    }
+
+    #[test]
     fn test_starrocks_connect_options_disable_sql_mode_mutations() {
         let options = build_connect_options(
             "mysql://root:password@localhost:9030/analytics?ssl-mode=DISABLED",
             "starrocks",
+        )
+        .unwrap();
+
+        let rendered = options.to_url_lossy().to_string();
+        assert!(rendered.contains("ssl-mode=DISABLED"));
+    }
+
+    #[test]
+    fn test_doris_connect_options_disable_sql_mode_mutations() {
+        let options = build_connect_options(
+            "mysql://root:password@localhost:9030/analytics?ssl-mode=DISABLED",
+            "doris",
         )
         .unwrap();
 
@@ -1603,6 +1812,9 @@ mod tests {
         ));
         assert!(is_prepared_protocol_unsupported_error(
             "error returned from database: 0 (HYo00):[1b6d607a89402000][10.233.70.102:3306][polardbx]Preparedoes not support sql: SELECT 1"
+        ));
+        assert!(is_prepared_protocol_unsupported_error(
+            "error returned from database: 1105 (HY000): errCode = 2, detailMessage = Only support prepare SelectStmt or InsertStmt now"
         ));
         assert!(!is_prepared_protocol_unsupported_error(
             "syntax error near ...",

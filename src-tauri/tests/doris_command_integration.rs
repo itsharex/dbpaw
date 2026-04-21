@@ -8,37 +8,6 @@ use dbpaw_lib::models::ConnectionForm;
 
 use doris_context::{shared_doris_form, unique_name, wait_until_ready};
 
-async fn prepare_query_test_table(form: &ConnectionForm, table: &str) {
-    let db_name = unique_name("dbpaw_doris_cmd_db");
-    let qualified = format!("`{}`.`{}`", db_name, table);
-
-    let driver = MysqlDriver::connect(form)
-        .await
-        .expect("failed to connect doris driver");
-
-    driver
-        .execute_query(format!("CREATE DATABASE IF NOT EXISTS `{}`", db_name))
-        .await
-        .expect("create database should succeed");
-
-    driver
-        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
-        .await
-        .expect("drop table should succeed");
-    driver
-        .execute_query(format!("CREATE TABLE {} (id INT, name STRING)", qualified))
-        .await
-        .expect("create table should succeed");
-    driver
-        .execute_query(format!(
-            "INSERT INTO {} (id, name) VALUES (1, 'DbPaw')",
-            qualified
-        ))
-        .await
-        .expect("insert row should succeed");
-    driver.close().await;
-}
-
 async fn cleanup_database(form: &ConnectionForm, db_name: &str) {
     let driver = MysqlDriver::connect(form)
         .await
@@ -102,7 +71,10 @@ async fn test_doris_command_list_tables_by_conn_contains_created_table() {
         .await
         .expect("create database should succeed");
     driver
-        .execute_query(format!("CREATE TABLE `{}`.`{}` (id INT)", db_name, table))
+        .execute_query(doris_context::doris_create_table_sql(
+            &format!("`{}`.`{}`", db_name, table),
+            "id INT",
+        ))
         .await
         .expect("create table should succeed");
     driver.close().await;
@@ -176,9 +148,9 @@ async fn test_doris_command_execute_by_conn_select_returns_rows() {
         .await
         .expect("create database should succeed");
     driver
-        .execute_query(format!(
-            "CREATE TABLE `{}`.`{}` (id INT, name STRING)",
-            db_name, table
+        .execute_query(doris_context::doris_create_table_sql(
+            &format!("`{}`.`{}`", db_name, table),
+            "id INT, name STRING",
         ))
         .await
         .expect("create table should succeed");
@@ -241,9 +213,9 @@ async fn test_doris_command_execute_by_conn_insert_affects_rows() {
         .await
         .expect("create database should succeed");
     driver
-        .execute_query(format!(
-            "CREATE TABLE `{}`.`{}` (id INT, name STRING)",
-            db_name, table
+        .execute_query(doris_context::doris_create_table_sql(
+            &format!("`{}`.`{}`", db_name, table),
+            "id INT, name STRING",
         ))
         .await
         .expect("create table should succeed");
@@ -282,9 +254,9 @@ async fn test_doris_command_get_table_data_by_conn_pagination_works() {
         .await
         .expect("create database should succeed");
     driver
-        .execute_query(format!(
-            "CREATE TABLE `{}`.`{}` (id INT, name STRING)",
-            db_name, table
+        .execute_query(doris_context::doris_create_table_sql(
+            &format!("`{}`.`{}`", db_name, table),
+            "id INT, name STRING",
         ))
         .await
         .expect("create table should succeed");
@@ -335,9 +307,9 @@ async fn test_doris_command_get_table_data_by_conn_invalid_pagination_returns_er
         .await
         .expect("create database should succeed");
     driver
-        .execute_query(format!(
-            "CREATE TABLE `{}`.`{}` (id INT, name STRING)",
-            db_name, table
+        .execute_query(doris_context::doris_create_table_sql(
+            &format!("`{}`.`{}`", db_name, table),
+            "id INT, name STRING",
         ))
         .await
         .expect("create table should succeed");

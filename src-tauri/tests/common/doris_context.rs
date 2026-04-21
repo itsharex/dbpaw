@@ -1,6 +1,7 @@
 mod shared;
 
-use dbpaw_lib::commands::connection;
+use dbpaw_lib::db::drivers::mysql::MysqlDriver;
+use dbpaw_lib::db::drivers::DatabaseDriver;
 use dbpaw_lib::models::ConnectionForm;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -110,6 +111,22 @@ fn apply_doris_env_overrides(form: &mut ConnectionForm) {
     }
 }
 
+pub fn doris_create_table_sql(qualified: &str, columns_sql: &str) -> String {
+    format!(
+        "CREATE TABLE {} ({}) \
+         DUPLICATE KEY(id) \
+         DISTRIBUTED BY HASH(id) BUCKETS 1 \
+         PROPERTIES (\"replication_num\" = \"1\")",
+        qualified, columns_sql
+    )
+}
+
+#[allow(dead_code)]
+pub async fn connect_ready_driver(form: &ConnectionForm) -> MysqlDriver {
+    wait_until_ready(form).await;
+    connect_with_retry(|| MysqlDriver::connect(form)).await
+}
+
 /// Poll the Doris server until it accepts connections or the timeout expires.
 /// Uses the application-level `test_connection_ephemeral` command so it
 /// validates the full stack, not just TCP reachability.
@@ -117,13 +134,36 @@ fn apply_doris_env_overrides(form: &mut ConnectionForm) {
 pub async fn wait_until_ready(form: &ConnectionForm) {
     let mut last_error = String::new();
     for _ in 0..180 {
-        match connection::test_connection_ephemeral(form.clone()).await {
-            Ok(_) => return,
+        match MysqlDriver::connect(form).await {
+            Ok(driver) => {
+                let probe_db = shared::unique_name("dbpaw_doris_ready");
+                let probe_table = "probe";
+                let qualified = format!("`{}`.`{}`", probe_db, probe_table);
+                let create_db_sql = format!("CREATE DATABASE IF NOT EXISTS `{}`", probe_db);
+                let create_table_sql = doris_create_table_sql(&qualified, "id INT");
+                let drop_db_sql = format!("DROP DATABASE IF EXISTS `{}`", probe_db);
+
+                match driver.execute_query(create_db_sql).await {
+                    Ok(_) => match driver.execute_query(create_table_sql).await {
+                        Ok(_) => {
+                            let _ = driver.execute_query(drop_db_sql).await;
+                            return;
+                        }
+                        Err(err) => {
+                            let _ = driver.execute_query(drop_db_sql).await;
+                            last_error = err;
+                        }
+                    },
+                    Err(err) => {
+                        last_error = err;
+                    }
+                }
+            }
             Err(err) => {
                 last_error = err;
-                sleep(Duration::from_secs(1)).await;
             }
         }
+        sleep(Duration::from_secs(1)).await;
     }
     panic!(
         "Doris at {}:{} did not become ready in time: {last_error}",

@@ -8,9 +8,7 @@ use dbpaw_lib::db::drivers::DatabaseDriver;
 #[ignore]
 async fn test_doris_integration_flow() {
     let form = doris_context::shared_doris_form();
-
-    let driver: MysqlDriver =
-        doris_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
+    let driver: MysqlDriver = doris_context::connect_ready_driver(&form).await;
 
     driver
         .test_connection()
@@ -37,7 +35,10 @@ async fn test_doris_integration_flow() {
         .await;
 
     driver
-        .execute_query(format!("CREATE TABLE {} (id INT, name STRING)", qualified))
+        .execute_query(doris_context::doris_create_table_sql(
+            &qualified,
+            "id INT, name STRING",
+        ))
         .await
         .expect("create table failed");
 
@@ -113,9 +114,7 @@ async fn test_doris_integration_flow() {
 #[ignore]
 async fn test_doris_metadata_and_type_mapping_flow() {
     let form = doris_context::shared_doris_form();
-
-    let driver: MysqlDriver =
-        doris_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
+    let driver: MysqlDriver = doris_context::connect_ready_driver(&form).await;
 
     let db_name = doris_context::unique_name("dbpaw_doris_type_db");
     let table_name = "dbpaw_type_probe";
@@ -131,14 +130,9 @@ async fn test_doris_metadata_and_type_mapping_flow() {
         .await;
 
     driver
-        .execute_query(format!(
-            "CREATE TABLE {} (\
-                id INT, \
-                amount DECIMAL(10,2), \
-                created_at DATETIME, \
-                name VARCHAR(50)\
-            )",
-            qualified
+        .execute_query(doris_context::doris_create_table_sql(
+            &qualified,
+            "id INT, amount DECIMAL(10,2), created_at DATETIME, name VARCHAR(50)",
         ))
         .await
         .expect("create table failed");
@@ -226,9 +220,7 @@ async fn test_doris_metadata_and_type_mapping_flow() {
 #[ignore]
 async fn test_doris_list_databases_and_tables() {
     let form = doris_context::shared_doris_form();
-
-    let driver: MysqlDriver =
-        doris_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
+    let driver: MysqlDriver = doris_context::connect_ready_driver(&form).await;
 
     let db_name = doris_context::unique_name("dbpaw_doris_probe");
     let table_name = "probe_tbl";
@@ -239,9 +231,9 @@ async fn test_doris_list_databases_and_tables() {
         .expect("create database failed");
 
     driver
-        .execute_query(format!(
-            "CREATE TABLE IF NOT EXISTS `{}`.`{}` (id INT)",
-            db_name, table_name
+        .execute_query(doris_context::doris_create_table_sql(
+            &format!("`{}`.`{}`", db_name, table_name),
+            "id INT",
         ))
         .await
         .expect("create table failed");
@@ -276,9 +268,7 @@ async fn test_doris_list_databases_and_tables() {
 #[ignore]
 async fn test_doris_get_table_data_supports_pagination_sort_filter() {
     let form = doris_context::shared_doris_form();
-
-    let driver: MysqlDriver =
-        doris_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
+    let driver: MysqlDriver = doris_context::connect_ready_driver(&form).await;
 
     let db_name = doris_context::unique_name("dbpaw_doris_grid_db");
     let table_name = "dbpaw_grid_probe";
@@ -294,9 +284,9 @@ async fn test_doris_get_table_data_supports_pagination_sort_filter() {
         .await;
 
     driver
-        .execute_query(format!(
-            "CREATE TABLE {} (id INT, name STRING, score INT)",
-            qualified
+        .execute_query(doris_context::doris_create_table_sql(
+            &qualified,
+            "id INT, name STRING, score INT",
         ))
         .await
         .expect("create grid probe table failed");
@@ -354,9 +344,7 @@ async fn test_doris_get_table_data_supports_pagination_sort_filter() {
 #[ignore]
 async fn test_doris_table_structure_and_schema_overview() {
     let form = doris_context::shared_doris_form();
-
-    let driver: MysqlDriver =
-        doris_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
+    let driver: MysqlDriver = doris_context::connect_ready_driver(&form).await;
 
     let db_name = doris_context::unique_name("dbpaw_doris_overview_db");
     let table_name = "dbpaw_overview_probe";
@@ -372,9 +360,9 @@ async fn test_doris_table_structure_and_schema_overview() {
         .await;
 
     driver
-        .execute_query(format!(
-            "CREATE TABLE {} (id INT, label VARCHAR(30))",
-            qualified
+        .execute_query(doris_context::doris_create_table_sql(
+            &qualified,
+            "id INT, label VARCHAR(30)",
         ))
         .await
         .expect("create overview probe table failed");
@@ -415,9 +403,7 @@ async fn test_doris_table_structure_and_schema_overview() {
 #[ignore]
 async fn test_doris_execute_query_reports_affected_rows() {
     let form = doris_context::shared_doris_form();
-
-    let driver: MysqlDriver =
-        doris_context::connect_with_retry(|| MysqlDriver::connect(&form)).await;
+    let driver: MysqlDriver = doris_context::connect_ready_driver(&form).await;
 
     let db_name = doris_context::unique_name("dbpaw_doris_affected_db");
     let table_name = "dbpaw_affected_rows_probe";
@@ -433,7 +419,10 @@ async fn test_doris_execute_query_reports_affected_rows() {
         .await;
 
     driver
-        .execute_query(format!("CREATE TABLE {} (id INT, name STRING)", qualified))
+        .execute_query(doris_context::doris_create_table_sql(
+            &qualified,
+            "id INT, name STRING",
+        ))
         .await
         .expect("create affected_rows probe table failed");
 
@@ -450,7 +439,10 @@ async fn test_doris_execute_query_reports_affected_rows() {
         .execute_query(format!("DELETE FROM {} WHERE id IN (1, 2)", qualified))
         .await
         .expect("delete affected_rows probe rows failed");
-    assert_eq!(deleted.row_count, 2);
+    assert_eq!(
+        deleted.row_count, 0,
+        "Doris executes DELETE successfully but does not report affected rows"
+    );
 
     let _ = driver
         .execute_query(format!("DROP DATABASE IF EXISTS `{}`", db_name))
