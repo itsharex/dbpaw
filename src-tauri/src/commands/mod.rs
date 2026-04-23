@@ -3,6 +3,7 @@ pub mod config;
 pub mod connection;
 pub mod metadata;
 pub mod query;
+pub mod redis;
 pub mod storage;
 pub mod transfer;
 

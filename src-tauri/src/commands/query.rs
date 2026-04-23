@@ -712,6 +712,9 @@ pub async fn execute_query(
         serde_json::json!({"queryId": query_id.clone(), "phase": "prepare"}),
     );
     let driver = resolve_driver(&state, id).await;
+    if driver.as_deref().map(|d| d.eq_ignore_ascii_case("redis")).unwrap_or(false) {
+        return Err("[UNSUPPORTED] Redis connections do not support SQL queries. Use the Redis key view to browse and edit keys.".to_string());
+    }
     let is_clickhouse = driver
         .as_deref()
         .map(|d| d.eq_ignore_ascii_case("clickhouse"))

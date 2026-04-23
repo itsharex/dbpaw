@@ -3,6 +3,7 @@ import {
   allowsHostWithPort,
   isFileBasedDriver,
   requiresPasswordOnCreate,
+  requiresUsername,
 } from "./rules";
 
 type Mode = "create" | "edit";
@@ -37,7 +38,7 @@ export const validateConnectionFormInput = (
   if (!form.host) {
     issues.push({ key: "connection.dialog.inputValidation.hostRequired" });
   }
-  if (!form.username) {
+  if (requiresUsername(form.driver) && !form.username) {
     issues.push({ key: "connection.dialog.inputValidation.usernameRequired" });
   }
   if (!isPortInRange(form.port)) {

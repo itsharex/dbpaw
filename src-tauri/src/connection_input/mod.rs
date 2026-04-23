@@ -54,7 +54,8 @@ pub fn normalize_connection_form(mut form: ConnectionForm) -> Result<ConnectionF
     validate_port_range("ssh port", form.ssh_port)?;
 
     let driver = form.driver.to_ascii_lowercase();
-    if crate::db::drivers::is_mysql_family_driver(&driver) {
+    form.driver = driver.clone();
+    if crate::db::drivers::is_mysql_family_driver(&driver) || driver == "redis" {
         if let Some(host) = form.host.clone() {
             let (normalized_host, normalized_port) = parse_host_embedded_port(&host, form.port);
             form.host = Some(normalized_host);

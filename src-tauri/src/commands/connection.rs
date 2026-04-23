@@ -408,8 +408,12 @@ pub async fn test_connection_ephemeral(
 ) -> Result<TestConnectionResult, String> {
     let form = crate::connection_input::normalize_connection_form(form)?;
     let start = Instant::now();
-    let driver = crate::db::drivers::connect(&form).await?;
-    driver.test_connection().await.map_err(|e| e.to_string())?;
+    if form.driver == "redis" {
+        crate::datasources::redis::test_connection(&form).await?;
+    } else {
+        let driver = crate::db::drivers::connect(&form).await?;
+        driver.test_connection().await.map_err(|e| e.to_string())?;
+    }
 
     let elapsed = start.elapsed().as_millis() as i64;
     Ok(TestConnectionResult {

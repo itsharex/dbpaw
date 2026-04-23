@@ -19,6 +19,7 @@ fn default_target_port(driver: &str) -> i64 {
         "mssql" => 1433,
         "oracle" => 1521,
         "clickhouse" => 9000,
+        "redis" => 6379,
         "sqlite" => 0,
         _ => 5432, // postgres and unknown drivers
     }
@@ -358,6 +359,7 @@ mod tests {
         assert_eq!(default_target_port("starrocks"), 9030);
         assert_eq!(default_target_port("doris"), 9030);
         assert_eq!(default_target_port("clickhouse"), 9000);
+        assert_eq!(default_target_port("redis"), 6379);
     }
 
     #[test]

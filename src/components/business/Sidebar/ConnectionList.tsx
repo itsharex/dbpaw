@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import {
@@ -18,6 +18,7 @@ import {
   Download,
   FolderOpen,
   Upload,
+  Terminal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -83,7 +84,11 @@ import {
   sanitizeConnectionErrorMessage,
 } from "./connection-list/helpers";
 import { useTranslation } from "react-i18next";
-import { normalizeConnectionFormInput } from "@/lib/connection-form/rules";
+import {
+  normalizeConnectionFormInput,
+  requiresPasswordOnCreate,
+  requiresUsername,
+} from "@/lib/connection-form/rules";
 import { validateConnectionFormInput } from "@/lib/connection-form/validate";
 
 interface Column {
@@ -108,6 +113,8 @@ interface DatabaseInfo {
   name: string;
   schemas: SchemaInfo[];
   tables: TableInfo[];
+  redisCursor?: number;
+  redisIsPartial?: boolean;
 }
 
 type DatabaseExportFormat = "sql_dml" | "sql_ddl" | "sql_full";
@@ -300,6 +307,19 @@ interface ConnectionListProps {
     driver: string,
     schema?: string,
   ) => void;
+  onRedisKeySelect?: (
+    connection: string,
+    database: string,
+    redisKey: string,
+    connectionId: number,
+    driver: string,
+  ) => void;
+  onOpenRedisConsole?: (
+    connection: string,
+    database: string,
+    connectionId: number,
+    driver: string,
+  ) => void;
   onConnect?: (form: ConnectionForm) => void;
   onCreateQuery?: (
     connectionId: number,
@@ -353,10 +373,17 @@ interface ConnectionListProps {
   onSelectSavedQuery?: (query: SavedQuery) => void;
   lastUpdated?: number;
   showSavedQueriesInTree?: boolean;
+  redisRefreshRequest?: {
+    id: number;
+    connectionId: number;
+    database: string;
+  };
 }
 
 export function ConnectionList({
   onTableSelect,
+  onRedisKeySelect,
+  onOpenRedisConsole,
   onConnect,
   onCreateQuery,
   onExportTable,
@@ -368,10 +395,12 @@ export function ConnectionList({
   onSelectSavedQuery,
   lastUpdated,
   showSavedQueriesInTree = false,
+  redisRefreshRequest,
 }: ConnectionListProps) {
   const { t } = useTranslation();
   const tableNodeRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const handledRevealRequestIdRef = useRef<number | null>(null);
+  const handledRedisRefreshIdRef = useRef<number | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [expandedConnections, setExpandedConnections] = useState<Set<string>>(
     new Set(["1"]),
@@ -379,6 +408,12 @@ export function ConnectionList({
   const [expandedDatabases, setExpandedDatabases] = useState<Set<string>>(
     new Set(),
   );
+  // These refs are updated every render so effects can read latest values without
+  // listing them as deps (avoids re-firing on every connection state update).
+  const connectionsRef = useRef(connections);
+  connectionsRef.current = connections;
+  const expandedDatabasesRef = useRef(expandedDatabases);
+  expandedDatabasesRef.current = expandedDatabases;
   const [expandedDatabaseGroups, setExpandedDatabaseGroups] = useState<
     Set<string>
   >(new Set());
@@ -660,8 +695,11 @@ export function ConnectionList({
   const isFileBased = isFileBasedDriver(form.driver);
   const supportsSslCa = supportsSSLCA(form.driver);
   const isPasswordRequiredOnCreate = useMemo(
-    // MySQL-compatible engines (including TiDB and MariaDB) can be configured without password.
-    () => !isMysqlFamilyDriver(form.driver),
+    () => requiresPasswordOnCreate(form.driver),
+    [form.driver],
+  );
+  const isUsernameRequired = useMemo(
+    () => requiresUsername(form.driver),
     [form.driver],
   );
   const normalizedForm = useMemo(
@@ -845,9 +883,13 @@ export function ConnectionList({
     connectionId: string,
   ): Promise<boolean> => {
     try {
-      const dbNames = await api.metadata.listDatabasesById(
-        Number(connectionId),
-      );
+      const current = connections.find((conn) => conn.id === connectionId);
+      const dbNames =
+        current?.type === "redis"
+          ? (await api.redis.listDatabases(Number(connectionId))).map(
+              (db) => db.name,
+            )
+          : await api.metadata.listDatabasesById(Number(connectionId));
       setConnections((prev) =>
         prev.map((conn) => {
           if (conn.id !== connectionId) return conn;
@@ -951,21 +993,107 @@ export function ConnectionList({
     });
   };
 
+  const redisKeyToTableInfo = (key: {
+    key: string;
+    keyType: string;
+    ttl: number;
+  }): TableInfo => ({
+    name: key.key,
+    schema: key.keyType,
+    columns: [
+      {
+        name:
+          key.ttl > 0
+            ? `ttl ${key.ttl}s`
+            : key.ttl === -1
+              ? "persist"
+              : "expired",
+        type: key.keyType,
+      },
+    ],
+  });
+
+  const loadRedisKeysPage = useCallback(
+    async (
+      connectionId: string,
+      databaseName: string,
+      cursor: number,
+      append: boolean,
+    ): Promise<TableInfo[]> => {
+      const pattern = searchTerm.trim() ? `*${searchTerm.trim()}*` : "*";
+      const response = await api.redis.scanKeys({
+        id: Number(connectionId),
+        database: databaseName,
+        cursor,
+        pattern,
+        limit: 200,
+      });
+      const newKeys = response.keys.map(redisKeyToTableInfo);
+      setConnections((prev) =>
+        prev.map((conn) => {
+          if (conn.id !== connectionId) return conn;
+          return {
+            ...conn,
+            databases: conn.databases.map((db) => {
+              if (db.name !== databaseName) return db;
+              return {
+                ...db,
+                tables: append ? [...db.tables, ...newKeys] : newKeys,
+                redisCursor: response.cursor,
+                redisIsPartial: response.isPartial,
+              };
+            }),
+          };
+        }),
+      );
+      return newKeys;
+    },
+    [searchTerm],
+  );
+
+  useEffect(() => {
+    connectionsRef.current.forEach((conn) => {
+      if (conn.type !== "redis") return;
+      conn.databases.forEach((db) => {
+        const dbKey = `${conn.id}-${db.name}`;
+        if (!expandedDatabasesRef.current.has(dbKey) || db.tables.length === 0) return;
+        void loadRedisKeysPage(conn.id, db.name, 0, false);
+      });
+    });
+  }, [searchTerm, loadRedisKeysPage]);
+
+  const fetchSqlTablesAsTableInfo = async (
+    connectionId: string,
+    databaseName: string,
+  ): Promise<TableInfo[]> => {
+    const tables = await api.metadata.listTables(
+      Number(connectionId),
+      databaseName,
+    );
+    return tables.map((table) => ({
+      name: table.name,
+      schema: table.schema,
+      columns: [],
+    }));
+  };
+
   const fetchAndSetTables = async (
     connectionId: string,
     databaseName: string,
     options?: { force?: boolean },
   ): Promise<TableInfo[]> => {
     try {
-      const tables = await api.metadata.listTables(
-        Number(connectionId),
+      const targetConnection = connections.find(
+        (conn) => conn.id === connectionId,
+      );
+      if (targetConnection?.type === "redis") {
+        await loadRedisKeysPage(connectionId, databaseName, 0, false);
+        return [];
+      }
+      const nextTables: TableInfo[] = await fetchSqlTablesAsTableInfo(
+        connectionId,
         databaseName,
       );
-      const nextTables: TableInfo[] = tables.map((t) => ({
-        name: t.name,
-        schema: t.schema,
-        columns: [],
-      }));
       setConnections((prev) =>
         prev.map((conn) => {
           if (conn.id !== connectionId) return conn;
@@ -1136,6 +1264,15 @@ export function ConnectionList({
       id: sidebarRevealRequest.id,
     });
   }, [activeTableTarget, selectedTableNode, sidebarRevealRequest]);
+
+  useEffect(() => {
+    if (!redisRefreshRequest) return;
+    if (handledRedisRefreshIdRef.current === redisRefreshRequest.id) return;
+    handledRedisRefreshIdRef.current = redisRefreshRequest.id;
+    const dbKey = `${String(redisRefreshRequest.connectionId)}-${redisRefreshRequest.database}`;
+    if (!expandedDatabasesRef.current.has(dbKey)) return;
+    void loadRedisKeysPage(String(redisRefreshRequest.connectionId), redisRefreshRequest.database, 0, false);
+  }, [redisRefreshRequest, loadRedisKeysPage]);
 
   useEffect(() => {
     if (!autoScrollRequest) return;
@@ -1350,6 +1487,11 @@ export function ConnectionList({
       newExpanded.delete(tableKey);
     } else {
       newExpanded.add(tableKey);
+      const conn = connections.find((c) => c.id === connectionId);
+      if (conn?.type === "redis") {
+        setExpandedTables(newExpanded);
+        return;
+      }
       // Load column info on first expand
       if (table.columns.length === 0) {
         setLoadingTableKeys((prev) => new Set(prev).add(tableKey));
@@ -1375,6 +1517,16 @@ export function ConnectionList({
     database: DatabaseInfo,
     table: TableInfo,
   ) => {
+    if (connection.type === "redis") {
+      onRedisKeySelect?.(
+        connection.name,
+        database.name,
+        table.name,
+        Number(connection.id),
+        connection.type,
+      );
+      return;
+    }
     if (onTableSelect) {
       onTableSelect(
         connection.name,
@@ -1385,6 +1537,19 @@ export function ConnectionList({
         table.schema,
       );
     }
+  };
+
+  const handleCreateRedisKey = (
+    connection: Connection,
+    database: DatabaseInfo,
+  ) => {
+    onRedisKeySelect?.(
+      connection.name,
+      database.name,
+      "",
+      Number(connection.id),
+      connection.type,
+    );
   };
 
   const handleCreateQueryFromContext = (
@@ -2076,6 +2241,11 @@ export function ConnectionList({
                           </Label>
                           <Input
                             id="host"
+                            placeholder={
+                              form.driver === "redis"
+                                ? "127.0.0.1 or 10.0.0.1:6379,10.0.0.2:6379"
+                                : undefined
+                            }
                             value={form.host || ""}
                             onChange={(e) =>
                               setForm((f) => ({ ...f, host: e.target.value }))
@@ -2106,7 +2276,9 @@ export function ConnectionList({
                         <div className="grid gap-2">
                           <Label htmlFor="username">
                             {t("connection.dialog.fields.username")}{" "}
-                            <span className="text-red-600">*</span>
+                            {isUsernameRequired && (
+                              <span className="text-red-600">*</span>
+                            )}
                           </Label>
                           <Input
                             id="username"
@@ -2565,6 +2737,45 @@ export function ConnectionList({
               ),
           );
 
+          const renderRedisPageFooter = (db: DatabaseInfo, level: number) => {
+            if (connection.type !== "redis" || !db.redisIsPartial) return null;
+            const indent = `${(level + 1) * 12 + 8}px`;
+            return db.redisCursor !== 0 ? (
+              <button
+                key="redis-load-more"
+                className="block w-full text-left text-xs text-muted-foreground hover:text-foreground px-3 py-1"
+                style={{ paddingLeft: indent }}
+                onClick={() =>
+                  void loadRedisKeysPage(connection.id, db.name, db.redisCursor!, true)
+                }
+              >
+                Load more…
+              </button>
+            ) : (
+              <span
+                key="redis-capped"
+                className="block text-xs text-muted-foreground px-3 py-1"
+                style={{ paddingLeft: indent }}
+              >
+                Results capped — use a pattern to narrow down
+              </span>
+            );
+          };
+
+          const makeRedisDbActions = (db: DatabaseInfo) =>
+            connection.type !== "redis" ? undefined : (
+              <div onClick={(e) => e.stopPropagation()}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0"
+                  onClick={() => handleCreateRedisKey(connection, db)}
+                >
+                  <Plus className="w-3 h-3" />
+                </Button>
+              </div>
+            );
+
           return (
             <TreeNode
               key={connection.id}
@@ -2677,7 +2888,13 @@ export function ConnectionList({
                                 >
                                   <TreeNode
                                     level={level}
-                                    icon={<Table className="w-4 h-4" />}
+                                    icon={
+                                      connection.type === "redis" ? (
+                                        <Key className="w-4 h-4" />
+                                      ) : (
+                                        <Table className="w-4 h-4" />
+                                      )
+                                    }
                                     label={table.name}
                                     isSelected={selectedTableKey === tableKey}
                                     isExpanded={expandedTables.has(tableKey)}
@@ -2747,45 +2964,49 @@ export function ConnectionList({
                                 </div>
                               </ContextMenuTrigger>
                               <ContextMenuContent>
-                                <ContextMenuItem
-                                  onClick={() =>
-                                    handleCreateQueryFromContext(
-                                      connection.id,
-                                      database.name,
-                                    )
-                                  }
-                                >
-                                  <FileCode className="w-4 h-4 mr-2" />
-                                  {t("connection.menu.newQuery")}
-                                </ContextMenuItem>
-                                <ContextMenuItem
-                                  onClick={() =>
-                                    handleTableExportDialog(
-                                      connection,
-                                      database,
-                                      table,
-                                    )
-                                  }
-                                >
-                                  <Download className="w-4 h-4 mr-2" />
-                                  {t("connection.menu.exportTable")}
-                                </ContextMenuItem>
-                                {onAlterTable && (
-                                  <ContextMenuItem
-                                    onClick={() =>
-                                      onAlterTable(
-                                        Number(connection.id),
-                                        database.name,
-                                        table.schema ?? "",
-                                        table.name,
-                                        connection.type,
-                                      )
-                                    }
-                                  >
-                                    <TableIcon className="w-4 h-4 mr-2" />
-                                    {t("connection.menu.alterTable")}
-                                  </ContextMenuItem>
-                                )}
+                                {connection.type !== "redis" ? (
+                                  <>
+                                    <ContextMenuItem
+                                      onClick={() =>
+                                        handleCreateQueryFromContext(
+                                          connection.id,
+                                          database.name,
+                                        )
+                                      }
+                                    >
+                                      <FileCode className="w-4 h-4 mr-2" />
+                                      {t("connection.menu.newQuery")}
+                                    </ContextMenuItem>
+                                    <ContextMenuItem
+                                      onClick={() =>
+                                        handleTableExportDialog(
+                                          connection,
+                                          database,
+                                          table,
+                                        )
+                                      }
+                                    >
+                                      <Download className="w-4 h-4 mr-2" />
+                                      {t("connection.menu.exportTable")}
+                                    </ContextMenuItem>
+                                    {onAlterTable && (
+                                      <ContextMenuItem
+                                        onClick={() =>
+                                          onAlterTable(
+                                            Number(connection.id),
+                                            database.name,
+                                            table.schema ?? "",
+                                            table.name,
+                                            connection.type,
+                                          )
+                                        }
+                                      >
+                                        <TableIcon className="w-4 h-4 mr-2" />
+                                        {t("connection.menu.alterTable")}
+                                      </ContextMenuItem>
+                                    )}
+                                  </>
+                                ) : null}
                               </ContextMenuContent>
                             </ContextMenu>
                           );
@@ -2813,6 +3034,7 @@ export function ConnectionList({
                                 ? loadingSpinner
                                 : undefined
                             }
+                            actions={makeRedisDbActions(database)}
                             onContextMenu={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
@@ -2865,9 +3087,14 @@ export function ConnectionList({
                                     </TreeNode>
                                   );
                                 })
-                              : database.tables.map((table) =>
-                                  renderTableNode(table, databaseLevel + 1),
-                                )}
+                              : (
+                                <>
+                                  {database.tables.map((table) =>
+                                    renderTableNode(table, databaseLevel + 1),
+                                  )}
+                                  {renderRedisPageFooter(database, databaseLevel)}
+                                </>
+                              )}
                           </TreeNode>
                         );
                       })}
@@ -2899,7 +3126,13 @@ export function ConnectionList({
                               >
                                 <TreeNode
                                   level={level}
-                                  icon={<Table className="w-4 h-4" />}
+                                  icon={
+                                    connection.type === "redis" ? (
+                                      <Key className="w-4 h-4" />
+                                    ) : (
+                                      <Table className="w-4 h-4" />
+                                    )
+                                  }
                                   label={table.name}
                                   isSelected={selectedTableKey === tableKey}
                                   isExpanded={expandedTables.has(tableKey)}
@@ -2969,45 +3202,49 @@ export function ConnectionList({
                               </div>
                             </ContextMenuTrigger>
                             <ContextMenuContent>
-                              <ContextMenuItem
-                                onClick={() =>
-                                  handleCreateQueryFromContext(
-                                    connection.id,
-                                    database.name,
-                                  )
-                                }
-                              >
-                                <FileCode className="w-4 h-4 mr-2" />
-                                {t("connection.menu.newQuery")}
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                onClick={() =>
-                                  handleTableExportDialog(
-                                    connection,
-                                    database,
-                                    table,
-                                  )
-                                }
-                              >
-                                <Download className="w-4 h-4 mr-2" />
-                                {t("connection.menu.exportTable")}
-                              </ContextMenuItem>
-                              {onAlterTable && (
-                                <ContextMenuItem
-                                  onClick={() =>
-                                    onAlterTable(
-                                      Number(connection.id),
-                                      database.name,
-                                      table.schema ?? "",
-                                      table.name,
-                                      connection.type,
-                                    )
-                                  }
-                                >
-                                  <TableIcon className="w-4 h-4 mr-2" />
-                                  {t("connection.menu.alterTable")}
-                                </ContextMenuItem>
-                              )}
+                              {connection.type !== "redis" ? (
+                                <>
+                                  <ContextMenuItem
+                                    onClick={() =>
+                                      handleCreateQueryFromContext(
+                                        connection.id,
+                                        database.name,
+                                      )
+                                    }
+                                  >
+                                    <FileCode className="w-4 h-4 mr-2" />
+                                    {t("connection.menu.newQuery")}
+                                  </ContextMenuItem>
+                                  <ContextMenuItem
+                                    onClick={() =>
+                                      handleTableExportDialog(
+                                        connection,
+                                        database,
+                                        table,
+                                      )
+                                    }
+                                  >
+                                    <Download className="w-4 h-4 mr-2" />
+                                    {t("connection.menu.exportTable")}
+                                  </ContextMenuItem>
+                                  {onAlterTable && (
+                                    <ContextMenuItem
+                                      onClick={() =>
+                                        onAlterTable(
+                                          Number(connection.id),
+                                          database.name,
+                                          table.schema ?? "",
+                                          table.name,
+                                          connection.type,
+                                        )
+                                      }
+                                    >
+                                      <TableIcon className="w-4 h-4 mr-2" />
+                                      {t("connection.menu.alterTable")}
+                                    </ContextMenuItem>
+                                  )}
+                                </>
+                              ) : null}
                             </ContextMenuContent>
                           </ContextMenu>
                         );
@@ -3033,6 +3270,22 @@ export function ConnectionList({
                           statusIndicator={
                             loadingDatabaseKeys.has(dbKey) ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                            ) : undefined
+                          }
+                          actions={
+                            connection.type === "redis" ? (
+                              <div onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0"
+                                  onClick={() =>
+                                    handleCreateRedisKey(connection, database)
+                                  }
+                                >
+                                  <Plus className="w-3 h-3" />
+                                </Button>
+                              </div>
                             ) : undefined
                           }
                           onContextMenu={(e) => {
@@ -3082,9 +3335,14 @@ export function ConnectionList({
                                   </TreeNode>
                                 );
                               })
-                            : database.tables.map((table) =>
-                                renderTableNode(table, databaseLevel + 1),
-                              )}
+                            : (
+                              <>
+                                {database.tables.map((table) =>
+                                  renderTableNode(table, databaseLevel + 1),
+                                )}
+                                {renderRedisPageFooter(database, databaseLevel)}
+                              </>
+                            )}
                         </TreeNode>
                       );
                     })
@@ -3193,87 +3451,129 @@ export function ConnectionList({
                 <RefreshCw className="w-4 h-4" />
                 {t("connection.menu.refreshTables")}
               </button>
-              {contextMenu.connectionId &&
-              contextMenu.databaseName &&
-              contextMenuDatabaseConnection &&
-              getImportDriverCapability(contextMenuDatabaseConnection.type) !==
-                "unsupported" ? (
-                <button
-                  className="w-full px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
-                  disabled={
-                    getImportDriverCapability(
-                      contextMenuDatabaseConnection.type,
-                    ) === "read_only_not_supported"
-                  }
-                  onClick={async () => {
-                    await handleDatabaseImport(
-                      contextMenu.connectionId!,
-                      contextMenu.databaseName!,
-                    );
-                    setContextMenu((prev) => ({ ...prev, visible: false }));
-                  }}
-                >
-                  <Upload className="w-4 h-4" />
-                  {getImportDriverCapability(
-                    contextMenuDatabaseConnection.type,
-                  ) === "read_only_not_supported"
-                    ? t("connection.menu.importSqlReadOnly")
-                    : t("connection.menu.importSql")}
-                </button>
-              ) : null}
-              <button
-                className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
-                onClick={async () => {
-                  if (contextMenu.connectionId && contextMenu.databaseName) {
-                    const connection = connections.find(
-                      (conn) => conn.id === contextMenu.connectionId,
-                    );
-                    const database = connection?.databases.find(
-                      (db) => db.name === contextMenu.databaseName,
-                    );
-                    if (connection && database) {
-                      await handleDatabaseExport(connection, database);
-                    }
-                  }
-                  setContextMenu((prev) => ({ ...prev, visible: false }));
-                }}
-              >
-                <Download className="w-4 h-4" />
-                {t("connection.menu.exportDatabaseSql")}
-              </button>
-              <button
-                className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
-                onClick={() => {
-                  handleCreateQueryFromContext(
-                    contextMenu.connectionId,
-                    contextMenu.databaseName,
-                  );
-                  setContextMenu((prev) => ({ ...prev, visible: false }));
-                }}
-              >
-                <FileCode className="w-4 h-4" />
-                {t("connection.menu.newQuery")}
-              </button>
-              {contextMenu.connectionId &&
-              contextMenu.databaseName &&
-              contextMenuDatabaseConnection &&
-              onCreateTable ? (
-                <button
-                  className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
-                  onClick={() => {
-                    onCreateTable(
-                      Number(contextMenu.connectionId),
-                      contextMenu.databaseName!,
-                      "",
-                      contextMenuDatabaseConnection.type,
-                    );
-                    setContextMenu((prev) => ({ ...prev, visible: false }));
-                  }}
-                >
-                  <TableIcon className="w-4 h-4" />
-                  {t("connection.menu.newTable")}
-                </button>
-              ) : null}
+              {contextMenuDatabaseConnection?.type === "redis" ? (
+                <>
+                  <button
+                    className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
+                    onClick={() => {
+                      if (contextMenu.connectionId && contextMenu.databaseName) {
+                        const conn = connections.find(
+                          (c) => c.id === contextMenu.connectionId,
+                        );
+                        const db = conn?.databases.find(
+                          (d) => d.name === contextMenu.databaseName,
+                        );
+                        if (conn && db) handleCreateRedisKey(conn, db);
+                      }
+                      setContextMenu((prev) => ({ ...prev, visible: false }));
+                    }}
+                  >
+                    <Plus className="w-4 h-4" />
+                    New key
+                  </button>
+                  <button
+                    className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
+                    onClick={() => {
+                      if (contextMenu.connectionId && contextMenu.databaseName && contextMenuDatabaseConnection) {
+                        onOpenRedisConsole?.(
+                          contextMenuDatabaseConnection.name,
+                          contextMenu.databaseName,
+                          Number(contextMenu.connectionId),
+                          contextMenuDatabaseConnection.type,
+                        );
+                      }
+                      setContextMenu((prev) => ({ ...prev, visible: false }));
+                    }}
+                  >
+                    <Terminal className="w-4 h-4" />
+                    Open console
+                  </button>
+                </>
+              ) : (
+                <>
+                  {contextMenu.connectionId &&
+                  contextMenu.databaseName &&
+                  contextMenuDatabaseConnection &&
+                  getImportDriverCapability(contextMenuDatabaseConnection.type) !==
+                    "unsupported" ? (
+                    <button
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                      disabled={
+                        getImportDriverCapability(
+                          contextMenuDatabaseConnection.type,
+                        ) === "read_only_not_supported"
+                      }
+                      onClick={async () => {
+                        await handleDatabaseImport(
+                          contextMenu.connectionId!,
+                          contextMenu.databaseName!,
+                        );
+                        setContextMenu((prev) => ({ ...prev, visible: false }));
+                      }}
+                    >
+                      <Upload className="w-4 h-4" />
+                      {getImportDriverCapability(
+                        contextMenuDatabaseConnection.type,
+                      ) === "read_only_not_supported"
+                        ? t("connection.menu.importSqlReadOnly")
+                        : t("connection.menu.importSql")}
+                    </button>
+                  ) : null}
+                  <button
+                    className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
+                    onClick={async () => {
+                      if (contextMenu.connectionId && contextMenu.databaseName) {
+                        const connection = connections.find(
+                          (conn) => conn.id === contextMenu.connectionId,
+                        );
+                        const database = connection?.databases.find(
+                          (db) => db.name === contextMenu.databaseName,
+                        );
+                        if (connection && database) {
+                          await handleDatabaseExport(connection, database);
+                        }
+                      }
+                      setContextMenu((prev) => ({ ...prev, visible: false }));
+                    }}
+                  >
+                    <Download className="w-4 h-4" />
+                    {t("connection.menu.exportDatabaseSql")}
+                  </button>
+                  <button
+                    className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
+                    onClick={() => {
+                      handleCreateQueryFromContext(
+                        contextMenu.connectionId,
+                        contextMenu.databaseName,
+                      );
+                      setContextMenu((prev) => ({ ...prev, visible: false }));
+                    }}
+                  >
+                    <FileCode className="w-4 h-4" />
+                    {t("connection.menu.newQuery")}
+                  </button>
+                  {contextMenu.connectionId &&
+                  contextMenu.databaseName &&
+                  contextMenuDatabaseConnection &&
+                  onCreateTable ? (
+                    <button
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
+                      onClick={() => {
+                        onCreateTable(
+                          Number(contextMenu.connectionId),
+                          contextMenu.databaseName!,
+                          "",
+                          contextMenuDatabaseConnection.type,
+                        );
+                        setContextMenu((prev) => ({ ...prev, visible: false }));
+                      }}
+                    >
+                      <TableIcon className="w-4 h-4" />
+                      {t("connection.menu.newTable")}
+                    </button>
+                  ) : null}
+                </>
+              )}
             </>
           ) : contextMenu.type === "schema" ? (
             <>

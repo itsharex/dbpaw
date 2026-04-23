@@ -46,6 +46,7 @@ aes-gcm = "0.10"
 base64 = "0.22"
 duckdb = { version = "1.2.2", features = ["bundled"] }
 oracle = "0.6"
+redis = { version = "0.27", features = ["tokio-comp", "tokio-rustls-comp", "cluster-async"] }
 
 [dev-dependencies]
 testcontainers = "0.15.0"

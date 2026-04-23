@@ -15,7 +15,7 @@ import {
 // ─── Registry completeness ────────────────────────────────────────────────────
 
 describe("DRIVER_REGISTRY", () => {
-  test("contains all 11 supported drivers", () => {
+  test("contains all 12 supported drivers", () => {
     const ids = DRIVER_REGISTRY.map((d) => d.id);
     expect(ids).toContain("postgres");
     expect(ids).toContain("mysql");
@@ -28,7 +28,8 @@ describe("DRIVER_REGISTRY", () => {
     expect(ids).toContain("clickhouse");
     expect(ids).toContain("mssql");
     expect(ids).toContain("oracle");
-    expect(DRIVER_REGISTRY).toHaveLength(11);
+    expect(ids).toContain("redis");
+    expect(DRIVER_REGISTRY).toHaveLength(12);
   });
 
   test("has no duplicate IDs", () => {

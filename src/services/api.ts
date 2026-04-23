@@ -44,6 +44,56 @@ export interface QueryResult {
   error?: string;
 }
 
+export interface RedisDatabaseInfo {
+  index: number;
+  name: string;
+  selected: boolean;
+}
+
+export interface RedisKeyInfo {
+  key: string;
+  keyType: string;
+  ttl: number;
+}
+
+export interface RedisScanResponse {
+  cursor: number;
+  keys: RedisKeyInfo[];
+  isPartial: boolean;
+}
+
+export type RedisValue =
+  | { kind: "string"; value: string }
+  | { kind: "hash"; value: Record<string, string> }
+  | { kind: "list"; value: string[] }
+  | { kind: "set"; value: string[] }
+  | { kind: "zSet"; value: { member: string; score: number }[] }
+  | { kind: "none"; value?: null };
+
+export interface RedisKeyValue {
+  key: string;
+  keyType: string;
+  ttl: number;
+  value: RedisValue;
+  valueTotalLen: number | null;
+  valueOffset: number;
+}
+
+export interface RedisSetKeyPayload {
+  key: string;
+  value: RedisValue;
+  ttlSeconds?: number | null;
+}
+
+export interface RedisMutationResult {
+  success: boolean;
+  affected: number;
+}
+
+export interface RedisRawResult {
+  output: string;
+}
+
 export type SqlExecutionSource =
   | "sql_editor"
   | "table_view_save"
@@ -488,6 +538,77 @@ export const api = {
       invoke<TestConnectionResult>("test_connection_ephemeral", { form }),
     listSqliteIssues: () =>
       invoke<SqliteConnectionIssue[]>("list_sqlite_issues"),
+  },
+  redis: {
+    listDatabases: (id: number) =>
+      invoke<RedisDatabaseInfo[]>("redis_list_databases", { id }),
+    scanKeys: (params: {
+      id: number;
+      database?: string;
+      cursor?: number;
+      pattern?: string;
+      limit?: number;
+    }) => invoke<RedisScanResponse>("redis_scan_keys", params),
+    getKey: (id: number, database: string | undefined, key: string) =>
+      invoke<RedisKeyValue>("redis_get_key", { id, database, key }),
+    setKey: (
+      id: number,
+      database: string | undefined,
+      payload: RedisSetKeyPayload,
+    ) =>
+      invoke<RedisMutationResult>("redis_set_key", { id, database, payload }),
+    updateKey: (
+      id: number,
+      database: string | undefined,
+      payload: RedisSetKeyPayload,
+    ) =>
+      invoke<RedisMutationResult>("redis_update_key", {
+        id,
+        database,
+        payload,
+      }),
+    deleteKey: (id: number, database: string | undefined, key: string) =>
+      invoke<RedisMutationResult>("redis_delete_key", { id, database, key }),
+    renameKey: (
+      id: number,
+      database: string | undefined,
+      oldKey: string,
+      newKey: string,
+    ) =>
+      invoke<RedisMutationResult>("redis_rename_key", {
+        id,
+        database,
+        oldKey,
+        newKey,
+      }),
+    setTtl: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      ttlSeconds?: number | null,
+    ) =>
+      invoke<RedisMutationResult>("redis_set_ttl", {
+        id,
+        database,
+        key,
+        ttlSeconds,
+      }),
+    getKeyPage: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      offset: number,
+      limit: number,
+    ) =>
+      invoke<RedisKeyValue>("redis_get_key_page", {
+        id,
+        database,
+        key,
+        offset,
+        limit,
+      }),
+    executeRaw: (id: number, database: string | undefined, command: string) =>
+      invoke<RedisRawResult>("redis_execute_raw", { id, database, command }),
   },
   queries: {
     list: () => invoke<SavedQuery[]>("get_saved_queries"),

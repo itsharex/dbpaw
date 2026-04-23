@@ -177,6 +177,16 @@ pub fn run() {
             commands::transfer::export_database_sql,
             commands::transfer::export_query_result,
             commands::transfer::import_sql_file,
+            commands::redis::redis_list_databases,
+            commands::redis::redis_scan_keys,
+            commands::redis::redis_get_key,
+            commands::redis::redis_set_key,
+            commands::redis::redis_update_key,
+            commands::redis::redis_delete_key,
+            commands::redis::redis_rename_key,
+            commands::redis::redis_set_ttl,
+            commands::redis::redis_get_key_page,
+            commands::redis::redis_execute_raw,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
@@ -195,6 +205,7 @@ pub fn run() {
 pub mod ai;
 pub mod commands;
 pub mod connection_input;
+pub mod datasources;
 pub mod db;
 pub mod error;
 pub mod events;

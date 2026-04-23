@@ -6,6 +6,7 @@ import {
   siSqlite,
   siClickhouse,
   siDuckdb,
+  siRedis,
 } from "simple-icons";
 
 export type ImportDriverCapability =
@@ -25,9 +26,11 @@ const DRIVER_IDS = [
   "clickhouse",
   "mssql",
   "oracle",
+  "redis",
 ] as const;
 
 export type Driver = (typeof DRIVER_IDS)[number];
+export type DriverKind = "sql" | "kv" | "document" | "search";
 
 const renderSimpleIcon = (icon: { path: string }) => (
   <svg
@@ -45,6 +48,7 @@ const renderSimpleIcon = (icon: { path: string }) => (
 export interface DriverConfig {
   id: Driver;
   label: string;
+  kind: DriverKind;
   defaultPort: number | null;
   isFileBased: boolean;
   isMysqlFamily: boolean;
@@ -59,6 +63,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
   {
     id: "postgres",
     label: "PostgreSQL",
+    kind: "sql",
     defaultPort: 5432,
     isFileBased: false,
     isMysqlFamily: false,
@@ -71,6 +76,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
   {
     id: "mysql",
     label: "MySQL",
+    kind: "sql",
     defaultPort: 3306,
     isFileBased: false,
     isMysqlFamily: true,
@@ -83,6 +89,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
   {
     id: "mariadb",
     label: "MariaDB",
+    kind: "sql",
     defaultPort: 3306,
     isFileBased: false,
     isMysqlFamily: true,
@@ -95,6 +102,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
   {
     id: "tidb",
     label: "TiDB",
+    kind: "sql",
     defaultPort: 4000,
     isFileBased: false,
     isMysqlFamily: true,
@@ -107,6 +115,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
   {
     id: "starrocks",
     label: "StarRocks",
+    kind: "sql",
     defaultPort: 9030,
     isFileBased: false,
     isMysqlFamily: true,
@@ -119,6 +128,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
   {
     id: "doris",
     label: "Apache Doris",
+    kind: "sql",
     defaultPort: 9030,
     isFileBased: false,
     isMysqlFamily: true,
@@ -131,6 +141,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
   {
     id: "sqlite",
     label: "SQLite",
+    kind: "sql",
     defaultPort: null,
     isFileBased: true,
     isMysqlFamily: false,
@@ -143,6 +154,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
   {
     id: "duckdb",
     label: "DuckDB",
+    kind: "sql",
     defaultPort: null,
     isFileBased: true,
     isMysqlFamily: false,
@@ -155,6 +167,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
   {
     id: "clickhouse",
     label: "ClickHouse",
+    kind: "sql",
     defaultPort: 8123,
     isFileBased: false,
     isMysqlFamily: false,
@@ -167,6 +180,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
   {
     id: "mssql",
     label: "SQL Server",
+    kind: "sql",
     defaultPort: 1433,
     isFileBased: false,
     isMysqlFamily: false,
@@ -179,6 +193,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
   {
     id: "oracle",
     label: "Oracle",
+    kind: "sql",
     defaultPort: 1521,
     isFileBased: false,
     isMysqlFamily: false,
@@ -187,6 +202,19 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsCreateDatabase: false,
     importCapability: "supported",
     icon: () => <Database className="w-4 h-4" />,
+  },
+  {
+    id: "redis",
+    label: "Redis",
+    kind: "kv",
+    defaultPort: 6379,
+    isFileBased: false,
+    isMysqlFamily: false,
+    supportsSSLCA: false,
+    supportsSchemaBrowsing: false,
+    supportsCreateDatabase: false,
+    importCapability: "unsupported",
+    icon: () => renderSimpleIcon(siRedis),
   },
 ];
 
@@ -210,6 +238,12 @@ export const supportsCreateDatabase = (driver: Driver): boolean =>
 
 export const supportsSchemaBrowsing = (driver: Driver): boolean =>
   getDriverConfig(driver).supportsSchemaBrowsing;
+
+export const getDriverKind = (driver: Driver): DriverKind =>
+  getDriverConfig(driver).kind;
+
+export const isKeyValueDriver = (driver: Driver): boolean =>
+  getDriverConfig(driver).kind === "kv";
 
 export const getConnectionIcon = (
   driver: Driver | string | undefined,

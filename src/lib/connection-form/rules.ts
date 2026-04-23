@@ -4,10 +4,12 @@ import { isMysqlFamilyDriver, isFileBasedDriver } from "@/lib/driver-registry";
 export { isMysqlFamilyDriver, isFileBasedDriver };
 
 export const allowsHostWithPort = (driver: Driver) =>
-  isMysqlFamilyDriver(driver);
+  isMysqlFamilyDriver(driver) || driver === "redis";
 
 export const requiresPasswordOnCreate = (driver: Driver) =>
-  !isMysqlFamilyDriver(driver);
+  !isMysqlFamilyDriver(driver) && driver !== "redis";
+
+export const requiresUsername = (driver: Driver) => driver !== "redis";
 
 export const normalizePortNumber = (value: number | undefined) => {
   if (value === undefined || value === null || !Number.isFinite(value)) {
