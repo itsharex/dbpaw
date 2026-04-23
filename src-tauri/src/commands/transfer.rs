@@ -64,6 +64,21 @@ struct PreparedImportPlan {
     script_managed_transaction: bool,
 }
 
+fn should_use_outer_import_transaction(
+    normalized_driver: &str,
+    import_plan: &PreparedImportPlan,
+) -> bool {
+    if import_plan.script_managed_transaction {
+        return false;
+    }
+
+    // MSSQL imports are executed batch-by-batch through pooled connections.
+    // Wrapping those batches in a separate outer transaction is not reliable in
+    // the current driver model because transaction state does not persist across
+    // independent execute_query calls.
+    normalized_driver != "mssql"
+}
+
 async fn write_table_export(
     db_driver: Arc<dyn DatabaseDriver>,
     writer: &mut ExportWriter,
@@ -506,7 +521,8 @@ pub async fn import_sql_file(
 
     let started_at = std::time::Instant::now();
     let total_statements = import_plan.units.len() as i64;
-    let use_outer_transaction = !import_plan.script_managed_transaction;
+    let use_outer_transaction =
+        should_use_outer_import_transaction(&normalized_driver, &import_plan);
 
     super::execute_with_retry(&state, id, database, |db_driver| {
         let import_plan = import_plan.clone();
@@ -612,7 +628,8 @@ pub async fn import_sql_file_direct(
 
     let started_at = std::time::Instant::now();
     let total_statements = import_plan.units.len() as i64;
-    let use_outer_transaction = !import_plan.script_managed_transaction;
+    let use_outer_transaction =
+        should_use_outer_import_transaction(&normalized_driver, &import_plan);
 
     super::execute_with_retry_from_app_state(state, id, database, |db_driver| {
         let import_plan = import_plan.clone();
@@ -2440,6 +2457,22 @@ mod tests {
         let mssql_plan = prepare_import_plan("SELECT 1\nGO\nSELECT 2", "mssql").unwrap();
         assert_eq!(mssql_plan.units.len(), 2);
         assert!(!mssql_plan.script_managed_transaction);
+    }
+
+    #[test]
+    fn should_use_outer_import_transaction_disables_mssql_outer_tx() {
+        let sqlite_plan = prepare_import_plan("CREATE TABLE t(id INTEGER);", "sqlite").unwrap();
+        assert!(should_use_outer_import_transaction("sqlite", &sqlite_plan));
+
+        let sqlite_script_tx =
+            prepare_import_plan("BEGIN;\nCREATE TABLE t(id INTEGER);\nCOMMIT;", "sqlite").unwrap();
+        assert!(!should_use_outer_import_transaction(
+            "sqlite",
+            &sqlite_script_tx
+        ));
+
+        let mssql_plan = prepare_import_plan("SELECT 1\nGO\nSELECT 2", "mssql").unwrap();
+        assert!(!should_use_outer_import_transaction("mssql", &mssql_plan));
     }
 
     #[test]
