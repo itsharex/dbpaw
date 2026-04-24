@@ -254,6 +254,10 @@ export const en = {
         "Choose a database type first, then fill in its connection details.",
       detailsStepDescription:
         "Fill in the connection details required for the selected database type.",
+      chooseTypeTitle: "Choose the database you want to connect to",
+      selectedType: "Selected database type",
+      footerHint:
+        "Test the connection before saving, or connect directly when ready.",
       backToType: "Back to types",
       test: "Test",
       testing: "Testing…",
@@ -287,6 +291,16 @@ export const en = {
         fileBased: "File-based",
         readOnly: "Read-only",
         preview: "Preview",
+      },
+      steps: {
+        chooseType: "Choose type",
+        configure: "Configure",
+      },
+      sections: {
+        basic: "Basics",
+        location: "Connection location",
+        authentication: "Authentication",
+        advanced: "Advanced connection",
       },
       inputValidation: {
         filePathRequired: "File path is required.",

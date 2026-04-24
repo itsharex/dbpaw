@@ -38,6 +38,12 @@ interface SidebarProps {
     connectionId: number,
     driver: string,
   ) => void;
+  onOpenRedisBrowser?: (
+    connection: string,
+    database: string,
+    connectionId: number,
+    driver: string,
+  ) => void;
   onConnect?: (form: ConnectionForm) => void;
   onCreateQuery?: (
     connectionId: number,
@@ -87,6 +93,7 @@ export function Sidebar({
   onTableSelect,
   onRedisKeySelect,
   onOpenRedisConsole,
+  onOpenRedisBrowser,
   onConnect,
   onCreateQuery,
   onExportTable,
@@ -110,25 +117,31 @@ export function Sidebar({
     setSidebarTab("connections");
   }, [sidebarRevealRequest]);
 
+  // Shared props for both layout modes — add new ConnectionList props here once
+  const connectionListProps = {
+    onTableSelect,
+    onRedisKeySelect,
+    onOpenRedisConsole,
+    onOpenRedisBrowser,
+    onConnect,
+    onCreateQuery,
+    onExportTable,
+    onExportDatabase,
+    onCreateTable,
+    onAlterTable,
+    activeTableTarget,
+    sidebarRevealRequest,
+    redisRefreshRequest,
+  };
+
   if (layoutMode === "tree") {
     return (
       <div className="h-full flex flex-col bg-background border-r border-border">
         <ConnectionList
-          onTableSelect={onTableSelect}
-          onRedisKeySelect={onRedisKeySelect}
-          onOpenRedisConsole={onOpenRedisConsole}
-          onConnect={onConnect}
-          onCreateQuery={onCreateQuery}
-          onExportTable={onExportTable}
-          onExportDatabase={onExportDatabase}
-          onCreateTable={onCreateTable}
-          onAlterTable={onAlterTable}
-          activeTableTarget={activeTableTarget}
-          sidebarRevealRequest={sidebarRevealRequest}
+          {...connectionListProps}
           onSelectSavedQuery={onSelectSavedQuery}
           lastUpdated={lastUpdated}
           showSavedQueriesInTree
-          redisRefreshRequest={redisRefreshRequest}
         />
       </div>
     );
@@ -160,20 +173,7 @@ export function Sidebar({
             forceMount
             className="h-full m-0 border-0"
           >
-            <ConnectionList
-              onTableSelect={onTableSelect}
-              onRedisKeySelect={onRedisKeySelect}
-              onOpenRedisConsole={onOpenRedisConsole}
-              onConnect={onConnect}
-              onCreateQuery={onCreateQuery}
-              onExportTable={onExportTable}
-              onExportDatabase={onExportDatabase}
-              onCreateTable={onCreateTable}
-              onAlterTable={onAlterTable}
-              activeTableTarget={activeTableTarget}
-              sidebarRevealRequest={sidebarRevealRequest}
-              redisRefreshRequest={redisRefreshRequest}
-            />
+            <ConnectionList {...connectionListProps} />
           </TabsContent>
           <TabsContent
             value="queries"

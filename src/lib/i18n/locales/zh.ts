@@ -248,6 +248,9 @@ export const zh: Translations = {
       browse: "浏览",
       typeStepDescription: "先选择数据库类型，再填写对应连接参数。",
       detailsStepDescription: "填写当前数据库类型所需的连接信息。",
+      chooseTypeTitle: "选择要连接的数据库类型",
+      selectedType: "当前数据库类型",
+      footerHint: "先测试连接，再保存或直接连接。",
       backToType: "返回选择类型",
       test: "测试",
       testing: "测试中…",
@@ -281,6 +284,16 @@ export const zh: Translations = {
         fileBased: "文件型",
         readOnly: "只读能力",
         preview: "测试中",
+      },
+      steps: {
+        chooseType: "选择类型",
+        configure: "配置连接",
+      },
+      sections: {
+        basic: "基础信息",
+        location: "连接地址",
+        authentication: "身份认证",
+        advanced: "高级连接",
       },
       inputValidation: {
         filePathRequired: "请填写文件路径。",

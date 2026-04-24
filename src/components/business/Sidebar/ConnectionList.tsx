@@ -26,6 +26,7 @@ import {
   FolderOpen,
   Upload,
   Terminal,
+  LayoutDashboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -350,6 +351,12 @@ interface ConnectionListProps {
     connectionId: number,
     driver: string,
   ) => void;
+  onOpenRedisBrowser?: (
+    connection: string,
+    database: string,
+    connectionId: number,
+    driver: string,
+  ) => void;
   onConnect?: (form: ConnectionForm) => void;
   onCreateQuery?: (
     connectionId: number,
@@ -416,6 +423,7 @@ export function ConnectionList({
   onTableSelect,
   onRedisKeySelect,
   onOpenRedisConsole,
+  onOpenRedisBrowser,
   onConnect,
   onCreateQuery,
   onExportTable,
@@ -3014,6 +3022,27 @@ export function ConnectionList({
                   >
                     <Plus className="w-4 h-4" />
                     New key
+                  </button>
+                  <button
+                    className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
+                    onClick={() => {
+                      if (
+                        contextMenu.connectionId &&
+                        contextMenu.databaseName &&
+                        contextMenuDatabaseConnection
+                      ) {
+                        onOpenRedisBrowser?.(
+                          contextMenuDatabaseConnection.name,
+                          contextMenu.databaseName,
+                          Number(contextMenu.connectionId),
+                          contextMenuDatabaseConnection.type,
+                        );
+                      }
+                      setContextMenu((prev) => ({ ...prev, visible: false }));
+                    }}
+                  >
+                    <LayoutDashboard className="w-4 h-4" />
+                    Open browser
                   </button>
                   <button
                     className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"

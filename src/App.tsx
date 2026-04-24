@@ -21,7 +21,7 @@ import { TableView } from "@/components/business/DataGrid/TableView";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { TableMetadataView } from "@/components/business/Metadata/TableMetadataView";
 import { SqlExecutionLogsDropdown } from "@/components/business/SqlLogs/SqlExecutionLogsDialog";
-import { FileCode, KeyRound, Table, X, Settings, Sparkles } from "lucide-react";
+import { FileCode, KeyRound, LayoutDashboard, Table, X, Settings, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isMysqlFamilyDriver, isKeyValueDriver } from "@/lib/driver-registry";
 import {
@@ -77,7 +77,8 @@ interface TabItem {
     | "create-table"
     | "alter-table"
     | "redis-key"
-    | "redis-console";
+    | "redis-console"
+    | "redis-browser";
   title: string;
   connection?: string;
   database?: string;
@@ -172,6 +173,11 @@ const RedisKeyView = lazy(async () => {
 const RedisConsole = lazy(async () => {
   const mod = await import("@/components/business/Redis/RedisConsole");
   return { default: mod.RedisConsole };
+});
+
+const RedisBrowserView = lazy(async () => {
+  const mod = await import("@/components/business/Redis/RedisBrowserView");
+  return { default: mod.RedisBrowserView };
 });
 
 function LazyPanelFallback({
@@ -901,6 +907,33 @@ export default function App() {
         id: tabId,
         type: "redis-console",
         title: `Console · ${database}`,
+        connection,
+        database,
+        connectionId,
+        driver,
+      },
+    ]);
+    setActiveTab(tabId);
+  };
+
+  const handleOpenRedisBrowser = (
+    connection: string,
+    database: string,
+    connectionId: number,
+    driver: string,
+  ) => {
+    const tabId = `redis-browser-${connectionId}-${database}`;
+    const existingTab = tabs.find((t) => t.id === tabId);
+    if (existingTab) {
+      setActiveTab(tabId);
+      return;
+    }
+    setTabs((prev) => [
+      ...prev,
+      {
+        id: tabId,
+        type: "redis-browser",
+        title: `Browser · ${database}`,
         connection,
         database,
         connectionId,
@@ -1681,6 +1714,7 @@ export default function App() {
               onTableSelect={handleTableSelect}
               onRedisKeySelect={handleRedisKeySelect}
               onOpenRedisConsole={handleOpenRedisConsole}
+              onOpenRedisBrowser={handleOpenRedisBrowser}
               onConnect={() => {}}
               onCreateQuery={handleCreateQuery}
               onExportTable={handleExportTableFromTree}
@@ -1751,6 +1785,8 @@ export default function App() {
                                           <Table className="w-4 h-4 text-accent" />
                                         ) : tab.type === "redis-key" ? (
                                           <KeyRound className="w-4 h-4 text-accent" />
+                                        ) : tab.type === "redis-browser" ? (
+                                          <LayoutDashboard className="w-4 h-4 text-accent" />
                                         ) : (
                                           <FileCode className="w-4 h-4 text-accent" />
                                         )}
@@ -1981,6 +2017,19 @@ export default function App() {
                             }
                           >
                             <RedisConsole
+                              connectionId={tab.connectionId}
+                              database={tab.database}
+                            />
+                          </Suspense>
+                        ) : tab.type === "redis-browser" &&
+                          tab.connectionId !== undefined &&
+                          tab.database ? (
+                          <Suspense
+                            fallback={
+                              <LazyPanelFallback label="Loading Redis Browser..." />
+                            }
+                          >
+                            <RedisBrowserView
                               connectionId={tab.connectionId}
                               database={tab.database}
                             />

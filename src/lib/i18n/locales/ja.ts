@@ -256,6 +256,10 @@ export const ja: Translations = {
         "先にデータベースタイプを選択し、その後で接続情報を入力します。",
       detailsStepDescription:
         "選択したデータベースタイプに必要な接続情報を入力します。",
+      chooseTypeTitle: "接続するデータベースタイプを選択",
+      selectedType: "現在のデータベースタイプ",
+      footerHint:
+        "保存前に接続テストを行うか、準備ができていればそのまま接続します。",
       backToType: "タイプ選択に戻る",
       test: "テスト",
       testing: "テスト中…",
@@ -289,6 +293,16 @@ export const ja: Translations = {
         fileBased: "ファイル型",
         readOnly: "読み取り専用",
         preview: "プレビュー",
+      },
+      steps: {
+        chooseType: "タイプ選択",
+        configure: "接続設定",
+      },
+      sections: {
+        basic: "基本情報",
+        location: "接続先",
+        authentication: "認証",
+        advanced: "高度な接続",
       },
       inputValidation: {
         filePathRequired: "ファイルパスを入力してください。",
