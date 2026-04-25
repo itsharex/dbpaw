@@ -33,7 +33,7 @@
 
 ## ✅ 你可以用它做什么
 
-- 连接 PostgreSQL、MySQL、MariaDB（MySQL 兼容）、TiDB（MySQL 兼容）、SQLite、SQL Server、ClickHouse（预览版，当前只读）、DuckDB（测试中）、StarRocks（测试中）、Doris（测试中）与 Oracle（测试中）
+- 连接 PostgreSQL、MySQL、MariaDB（MySQL 兼容）、TiDB（MySQL 兼容）、SQLite、SQL Server、ClickHouse（预览版，当前只读）、DuckDB（测试中）、StarRocks（测试中）、Doris（测试中）、Oracle（测试中）与 Redis
 - 编写与执行 SQL：语法高亮、自动补全、一键格式化
 - 在数据网格中浏览结果，支持过滤、排序与分页
 - 将表数据和查询结果导出为 **CSV、JSON 或 SQL**（仅 DDL / 仅 DML / DDL+DML），支持当前页、过滤行或全表三种导出范围
