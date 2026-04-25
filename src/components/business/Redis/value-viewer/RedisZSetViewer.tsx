@@ -10,6 +10,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { parseRedisZSetScore } from "../redis-utils";
 
 interface ZSetMember {
   member: string;
@@ -28,19 +29,29 @@ export function RedisZSetViewer({ value, onChange }: Props) {
   const [showNewRow, setShowNewRow] = useState(false);
   const [newMember, setNewMember] = useState("");
   const [newScore, setNewScore] = useState("");
+  const [scoreError, setScoreError] = useState<string | null>(null);
 
   const sorted = [...value].sort((a, b) =>
     sortAsc ? a.score - b.score : b.score - a.score,
   );
 
   const commitEdit = (member: string) => {
-    const score = parseFloat(editingScore);
-    if (!isFinite(score)) return;
+    let score: number;
+    try {
+      score = parseRedisZSetScore(editingScore);
+    } catch (e) {
+      setScoreError(e instanceof Error ? e.message : String(e));
+      return;
+    }
     onChange(value.map((m) => (m.member === member ? { member, score } : m)));
     setEditingMember(null);
+    setScoreError(null);
   };
 
-  const cancelEdit = () => setEditingMember(null);
+  const cancelEdit = () => {
+    setEditingMember(null);
+    setScoreError(null);
+  };
 
   const deleteMember = (member: string) => {
     onChange(value.filter((m) => m.member !== member));
@@ -50,8 +61,13 @@ export function RedisZSetViewer({ value, onChange }: Props) {
   const commitAdd = () => {
     const m = newMember.trim();
     if (!m) return;
-    const score = parseFloat(newScore);
-    if (!isFinite(score)) return;
+    let score: number;
+    try {
+      score = parseRedisZSetScore(newScore);
+    } catch (e) {
+      setScoreError(e instanceof Error ? e.message : String(e));
+      return;
+    }
     const existing = value.findIndex((item) => item.member === m);
     if (existing >= 0) {
       const next = [...value];
@@ -63,12 +79,14 @@ export function RedisZSetViewer({ value, onChange }: Props) {
     setNewMember("");
     setNewScore("");
     setShowNewRow(false);
+    setScoreError(null);
   };
 
   const cancelAdd = () => {
     setShowNewRow(false);
     setNewMember("");
     setNewScore("");
+    setScoreError(null);
   };
 
   return (
@@ -129,7 +147,10 @@ export function RedisZSetViewer({ value, onChange }: Props) {
                   <Input
                     className="h-7 font-mono text-xs"
                     value={newScore}
-                    onChange={(e) => setNewScore(e.target.value)}
+                    onChange={(e) => {
+                      setNewScore(e.target.value);
+                      setScoreError(null);
+                    }}
                     placeholder="0"
                     inputMode="decimal"
                     onKeyDown={(e) => {
@@ -137,6 +158,11 @@ export function RedisZSetViewer({ value, onChange }: Props) {
                       if (e.key === "Escape") cancelAdd();
                     }}
                   />
+                  {scoreError && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {scoreError}
+                    </p>
+                  )}
                 </TableCell>
                 <TableCell className="py-1.5">
                   <div className="flex gap-1">
@@ -185,7 +211,10 @@ export function RedisZSetViewer({ value, onChange }: Props) {
                     <Input
                       className="h-7 font-mono text-xs"
                       value={editingScore}
-                      onChange={(e) => setEditingScore(e.target.value)}
+                      onChange={(e) => {
+                        setEditingScore(e.target.value);
+                        setScoreError(null);
+                      }}
                       inputMode="decimal"
                       autoFocus
                       onKeyDown={(e) => {
@@ -199,10 +228,16 @@ export function RedisZSetViewer({ value, onChange }: Props) {
                       onClick={() => {
                         setEditingMember(member);
                         setEditingScore(String(score));
+                        setScoreError(null);
                       }}
                     >
                       {score}
                     </span>
+                  )}
+                  {editingMember === member && scoreError && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {scoreError}
+                    </p>
                   )}
                 </TableCell>
                 <TableCell className="py-1.5">

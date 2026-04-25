@@ -12,6 +12,7 @@ import type { RedisKeyInfo } from "@/services/api";
 import { toast } from "sonner";
 import { cn } from "@/components/ui/utils";
 import { RedisKeyView } from "./RedisKeyView";
+import { isRedisClusterDatabaseList } from "./redis-utils";
 
 const SCAN_LIMIT = 200;
 
@@ -49,10 +50,19 @@ export function RedisBrowserView({ connectionId, database }: Props) {
   const [isPartial, setIsPartial] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [detail, setDetail] = useState<DetailState>({ mode: "none" });
+  const [isClusterMode, setIsClusterMode] = useState(false);
+  const [requiresPattern, setRequiresPattern] = useState(false);
 
   // scan never touches detail — callers decide what happens to selection
   const scan = useCallback(
     async (pat: string, cur: number, append: boolean) => {
+      if (isClusterMode && !pat.trim()) {
+        setKeys([]);
+        setCursor(0);
+        setIsPartial(false);
+        setRequiresPattern(true);
+        return;
+      }
       setIsLoading(true);
       try {
         const res = await api.redis.scanKeys({
@@ -65,6 +75,7 @@ export function RedisBrowserView({ connectionId, database }: Props) {
         setKeys((prev) => (append ? [...prev, ...res.keys] : res.keys));
         setCursor(res.cursor);
         setIsPartial(res.isPartial);
+        setRequiresPattern(false);
       } catch (e) {
         toast.error("Failed to scan keys", {
           description: e instanceof Error ? e.message : String(e),
@@ -73,12 +84,36 @@ export function RedisBrowserView({ connectionId, database }: Props) {
         setIsLoading(false);
       }
     },
-    [connectionId, database],
+    [connectionId, database, isClusterMode],
   );
 
   useEffect(() => {
-    void scan("", 0, false);
-  }, [scan]);
+    let cancelled = false;
+    const init = async () => {
+      try {
+        const databases = await api.redis.listDatabases(connectionId);
+        if (cancelled) return;
+        const clusterMode = isRedisClusterDatabaseList(databases);
+        setIsClusterMode(clusterMode);
+        setRequiresPattern(clusterMode);
+        if (!clusterMode) {
+          await scan("", 0, false);
+        } else {
+          setKeys([]);
+          setCursor(0);
+          setIsPartial(false);
+        }
+      } catch (e) {
+        toast.error("Failed to load Redis databases", {
+          description: e instanceof Error ? e.message : String(e),
+        });
+      }
+    };
+    void init();
+    return () => {
+      cancelled = true;
+    };
+  }, [connectionId, scan]);
 
   const handleSearch = () => {
     setDetail({ mode: "none" });
@@ -96,18 +131,18 @@ export function RedisBrowserView({ connectionId, database }: Props) {
       setKeys((prev) => prev.filter((k) => k.key !== detail.key));
     }
     setDetail({ mode: "none" });
+    void scan(pattern, 0, false);
   };
 
   const handleKeySaved = (newKey: string) => {
     if (detail.mode === "new") {
-      // Refresh list then select the new key — scan no longer resets detail
       setDetail({ mode: "view", key: newKey });
       void scan(pattern, 0, false);
     } else if (detail.mode === "view" && newKey !== detail.key) {
-      setKeys((prev) =>
-        prev.map((k) => (k.key === detail.key ? { ...k, key: newKey } : k)),
-      );
       setDetail({ mode: "view", key: newKey });
+      void scan(pattern, 0, false);
+    } else {
+      void scan(pattern, 0, false);
     }
   };
 
@@ -168,7 +203,9 @@ export function RedisBrowserView({ connectionId, database }: Props) {
           <div className="flex-1 overflow-y-auto">
             {keys.length === 0 && !isLoading && (
               <div className="p-6 text-center text-xs text-muted-foreground">
-                No keys found
+                {requiresPattern
+                  ? "Redis Cluster browsing requires a search pattern"
+                  : "No keys found"}
               </div>
             )}
 
@@ -224,6 +261,14 @@ export function RedisBrowserView({ connectionId, database }: Props) {
                 >
                   Load more
                 </Button>
+              </div>
+            )}
+
+            {requiresPattern && (
+              <div className="p-3 text-xs text-muted-foreground border-t">
+                Enter a pattern like <span className="font-mono">user:*</span>{" "}
+                before browsing cluster keys. Full-cluster wildcard scans are
+                blocked.
               </div>
             )}
           </div>

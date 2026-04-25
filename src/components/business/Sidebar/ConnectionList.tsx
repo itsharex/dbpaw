@@ -93,6 +93,7 @@ import {
   normalizeConnectionFormInput,
 } from "@/lib/connection-form/rules";
 import { validateConnectionFormInput } from "@/lib/connection-form/validate";
+import { isRedisClusterDatabaseList } from "@/components/business/Redis/redis-utils";
 
 interface Column {
   name: string;
@@ -118,6 +119,7 @@ interface DatabaseInfo {
   tables: TableInfo[];
   redisCursor?: number;
   redisIsPartial?: boolean;
+  redisRequiresPattern?: boolean;
 }
 
 type DatabaseExportFormat = "sql_dml" | "sql_ddl" | "sql_full";
@@ -1080,6 +1082,33 @@ export function ConnectionList({
       cursor: number,
       append: boolean,
     ): Promise<TableInfo[]> => {
+      const targetConnection = connectionsRef.current.find(
+        (conn) => conn.id === connectionId,
+      );
+      const isRedisCluster =
+        targetConnection?.type === "redis" &&
+        isRedisClusterDatabaseList(targetConnection.databases);
+      if (isRedisCluster && !searchTerm.trim()) {
+        setConnections((prev) =>
+          prev.map((conn) => {
+            if (conn.id !== connectionId) return conn;
+            return {
+              ...conn,
+              databases: conn.databases.map((db) => {
+                if (db.name !== databaseName) return db;
+                return {
+                  ...db,
+                  tables: [],
+                  redisCursor: 0,
+                  redisIsPartial: false,
+                  redisRequiresPattern: true,
+                };
+              }),
+            };
+          }),
+        );
+        return [];
+      }
       const pattern = searchTerm.trim() ? `*${searchTerm.trim()}*` : "*";
       const response = await api.redis.scanKeys({
         id: Number(connectionId),
@@ -1101,6 +1130,7 @@ export function ConnectionList({
                 tables: append ? [...db.tables, ...newKeys] : newKeys,
                 redisCursor: response.cursor,
                 redisIsPartial: response.isPartial,
+                redisRequiresPattern: false,
               };
             }),
           };
@@ -2287,8 +2317,20 @@ export function ConnectionList({
           );
 
           const renderRedisPageFooter = (db: DatabaseInfo, level: number) => {
-            if (connection.type !== "redis" || !db.redisIsPartial) return null;
             const indent = `${(level + 1) * 12 + 8}px`;
+            if (connection.type !== "redis") return null;
+            if (db.redisRequiresPattern) {
+              return (
+                <span
+                  key="redis-pattern-required"
+                  className="block text-xs text-muted-foreground px-3 py-1"
+                  style={{ paddingLeft: indent }}
+                >
+                  Enter a search pattern to browse cluster keys safely
+                </span>
+              );
+            }
+            if (!db.redisIsPartial) return null;
             return db.redisCursor !== 0 ? (
               <button
                 key="redis-load-more"

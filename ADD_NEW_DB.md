@@ -2,6 +2,8 @@
 
 本文档记录新增一个数据库驱动类型时需要修改的全部文件，包含精确路径、行号和改法。
 
+> 适用范围：本手册主体适用于 SQL/表模型数据库。Redis、Elasticsearch、MongoDB 等非 SQL 数据源不要实现 `DatabaseDriver`，应走 `src-tauri/src/datasources/` 下的数据源能力模型，并新增独立 command/UI。
+
 ---
 
 ## 术语约定
@@ -10,6 +12,23 @@
 - `{DriverName}` — PascalCase（例：`Oracle`）
 - `network` 型 — 通过 host:port 连接（postgres、mysql、mssql、clickhouse 等）
 - `file` 型 — 通过本地文件路径连接（sqlite、duckdb）
+- `datasource` 型 — 非 SQL 数据源（redis、elasticsearch、mongodb），按 key/document/search 能力接入
+
+---
+
+## 非 SQL 数据源接入原则
+
+- 后端不要把非 SQL 数据源伪装成 `DatabaseDriver`，避免实现伪 `list_tables/get_table_data/execute_query`。
+- 在 `src-tauri/src/datasources/{driver}.rs` 中定义该数据源的原生模型，例如 Redis 的 database/key/value，MongoDB 的 database/collection/document，Elasticsearch 的 index/document/search。
+- 在 `src-tauri/src/commands/{driver}.rs` 中暴露专用 Tauri commands，并在 `src-tauri/src/lib.rs` 注册。
+- 前端在 `src/lib/driver-registry.tsx` 中设置 `kind`，例如 `kv`、`document`、`search`，Sidebar 和主视图按 `kind` 分流。
+- SQL 的 `SqlEditor`、`TableView`、import/export 和 `sql_execution_logs` 默认不复用于非 SQL 数据源，除非该数据源明确提供 SQL 兼容接口。
+
+Redis 参考实现：
+
+- 后端：`src-tauri/src/datasources/redis.rs`、`src-tauri/src/commands/redis.rs`
+- 前端：`src/components/business/Redis/RedisKeyView.tsx`
+- API：`src/services/api.ts` 的 `api.redis.*`
 
 ---
 
@@ -18,6 +37,7 @@
 **文件：** `src-tauri/src/db/drivers/{driver}.rs`（新建）
 
 参考模板选择：
+
 - **PostgreSQL-like**（独立 schema、SSl CA、sqlx）→ 复制 `postgres.rs`
 - **MySQL-like**（共享驱动、MySQL 协议）→ 复制 `mysql.rs`
 - **HTTP API 型**（ClickHouse-like）→ 复制 `clickhouse.rs`
@@ -96,6 +116,7 @@ let default_port: i64 = match config.driver.to_ascii_lowercase().as_str() {
 ```
 
 **注意：**
+
 - file 型 driver 不走 SSH 隧道的端口逻辑，但若要防止 fallback 到 5432，可加 `"sqlite" => 0,` 同款的占位。
 - 端口 0 不会通过第 56-58 行的校验（`1..=65535`），file 型 driver 传 `port=None` 即可，无需额外处理。
 - 忘记加这一行不会 crash，但 SSH 连接会用 5432 作为默认端口，导致隧道目标端口错误。
@@ -188,7 +209,7 @@ const DRIVER_IDS = [
   "postgres",
   "mysql",
   // ...
-  "{driver}",   // ← 加在这里
+  "{driver}", // ← 加在这里
 ] as const;
 ```
 
@@ -212,10 +233,12 @@ const DRIVER_IDS = [
 ```
 
 **图标规则：**
+
 - 优先从 `simple-icons` 导入：`import { si{DriverName} } from "simple-icons";`
 - 无 simple-icons 时用 `<Server className="w-4 h-4" />`（通用服务器图标）或 `<Database className="w-4 h-4" />`
 
 **这一个文件改完，以下前端逻辑自动生效（无需再改）：**
+
 - `src/services/api.ts` — `Driver` 类型
 - `src/lib/connection-form/rules.ts` — MySQL family / file-based 数组
 - `src/components/business/Sidebar/connection-list/helpers.tsx` — 图标映射
@@ -246,12 +269,12 @@ zh.ts 和 ja.ts 同理加入对应翻译。
 
 按驱动依赖类型选择：
 
-| 类型 | 做法 |
-|------|------|
-| 使用 sqlx（postgres/mysql 系）| 在 sqlx `features` 列表加 driver 名（第 34 行） |
-| 独立 crate（如 DuckDB）| 加一行 `{driver} = { version = "x.y", features = [...] }` |
-| HTTP 协议（如 ClickHouse）| 加 HTTP client 依赖（参考 clickhouse.rs 的 import） |
-| 微软协议（MSSQL）| 使用 `tiberius`（已有，无需重复加） |
+| 类型                           | 做法                                                      |
+| ------------------------------ | --------------------------------------------------------- |
+| 使用 sqlx（postgres/mysql 系） | 在 sqlx `features` 列表加 driver 名（第 34 行）           |
+| 独立 crate（如 DuckDB）        | 加一行 `{driver} = { version = "x.y", features = [...] }` |
+| HTTP 协议（如 ClickHouse）     | 加 HTTP client 依赖（参考 clickhouse.rs 的 import）       |
+| 微软协议（MSSQL）              | 使用 `tiberius`（已有，无需重复加）                       |
 
 ---
 
@@ -308,35 +331,35 @@ bun run test:smoke   # typecheck + lint + unit tests
 
 ## 常见陷阱
 
-| 陷阱 | 后果 | 解法 |
-|------|------|------|
-| 忘记改 `ssh.rs` 默认端口 | SSH 隧道目标端口错误（fallback 到 5432） | Step 3 |
-| file 型 driver 未加入 `connection_input` 的 matches! | 校验报"host cannot be empty"而不是"file path" | Step 4b |
-| 前端 `DRIVER_IDS` 加了但 `DRIVER_REGISTRY` 没加 | TypeScript 编译报错，图标/port 逻辑异常 | Step 7 |
-| 图标使用了不存在的 simple-icons 导出名 | 前端运行时崩溃 | 验证 `si{DriverName}` 是否存在于 `simple-icons` 包 |
-| 忘记改 `import_transaction_sql` | import 功能对新 driver 返回"不支持"或使用错误事务语法 | Step 5 |
-| MySQL family 新 driver 未加入 `connection_input` 的 mysql arm | `host:port` 嵌入写法不被解析 | Step 4c |
-| i18n 只改了 en.ts | 中文/日文界面显示 key 字符串而非翻译文本 | Step 8 三个文件都要改 |
+| 陷阱                                                          | 后果                                                  | 解法                                               |
+| ------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------- |
+| 忘记改 `ssh.rs` 默认端口                                      | SSH 隧道目标端口错误（fallback 到 5432）              | Step 3                                             |
+| file 型 driver 未加入 `connection_input` 的 matches!          | 校验报"host cannot be empty"而不是"file path"         | Step 4b                                            |
+| 前端 `DRIVER_IDS` 加了但 `DRIVER_REGISTRY` 没加               | TypeScript 编译报错，图标/port 逻辑异常               | Step 7                                             |
+| 图标使用了不存在的 simple-icons 导出名                        | 前端运行时崩溃                                        | 验证 `si{DriverName}` 是否存在于 `simple-icons` 包 |
+| 忘记改 `import_transaction_sql`                               | import 功能对新 driver 返回"不支持"或使用错误事务语法 | Step 5                                             |
+| MySQL family 新 driver 未加入 `connection_input` 的 mysql arm | `host:port` 嵌入写法不被解析                          | Step 4c                                            |
+| i18n 只改了 en.ts                                             | 中文/日文界面显示 key 字符串而非翻译文本              | Step 8 三个文件都要改                              |
 
 ---
 
 ## 文件改动汇总
 
-| 文件 | 类型 | 条件 |
-|------|------|------|
-| `src-tauri/src/db/drivers/{driver}.rs` | 新建 | 必须 |
-| `src-tauri/src/db/drivers/mod.rs` | 改 | 必须（3处） |
-| `src-tauri/src/ssh.rs` | 改 | network 型 |
-| `src-tauri/src/connection_input/mod.rs` | 改 | file 型或 MySQL family |
-| `src-tauri/src/commands/transfer.rs` | 改 | 支持 import 时 |
-| `src-tauri/src/commands/connection.rs` | 改 | 支持 create database 时 |
-| `src-tauri/Cargo.toml` | 改 | 必须 |
-| `src/lib/driver-registry.tsx` | 改 | 必须（前端唯一入口） |
-| `src/lib/i18n/locales/en.ts` | 改 | file 型 |
-| `src/lib/i18n/locales/zh.ts` | 改 | file 型 |
-| `src/lib/i18n/locales/ja.ts` | 改 | file 型 |
-| `src-tauri/tests/common/{driver}_context.rs` | 新建 | 集成测试 |
-| `src-tauri/tests/{driver}_integration.rs` | 新建 | 集成测试 |
-| `src-tauri/tests/{driver}_command_integration.rs` | 新建 | 集成测试 |
-| `src-tauri/tests/common/mod.rs` | 改 | 集成测试 |
-| `scripts/test-integration.sh` | 改 | 集成测试 |
+| 文件                                              | 类型 | 条件                    |
+| ------------------------------------------------- | ---- | ----------------------- |
+| `src-tauri/src/db/drivers/{driver}.rs`            | 新建 | 必须                    |
+| `src-tauri/src/db/drivers/mod.rs`                 | 改   | 必须（3处）             |
+| `src-tauri/src/ssh.rs`                            | 改   | network 型              |
+| `src-tauri/src/connection_input/mod.rs`           | 改   | file 型或 MySQL family  |
+| `src-tauri/src/commands/transfer.rs`              | 改   | 支持 import 时          |
+| `src-tauri/src/commands/connection.rs`            | 改   | 支持 create database 时 |
+| `src-tauri/Cargo.toml`                            | 改   | 必须                    |
+| `src/lib/driver-registry.tsx`                     | 改   | 必须（前端唯一入口）    |
+| `src/lib/i18n/locales/en.ts`                      | 改   | file 型                 |
+| `src/lib/i18n/locales/zh.ts`                      | 改   | file 型                 |
+| `src/lib/i18n/locales/ja.ts`                      | 改   | file 型                 |
+| `src-tauri/tests/common/{driver}_context.rs`      | 新建 | 集成测试                |
+| `src-tauri/tests/{driver}_integration.rs`         | 新建 | 集成测试                |
+| `src-tauri/tests/{driver}_command_integration.rs` | 新建 | 集成测试                |
+| `src-tauri/tests/common/mod.rs`                   | 改   | 集成测试                |
+| `scripts/test-integration.sh`                     | 改   | 集成测试                |

@@ -90,6 +90,18 @@ export interface RedisMutationResult {
   affected: number;
 }
 
+export interface RedisKeyPatchPayload {
+  key: string;
+  ttlSeconds: number | null;
+  hashSet?: Record<string, string>;
+  hashDel?: string[];
+  setAdd?: string[];
+  setRem?: string[];
+  zsetAdd?: { member: string; score: number }[];
+  zsetRem?: string[];
+  listRpush?: string[];
+}
+
 export interface RedisRawResult {
   output: string;
 }
@@ -609,6 +621,12 @@ export const api = {
       }),
     executeRaw: (id: number, database: string | undefined, command: string) =>
       invoke<RedisRawResult>("redis_execute_raw", { id, database, command }),
+    patchKey: (
+      id: number,
+      database: string | undefined,
+      payload: RedisKeyPatchPayload,
+    ) =>
+      invoke<RedisMutationResult>("redis_patch_key", { id, database, payload }),
   },
   queries: {
     list: () => invoke<SavedQuery[]>("get_saved_queries"),

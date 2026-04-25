@@ -66,8 +66,8 @@ pub fn shared_redis_noauth_form() -> ConnectionForm {
 
     let (_container, form) = SHARED_NOAUTH.get_or_init(|| {
         let cli: &'static Cli = Box::leak(Box::new(Cli::default()));
-        let runnable = redis_noauth_image()
-            .with_container_name(shared::unique_container_name("redis-noauth"));
+        let runnable =
+            redis_noauth_image().with_container_name(shared::unique_container_name("redis-noauth"));
         let container: &'static Container<'static, GenericImage> =
             Box::leak(Box::new(cli.run(runnable)));
         let port = container.get_host_port_ipv4(6379);

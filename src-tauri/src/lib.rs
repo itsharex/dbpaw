@@ -187,6 +187,7 @@ pub fn run() {
             commands::redis::redis_set_ttl,
             commands::redis::redis_get_key_page,
             commands::redis::redis_execute_raw,
+            commands::redis::redis_patch_key,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

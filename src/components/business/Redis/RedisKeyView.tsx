@@ -21,13 +21,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/services/api";
-import type { RedisKeyValue, RedisValue } from "@/services/api";
+import type { RedisKeyPatchPayload, RedisKeyValue, RedisValue } from "@/services/api";
 import { toast } from "sonner";
 import { RedisStringViewer } from "./value-viewer/RedisStringViewer";
 import { RedisHashViewer } from "./value-viewer/RedisHashViewer";
 import { RedisListViewer } from "./value-viewer/RedisListViewer";
 import { RedisSetViewer } from "./value-viewer/RedisSetViewer";
 import { RedisZSetViewer } from "./value-viewer/RedisZSetViewer";
+import {
+  countRedisValueItems,
+  isRedisValuePagePartial,
+  parseRedisTtlSeconds,
+} from "./redis-utils";
 
 type RedisKind = RedisValue["kind"];
 
@@ -50,10 +55,7 @@ const KIND_DEFAULT: Record<RedisKind, RedisValue> = {
   none: { kind: "none" },
 };
 
-const TYPE_BADGE: Record<
-  string,
-  { label: string; className: string }
-> = {
+const TYPE_BADGE: Record<string, { label: string; className: string }> = {
   string: {
     label: "string",
     className:
@@ -92,12 +94,6 @@ function formatTtl(ttl: number): string {
   return `${s}s`;
 }
 
-function countItems(value: RedisValue): number {
-  if (value.kind === "string" || value.kind === "none") return 0;
-  if (value.kind === "hash") return Object.keys(value.value).length;
-  return value.value.length;
-}
-
 function mergeValues(base: RedisValue, next: RedisValue): RedisValue {
   if (base.kind !== next.kind) return base;
   if (base.kind === "list" && next.kind === "list") {
@@ -121,6 +117,82 @@ function mergeValues(base: RedisValue, next: RedisValue): RedisValue {
   return base;
 }
 
+function isValueUnchanged(a: RedisValue, b: RedisValue): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function buildPatch(
+  key: string,
+  ttlSeconds: number | null,
+  original: RedisValue,
+  current: RedisValue,
+  originalLoadedCount: number,
+): RedisKeyPatchPayload {
+  const patch: RedisKeyPatchPayload = { key, ttlSeconds };
+
+  if (current.kind === "hash" && original.kind === "hash") {
+    const hashSet: Record<string, string> = {};
+    const hashDel: string[] = [];
+    for (const [k, v] of Object.entries(current.value)) {
+      if (original.value[k] !== v) hashSet[k] = v;
+    }
+    for (const k of Object.keys(original.value)) {
+      if (!(k in current.value)) hashDel.push(k);
+    }
+    if (Object.keys(hashSet).length > 0) patch.hashSet = hashSet;
+    if (hashDel.length > 0) patch.hashDel = hashDel;
+    return patch;
+  }
+
+  if (current.kind === "set" && original.kind === "set") {
+    const origSet = new Set(original.value);
+    const currSet = new Set(current.value);
+    const setAdd = current.value.filter((m) => !origSet.has(m));
+    const setRem = original.value.filter((m) => !currSet.has(m));
+    if (setAdd.length > 0) patch.setAdd = setAdd;
+    if (setRem.length > 0) patch.setRem = setRem;
+    return patch;
+  }
+
+  if (current.kind === "zSet" && original.kind === "zSet") {
+    const origMap = new Map(original.value.map((m) => [m.member, m.score]));
+    const currMap = new Map(current.value.map((m) => [m.member, m.score]));
+    const zsetAdd = current.value.filter(
+      (m) => !origMap.has(m.member) || origMap.get(m.member) !== m.score,
+    );
+    const zsetRem = original.value
+      .filter((m) => !currMap.has(m.member))
+      .map((m) => m.member);
+    if (zsetAdd.length > 0) patch.zsetAdd = zsetAdd;
+    if (zsetRem.length > 0) patch.zsetRem = zsetRem;
+    return patch;
+  }
+
+  if (current.kind === "list" && original.kind === "list") {
+    // Only safe operation in partial mode: append to end
+    // Verify the originally-loaded portion is untouched
+    for (let i = 0; i < originalLoadedCount; i++) {
+      if (current.value[i] !== original.value[i]) {
+        throw new Error(
+          "Cannot save a partially-loaded list with modifications to existing items. " +
+            'Use "Load more" to load all items first, then save.',
+        );
+      }
+    }
+    if (current.value.length < originalLoadedCount) {
+      throw new Error(
+        "Cannot save a partially-loaded list with deletions. " +
+          'Use "Load more" to load all items first, then save.',
+      );
+    }
+    const toAppend = current.value.slice(originalLoadedCount);
+    if (toAppend.length > 0) patch.listRpush = toAppend;
+    return patch;
+  }
+
+  return patch;
+}
+
 export function RedisKeyView({
   connectionId,
   database,
@@ -130,6 +202,8 @@ export function RedisKeyView({
 }: RedisKeyViewProps) {
   const [record, setRecord] = useState<RedisKeyValue | null>(null);
   const [value, setValue] = useState<RedisValue>({ kind: "string", value: "" });
+  const [originalValue, setOriginalValue] = useState<RedisValue>({ kind: "string", value: "" });
+  const [originalLoadedCount, setOriginalLoadedCount] = useState(0);
   const [keyName, setKeyName] = useState(redisKey);
   const [ttl, setTtl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -164,12 +238,16 @@ export function RedisKeyView({
       setValue(resolvedKind === v.kind ? v : KIND_DEFAULT[resolvedKind]);
       setKeyName(next.key);
       setTtl(next.ttl > 0 ? String(next.ttl) : "");
-      const count = countItems(v);
+      const count = countRedisValueItems(v);
       setLoadedCount(count);
       const total = next.valueTotalLen ?? null;
       setValueTotalLen(total);
-      setValueIsPartial(total !== null && total > count);
-      setLoadedOffset(next.valueOffset + count);
+      setValueIsPartial(
+        isRedisValuePagePartial(v, total, next.valueOffset, count),
+      );
+      setLoadedOffset(next.valueOffset);
+      setOriginalValue(resolvedKind === v.kind ? v : KIND_DEFAULT[resolvedKind]);
+      setOriginalLoadedCount(count);
     } catch (e) {
       toast.error("Failed to load Redis key", {
         description: e instanceof Error ? e.message : String(e),
@@ -196,11 +274,16 @@ export function RedisKeyView({
       );
       const merged = mergeValues(value, page.value);
       setValue(merged);
-      const newCount = countItems(merged);
+      const newCount = countRedisValueItems(merged);
       setLoadedCount(newCount);
-      setLoadedOffset(page.valueOffset + countItems(page.value));
+      setLoadedOffset(page.valueOffset);
       setValueIsPartial(
-        page.valueTotalLen !== null && page.valueTotalLen > newCount,
+        isRedisValuePagePartial(
+          page.value,
+          page.valueTotalLen,
+          page.valueOffset,
+          newCount,
+        ),
       );
     } catch (e) {
       toast.error("Failed to load more items", {
@@ -211,19 +294,10 @@ export function RedisKeyView({
     }
   };
 
-  const validateTtl = (raw: string): number | null => {
-    if (!raw.trim()) return null;
-    const n = Number(raw.trim());
-    if (!Number.isInteger(n) || n <= 0 || n > 2_147_483_647) {
-      throw new Error("TTL must be a positive integer (1–2147483647)");
-    }
-    return n;
-  };
-
   const doSave = async () => {
     const normalizedKey = keyName.trim();
     if (!normalizedKey) throw new Error("Redis key cannot be empty");
-    const parsedTtl = validateTtl(ttl);
+    const parsedTtl = parseRedisTtlSeconds(ttl);
     if (!isCreateMode && normalizedKey !== redisKey) {
       await api.redis.renameKey(
         connectionId,
@@ -232,17 +306,80 @@ export function RedisKeyView({
         normalizedKey,
       );
     }
-    const payload = { key: normalizedKey, value, ttlSeconds: parsedTtl };
+    const ttlOnly =
+      !isCreateMode &&
+      normalizedKey === redisKey &&
+      isValueUnchanged(originalValue, value);
+
     if (isCreateMode) {
-      await api.redis.setKey(connectionId, database, payload);
+      await api.redis.setKey(connectionId, database, {
+        key: normalizedKey,
+        value,
+        ttlSeconds: parsedTtl,
+      });
+    } else if (ttlOnly) {
+      // Only TTL changed: avoid DEL + rebuild entirely
+      await api.redis.setTtl(connectionId, database, normalizedKey, parsedTtl);
+      toast.success("TTL updated");
+      await load();
+      return;
+    } else if (valueIsPartial) {
+      // Partial load: use incremental patch to avoid overwriting unloaded data.
+      // Three distinct TTL intents for patch_key:
+      //   parsedTtl (> 0) — user set a value → EXPIRE
+      //   0               — user cleared the field; key had a TTL → PERSIST
+      //   null            — key had no TTL to begin with → leave unchanged
+      const originalTtl = record?.ttl ?? -1;
+      const patchTtlSeconds: number | null = ttl.trim()
+        ? parsedTtl
+        : originalTtl > 0
+          ? 0
+          : null;
+      const patch = buildPatch(
+        normalizedKey,
+        patchTtlSeconds,
+        originalValue,
+        value,
+        originalLoadedCount,
+      );
+      await api.redis.patchKey(connectionId, database, patch);
     } else {
-      await api.redis.updateKey(connectionId, database, payload);
+      // All data loaded: safe to DEL + rebuild
+      await api.redis.updateKey(connectionId, database, {
+        key: normalizedKey,
+        value,
+        ttlSeconds: parsedTtl,
+      });
     }
     toast.success("Redis key saved");
     if (normalizedKey !== redisKey) {
       onSavedKeyChange?.(normalizedKey);
     } else if (!isCreateMode) {
       await load();
+    }
+  };
+
+  const handleApplyTtl = async () => {
+    let parsedTtl: number | null;
+    try {
+      parsedTtl = parseRedisTtlSeconds(ttl);
+    } catch (e) {
+      toast.error("Invalid TTL", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await api.redis.setTtl(connectionId, database, redisKey, parsedTtl);
+      toast.success("TTL updated");
+      await load();
+    } catch (e) {
+      toast.error("Failed to update TTL", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -261,11 +398,27 @@ export function RedisKeyView({
       return;
     }
     try {
-      validateTtl(ttl);
+      parseRedisTtlSeconds(ttl);
     } catch (e) {
       toast.error("Failed to save Redis key", {
         description: e instanceof Error ? e.message : String(e),
       });
+      return;
+    }
+    // Skip overwrite dialog when no destructive change: patch mode or TTL-only
+    const ttlOnly =
+      keyName.trim() === redisKey && isValueUnchanged(originalValue, value);
+    if (valueIsPartial || ttlOnly) {
+      setIsSaving(true);
+      try {
+        await doSave();
+      } catch (e) {
+        toast.error("Failed to save Redis key", {
+          description: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        setIsSaving(false);
+      }
       return;
     }
     setPendingAction("overwrite");
@@ -397,12 +550,26 @@ export function RedisKeyView({
           </div>
           <div className="space-y-2">
             <Label>TTL (seconds)</Label>
-            <Input
-              value={ttl}
-              onChange={(e) => setTtl(e.target.value)}
-              placeholder="persist"
-              inputMode="numeric"
-            />
+            <div className="flex gap-1.5">
+              <Input
+                value={ttl}
+                onChange={(e) => setTtl(e.target.value)}
+                placeholder="persist"
+                inputMode="numeric"
+              />
+              {!isCreateMode && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 px-2.5"
+                  onClick={() => void handleApplyTtl()}
+                  disabled={isSaving}
+                  title="Apply TTL without modifying the value"
+                >
+                  Apply
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 

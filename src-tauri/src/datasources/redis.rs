@@ -10,37 +10,78 @@ use redis::{
     RedisConnectionInfo, Value,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
 
 const DEFAULT_REDIS_PORT: i64 = 6379;
 const DEFAULT_SCAN_LIMIT: u32 = 100;
 const MAX_SCAN_LIMIT: u32 = 1000;
 const PAGE_SIZE: isize = 200;
 
-enum RedisConnection {
+/// Shareable Redis connection handle.
+/// Standalone uses MultiplexedConnection (Clone, shared underlying TCP).
+/// Cluster wraps ClusterConnection in Arc<Mutex> so it can be shared across commands.
+#[derive(Clone)]
+pub enum RedisConnection {
     Standalone(MultiplexedConnection),
-    Cluster(ClusterConnection),
+    Cluster(Arc<TokioMutex<ClusterConnection>>),
 }
 
-impl RedisConnection {
-    fn is_cluster(&self) -> bool {
-        matches!(self, RedisConnection::Cluster(_))
-    }
+pub struct RedisConnectionCache {
+    connections: HashMap<String, RedisConnection>,
+}
 
-    async fn query<T: FromRedisValue>(&mut self, cmd: Cmd) -> Result<T, String> {
-        match self {
-            RedisConnection::Standalone(inner) => query_on(inner, cmd).await,
-            RedisConnection::Cluster(inner) => query_on(inner, cmd).await,
+impl RedisConnectionCache {
+    pub fn new() -> Self {
+        Self {
+            connections: HashMap::new(),
         }
     }
 
-    async fn route_all_masters_combine_arrays<T: FromRedisValue>(
+    pub fn get(&self, key: &str) -> Option<RedisConnection> {
+        self.connections.get(key).cloned()
+    }
+
+    pub fn insert(&mut self, key: String, conn: RedisConnection) {
+        self.connections.insert(key, conn);
+    }
+
+    pub fn remove(&mut self, key: &str) {
+        self.connections.remove(key);
+    }
+
+    /// Remove all cached connections that belong to `connection_id`
+    /// (keys are formatted as `"{id}:{db}"` or `"{id}:cluster"`).
+    pub fn remove_by_connection_id(&mut self, connection_id: i64) {
+        let prefix = format!("{connection_id}:");
+        self.connections.retain(|k, _| !k.starts_with(&prefix));
+    }
+}
+
+impl RedisConnection {
+    pub fn is_cluster(&self) -> bool {
+        matches!(self, RedisConnection::Cluster(_))
+    }
+
+    pub async fn query<T: FromRedisValue>(&mut self, cmd: Cmd) -> Result<T, String> {
+        match self {
+            RedisConnection::Standalone(inner) => query_on(inner, cmd).await,
+            RedisConnection::Cluster(arc) => {
+                let mut conn = arc.lock().await;
+                query_on(&mut *conn, cmd).await
+            }
+        }
+    }
+
+    pub async fn route_all_masters_combine_arrays<T: FromRedisValue>(
         &mut self,
         cmd: &Cmd,
     ) -> Result<T, String> {
-        let RedisConnection::Cluster(cluster) = self else {
+        let RedisConnection::Cluster(arc) = self else {
             return Err("[REDIS_ERROR] all-master routing requires Redis Cluster".to_string());
         };
+        let mut cluster = arc.lock().await;
         let value = cluster
             .route_command(
                 cmd,
@@ -54,16 +95,21 @@ impl RedisConnection {
         from_redis_value(&value).map_err(|e| format!("[REDIS_ERROR] {e}"))
     }
 
-    async fn pipe_query<T: FromRedisValue>(&mut self, pipe: &mut redis::Pipeline) -> Result<T, String> {
+    pub async fn pipe_query<T: FromRedisValue>(
+        &mut self,
+        pipe: &mut redis::Pipeline,
+    ) -> Result<T, String> {
         match self {
             RedisConnection::Standalone(inner) => pipe
                 .query_async(inner)
                 .await
                 .map_err(|e| format!("[REDIS_ERROR] {e}")),
-            RedisConnection::Cluster(inner) => pipe
-                .query_async(inner)
-                .await
-                .map_err(|e| format!("[REDIS_ERROR] {e}")),
+            RedisConnection::Cluster(arc) => {
+                let mut conn = arc.lock().await;
+                pipe.query_async(&mut *conn)
+                    .await
+                    .map_err(|e| format!("[REDIS_ERROR] {e}"))
+            }
         }
     }
 }
@@ -136,6 +182,20 @@ pub struct RedisMutationResult {
     pub affected: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisKeyPatchPayload {
+    pub key: String,
+    pub ttl_seconds: Option<i64>,
+    pub hash_set: Option<BTreeMap<String, String>>,
+    pub hash_del: Option<Vec<String>>,
+    pub set_add: Option<Vec<String>>,
+    pub set_rem: Option<Vec<String>>,
+    pub zset_add: Option<Vec<RedisZSetMember>>,
+    pub zset_rem: Option<Vec<String>>,
+    pub list_rpush: Option<Vec<String>>,
+}
+
 fn parse_database(database: Option<&str>) -> Result<i64, String> {
     let Some(raw) = database else {
         return Ok(0);
@@ -176,6 +236,18 @@ fn is_cluster_form(form: &ConnectionForm) -> bool {
 fn validate_key(key: &str) -> Result<(), String> {
     if key.trim().is_empty() {
         return Err("[VALIDATION_ERROR] Redis key cannot be empty".to_string());
+    }
+    Ok(())
+}
+
+fn validate_cluster_scan_pattern(pattern: &str) -> Result<(), String> {
+    let trimmed = pattern.trim();
+    let has_literal = trimmed.chars().any(|c| !matches!(c, '*' | '?' | '[' | ']'));
+    if !has_literal {
+        return Err(
+            "[VALIDATION_ERROR] Redis Cluster browsing requires a non-wildcard pattern such as user:*"
+                .to_string(),
+        );
     }
     Ok(())
 }
@@ -294,7 +366,7 @@ fn build_cluster_nodes(form: &ConnectionForm) -> Result<Vec<ConnectionInfo>, Str
     Ok(nodes)
 }
 
-async fn connect(form: &ConnectionForm, database: Option<&str>) -> Result<RedisConnection, String> {
+pub async fn connect(form: &ConnectionForm, database: Option<&str>) -> Result<RedisConnection, String> {
     if is_cluster_form(form) {
         if let Some(db) = database {
             if parse_database(Some(db))? != 0 {
@@ -307,7 +379,7 @@ async fn connect(form: &ConnectionForm, database: Option<&str>) -> Result<RedisC
             .get_async_connection()
             .await
             .map_err(|e| conn_failed_error(&e))?;
-        return Ok(RedisConnection::Cluster(conn));
+        return Ok(RedisConnection::Cluster(Arc::new(TokioMutex::new(conn))));
     }
 
     let db = selected_database(form, database)?;
@@ -329,8 +401,7 @@ async fn query_on<T: FromRedisValue, C: ConnectionLike + Send + Sync>(
         .map_err(|e| format!("[REDIS_ERROR] {e}"))
 }
 
-pub async fn test_connection(form: &ConnectionForm) -> Result<(), String> {
-    let mut conn = connect(form, None).await?;
+pub async fn ping(conn: &mut RedisConnection) -> Result<(), String> {
     conn.query::<String>(redis::cmd("PING"))
         .await
         .map(|_| ())
@@ -358,13 +429,11 @@ pub fn list_databases(form: &ConnectionForm) -> Result<Vec<RedisDatabaseInfo>, S
 }
 
 pub async fn scan_keys(
-    form: &ConnectionForm,
-    database: Option<&str>,
+    conn: &mut RedisConnection,
     cursor: Option<u64>,
     pattern: Option<String>,
     limit: Option<u32>,
 ) -> Result<RedisScanResponse, String> {
-    let mut conn = connect(form, database).await?;
     let count = limit.unwrap_or(DEFAULT_SCAN_LIMIT).clamp(1, MAX_SCAN_LIMIT);
     let match_pattern = pattern
         .as_deref()
@@ -374,6 +443,7 @@ pub async fn scan_keys(
     let scan_cursor = cursor.unwrap_or(0);
 
     let (next_cursor, is_partial, keys): (u64, bool, Vec<String>) = if conn.is_cluster() {
+        validate_cluster_scan_pattern(match_pattern)?;
         let mut cmd = redis::cmd("KEYS");
         cmd.arg(match_pattern);
         let mut keys: Vec<String> = conn
@@ -412,8 +482,8 @@ pub async fn scan_keys(
             .map(|(i, key)| {
                 let key_type = from_redis_value(results.get(i * 2).unwrap_or(&Value::Nil))
                     .unwrap_or_else(|_| "unknown".to_string());
-                let ttl = from_redis_value(results.get(i * 2 + 1).unwrap_or(&Value::Nil))
-                    .unwrap_or(-2);
+                let ttl =
+                    from_redis_value(results.get(i * 2 + 1).unwrap_or(&Value::Nil)).unwrap_or(-2);
                 RedisKeyInfo { key, key_type, ttl }
             })
             .collect()
@@ -427,12 +497,10 @@ pub async fn scan_keys(
 }
 
 pub async fn get_key(
-    form: &ConnectionForm,
-    database: Option<&str>,
+    conn: &mut RedisConnection,
     key: String,
 ) -> Result<RedisKeyValue, String> {
     validate_key(&key)?;
-    let mut conn = connect(form, database).await?;
 
     let mut pipe1 = redis::pipe();
     pipe1.cmd("TYPE").arg(&key).cmd("TTL").arg(&key);
@@ -442,54 +510,86 @@ pub async fn get_key(
         .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
 
     let page = PAGE_SIZE - 1;
-    let (value, value_total_len): (RedisValue, Option<u64>) = match key_type.as_str() {
-        "none" => (RedisValue::None, None),
-        "string" => {
-            let mut cmd = redis::cmd("GET");
-            cmd.arg(&key);
-            (RedisValue::String(conn.query(cmd).await.unwrap_or_default()), None)
-        }
-        "hash" => {
-            let mut pipe = redis::pipe();
-            pipe.cmd("HLEN").arg(&key).cmd("HSCAN").arg(&key).arg(0u64).arg("COUNT").arg(PAGE_SIZE);
-            let (total, (_cur, fields)): (u64, (u64, BTreeMap<String, String>)) =
-                conn.pipe_query(&mut pipe).await.unwrap_or_default();
-            (RedisValue::Hash(fields), Some(total))
-        }
-        "list" => {
-            let mut pipe = redis::pipe();
-            pipe.cmd("LLEN").arg(&key).cmd("LRANGE").arg(&key).arg(0).arg(page);
-            let (total, items): (u64, Vec<String>) = conn.pipe_query(&mut pipe).await.unwrap_or_default();
-            (RedisValue::List(items), Some(total))
-        }
-        "set" => {
-            let mut pipe = redis::pipe();
-            pipe.cmd("SCARD").arg(&key).cmd("SSCAN").arg(&key).arg(0u64).arg("COUNT").arg(PAGE_SIZE);
-            let (total, (_cur, members)): (u64, (u64, Vec<String>)) =
-                conn.pipe_query(&mut pipe).await.unwrap_or_default();
-            (RedisValue::Set(members), Some(total))
-        }
-        "zset" => {
-            let mut pipe = redis::pipe();
-            pipe.cmd("ZCARD").arg(&key).cmd("ZRANGE").arg(&key).arg(0).arg(page).arg("WITHSCORES");
-            let (total, members): (u64, Vec<(String, f64)>) =
-                conn.pipe_query(&mut pipe).await.unwrap_or_default();
-            (
-                RedisValue::ZSet(
-                    members
-                        .into_iter()
-                        .map(|(member, score)| RedisZSetMember { member, score })
-                        .collect(),
-                ),
-                Some(total),
-            )
-        }
-        other => {
-            return Err(format!(
-                "[UNSUPPORTED] Redis type '{other}' is not supported"
-            ))
-        }
-    };
+    let (value, value_total_len, value_offset): (RedisValue, Option<u64>, u64) =
+        match key_type.as_str() {
+            "none" => (RedisValue::None, None, 0),
+            "string" => {
+                let mut cmd = redis::cmd("GET");
+                cmd.arg(&key);
+                (
+                    RedisValue::String(conn.query(cmd).await.unwrap_or_default()),
+                    None,
+                    0,
+                )
+            }
+            "hash" => {
+                let mut pipe = redis::pipe();
+                pipe.cmd("HLEN")
+                    .arg(&key)
+                    .cmd("HSCAN")
+                    .arg(&key)
+                    .arg(0u64)
+                    .arg("COUNT")
+                    .arg(PAGE_SIZE);
+                let (total, (next_cursor, fields)): (u64, (u64, BTreeMap<String, String>)) =
+                    conn.pipe_query(&mut pipe).await.unwrap_or_default();
+                (RedisValue::Hash(fields), Some(total), next_cursor)
+            }
+            "list" => {
+                let mut pipe = redis::pipe();
+                pipe.cmd("LLEN")
+                    .arg(&key)
+                    .cmd("LRANGE")
+                    .arg(&key)
+                    .arg(0)
+                    .arg(page);
+                let (total, items): (u64, Vec<String>) =
+                    conn.pipe_query(&mut pipe).await.unwrap_or_default();
+                let next_offset = (items.len() as u64).min(total);
+                (RedisValue::List(items), Some(total), next_offset)
+            }
+            "set" => {
+                let mut pipe = redis::pipe();
+                pipe.cmd("SCARD")
+                    .arg(&key)
+                    .cmd("SSCAN")
+                    .arg(&key)
+                    .arg(0u64)
+                    .arg("COUNT")
+                    .arg(PAGE_SIZE);
+                let (total, (next_cursor, members)): (u64, (u64, Vec<String>)) =
+                    conn.pipe_query(&mut pipe).await.unwrap_or_default();
+                (RedisValue::Set(members), Some(total), next_cursor)
+            }
+            "zset" => {
+                let mut pipe = redis::pipe();
+                pipe.cmd("ZCARD")
+                    .arg(&key)
+                    .cmd("ZRANGE")
+                    .arg(&key)
+                    .arg(0)
+                    .arg(page)
+                    .arg("WITHSCORES");
+                let (total, members): (u64, Vec<(String, f64)>) =
+                    conn.pipe_query(&mut pipe).await.unwrap_or_default();
+                let next_offset = (members.len() as u64).min(total);
+                (
+                    RedisValue::ZSet(
+                        members
+                            .into_iter()
+                            .map(|(member, score)| RedisZSetMember { member, score })
+                            .collect(),
+                    ),
+                    Some(total),
+                    next_offset,
+                )
+            }
+            other => {
+                return Err(format!(
+                    "[UNSUPPORTED] Redis type '{other}' is not supported"
+                ))
+            }
+        };
 
     Ok(RedisKeyValue {
         key,
@@ -497,20 +597,18 @@ pub async fn get_key(
         ttl,
         value,
         value_total_len,
-        value_offset: 0,
+        value_offset,
     })
 }
 
 pub async fn get_key_page(
-    form: &ConnectionForm,
-    database: Option<&str>,
+    conn: &mut RedisConnection,
     key: String,
     offset: u64,
     limit: u32,
 ) -> Result<RedisKeyValue, String> {
     validate_key(&key)?;
     let limit = limit.clamp(1, MAX_SCAN_LIMIT);
-    let mut conn = connect(form, database).await?;
 
     let mut pipe1 = redis::pipe();
     pipe1.cmd("TYPE").arg(&key).cmd("TTL").arg(&key);
@@ -525,16 +623,29 @@ pub async fn get_key_page(
         match key_type.as_str() {
             "list" => {
                 let mut pipe = redis::pipe();
-                pipe.cmd("LLEN").arg(&key).cmd("LRANGE").arg(&key).arg(offset).arg(end);
+                pipe.cmd("LLEN")
+                    .arg(&key)
+                    .cmd("LRANGE")
+                    .arg(&key)
+                    .arg(offset)
+                    .arg(end);
                 let (total, items): (u64, Vec<String>) =
                     conn.pipe_query(&mut pipe).await.unwrap_or_default();
-                (RedisValue::List(items), Some(total), offset)
+                let next_offset = offset.saturating_add(items.len() as u64).min(total);
+                (RedisValue::List(items), Some(total), next_offset)
             }
             "zset" => {
                 let mut pipe = redis::pipe();
-                pipe.cmd("ZCARD").arg(&key).cmd("ZRANGE").arg(&key).arg(offset).arg(end).arg("WITHSCORES");
+                pipe.cmd("ZCARD")
+                    .arg(&key)
+                    .cmd("ZRANGE")
+                    .arg(&key)
+                    .arg(offset)
+                    .arg(end)
+                    .arg("WITHSCORES");
                 let (total, members): (u64, Vec<(String, f64)>) =
                     conn.pipe_query(&mut pipe).await.unwrap_or_default();
+                let next_offset = offset.saturating_add(members.len() as u64).min(total);
                 (
                     RedisValue::ZSet(
                         members
@@ -543,25 +654,37 @@ pub async fn get_key_page(
                             .collect(),
                     ),
                     Some(total),
-                    offset,
+                    next_offset,
                 )
             }
             "hash" => {
                 let mut pipe = redis::pipe();
-                pipe.cmd("HLEN").arg(&key).cmd("HSCAN").arg(&key).arg(offset).arg("COUNT").arg(limit);
+                pipe.cmd("HLEN")
+                    .arg(&key)
+                    .cmd("HSCAN")
+                    .arg(&key)
+                    .arg(offset)
+                    .arg("COUNT")
+                    .arg(limit);
                 let (total, (next_cursor, fields)): (u64, (u64, BTreeMap<String, String>)) =
                     conn.pipe_query(&mut pipe).await.unwrap_or_default();
                 (RedisValue::Hash(fields), Some(total), next_cursor)
             }
             "set" => {
                 let mut pipe = redis::pipe();
-                pipe.cmd("SCARD").arg(&key).cmd("SSCAN").arg(&key).arg(offset).arg("COUNT").arg(limit);
+                pipe.cmd("SCARD")
+                    .arg(&key)
+                    .cmd("SSCAN")
+                    .arg(&key)
+                    .arg(offset)
+                    .arg("COUNT")
+                    .arg(limit);
                 let (total, (next_cursor, members)): (u64, (u64, Vec<String>)) =
                     conn.pipe_query(&mut pipe).await.unwrap_or_default();
                 (RedisValue::Set(members), Some(total), next_cursor)
             }
             "string" | "none" => {
-                return get_key(form, database, key).await;
+                return get_key(conn, key).await;
             }
             other => {
                 return Err(format!(
@@ -581,13 +704,11 @@ pub async fn get_key_page(
 }
 
 pub async fn set_key(
-    form: &ConnectionForm,
-    database: Option<&str>,
+    conn: &mut RedisConnection,
     payload: RedisSetKeyPayload,
 ) -> Result<RedisMutationResult, String> {
     validate_key(&payload.key)?;
     validate_value_for_write(&payload.value)?;
-    let mut conn = connect(form, database).await?;
     let mut del_cmd = redis::cmd("DEL");
     del_cmd.arg(&payload.key);
     let _: i64 = conn.query(del_cmd).await.unwrap_or(0);
@@ -641,12 +762,10 @@ pub async fn set_key(
 }
 
 pub async fn delete_key(
-    form: &ConnectionForm,
-    database: Option<&str>,
+    conn: &mut RedisConnection,
     key: String,
 ) -> Result<RedisMutationResult, String> {
     validate_key(&key)?;
-    let mut conn = connect(form, database).await?;
     let mut cmd = redis::cmd("DEL");
     cmd.arg(key);
     let affected: i64 = conn.query(cmd).await?;
@@ -656,15 +775,102 @@ pub async fn delete_key(
     })
 }
 
+pub async fn patch_key(
+    conn: &mut RedisConnection,
+    payload: RedisKeyPatchPayload,
+) -> Result<RedisMutationResult, String> {
+    validate_key(&payload.key)?;
+    let key = &payload.key;
+
+    if let Some(fields) = payload.hash_set {
+        if !fields.is_empty() {
+            let mut cmd = redis::cmd("HSET");
+            cmd.arg(key);
+            for (f, v) in fields {
+                cmd.arg(f).arg(v);
+            }
+            conn.query::<i64>(cmd).await?;
+        }
+    }
+    if let Some(fields) = payload.hash_del {
+        if !fields.is_empty() {
+            let mut cmd = redis::cmd("HDEL");
+            cmd.arg(key);
+            for f in fields {
+                cmd.arg(f);
+            }
+            conn.query::<i64>(cmd).await?;
+        }
+    }
+    if let Some(members) = payload.set_add {
+        if !members.is_empty() {
+            let mut cmd = redis::cmd("SADD");
+            cmd.arg(key).arg(members);
+            conn.query::<i64>(cmd).await?;
+        }
+    }
+    if let Some(members) = payload.set_rem {
+        if !members.is_empty() {
+            let mut cmd = redis::cmd("SREM");
+            cmd.arg(key).arg(members);
+            conn.query::<i64>(cmd).await?;
+        }
+    }
+    if let Some(members) = payload.zset_add {
+        if !members.is_empty() {
+            let mut cmd = redis::cmd("ZADD");
+            cmd.arg(key);
+            for m in members {
+                cmd.arg(m.score).arg(m.member);
+            }
+            conn.query::<i64>(cmd).await?;
+        }
+    }
+    if let Some(members) = payload.zset_rem {
+        if !members.is_empty() {
+            let mut cmd = redis::cmd("ZREM");
+            cmd.arg(key).arg(members);
+            conn.query::<i64>(cmd).await?;
+        }
+    }
+    if let Some(items) = payload.list_rpush {
+        if !items.is_empty() {
+            let mut cmd = redis::cmd("RPUSH");
+            cmd.arg(key).arg(items);
+            conn.query::<i64>(cmd).await?;
+        }
+    }
+
+    match payload.ttl_seconds {
+        Some(ttl) if ttl > 0 => {
+            let mut cmd = redis::cmd("EXPIRE");
+            cmd.arg(key).arg(ttl);
+            conn.query::<bool>(cmd).await?;
+        }
+        Some(_) => {
+            // Caller sends 0 or negative to explicitly remove TTL.
+            let mut cmd = redis::cmd("PERSIST");
+            cmd.arg(key);
+            conn.query::<bool>(cmd).await?;
+        }
+        None => {
+            // None means "leave TTL unchanged" — no action.
+        }
+    }
+
+    Ok(RedisMutationResult {
+        success: true,
+        affected: 1,
+    })
+}
+
 pub async fn rename_key(
-    form: &ConnectionForm,
-    database: Option<&str>,
+    conn: &mut RedisConnection,
     old_key: String,
     new_key: String,
 ) -> Result<RedisMutationResult, String> {
     validate_key(&old_key)?;
     validate_key(&new_key)?;
-    let mut conn = connect(form, database).await?;
     let mut cmd = redis::cmd("RENAME");
     cmd.arg(old_key).arg(new_key);
     conn.query::<()>(cmd).await?;
@@ -675,13 +881,11 @@ pub async fn rename_key(
 }
 
 pub async fn set_ttl(
-    form: &ConnectionForm,
-    database: Option<&str>,
+    conn: &mut RedisConnection,
     key: String,
     ttl_seconds: Option<i64>,
 ) -> Result<RedisMutationResult, String> {
     validate_key(&key)?;
-    let mut conn = connect(form, database).await?;
     let changed: bool = match ttl_seconds {
         Some(ttl) if ttl > 0 => {
             let mut cmd = redis::cmd("EXPIRE");
@@ -823,15 +1027,13 @@ fn format_redis_value(value: Value) -> String {
 }
 
 pub async fn execute_raw(
-    form: &ConnectionForm,
-    database: Option<&str>,
+    conn: &mut RedisConnection,
     command: String,
 ) -> Result<RedisRawResult, String> {
     let tokens = tokenize_command(&command)?;
     if tokens.is_empty() {
         return Err("[VALIDATION_ERROR] Command cannot be empty".to_string());
     }
-    let mut conn = connect(form, database).await?;
     let mut cmd = redis::cmd(&tokens[0]);
     for arg in &tokens[1..] {
         cmd.arg(arg.as_str());
@@ -846,7 +1048,7 @@ pub async fn execute_raw(
 mod tests {
     use super::{
         build_cluster_nodes, build_connection_info, is_cluster_form, list_databases,
-        parse_database, validate_value_for_write, RedisValue,
+        parse_database, validate_cluster_scan_pattern, validate_value_for_write, RedisValue,
     };
     use crate::models::ConnectionForm;
     use redis::ConnectionAddr;
@@ -938,6 +1140,13 @@ mod tests {
         assert!(validate_value_for_write(&RedisValue::String(String::new())).is_ok());
     }
 
+    #[test]
+    fn cluster_scan_pattern_requires_literal_characters() {
+        assert!(validate_cluster_scan_pattern("*").is_err());
+        assert!(validate_cluster_scan_pattern("??").is_err());
+        assert!(validate_cluster_scan_pattern("user:*").is_ok());
+    }
+
     use super::{format_redis_value, tokenize_command};
     use redis::Value;
 
@@ -945,10 +1154,7 @@ mod tests {
 
     #[test]
     fn tokenize_simple_command() {
-        assert_eq!(
-            tokenize_command("GET mykey").unwrap(),
-            vec!["GET", "mykey"]
-        );
+        assert_eq!(tokenize_command("GET mykey").unwrap(), vec!["GET", "mykey"]);
     }
 
     #[test]

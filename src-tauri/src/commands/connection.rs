@@ -409,7 +409,8 @@ pub async fn test_connection_ephemeral(
     let form = crate::connection_input::normalize_connection_form(form)?;
     let start = Instant::now();
     if form.driver == "redis" {
-        crate::datasources::redis::test_connection(&form).await?;
+        let mut conn = crate::datasources::redis::connect(&form, None).await?;
+        crate::datasources::redis::ping(&mut conn).await?;
     } else {
         let driver = crate::db::drivers::connect(&form).await?;
         driver.test_connection().await.map_err(|e| e.to_string())?;
@@ -638,18 +639,7 @@ pub async fn update_connection_direct(
 
 #[tauri::command]
 pub async fn delete_connection(state: State<'_, AppState>, id: i64) -> Result<(), String> {
-    let local_db = {
-        let lock = state.local_db.lock().await;
-        lock.clone()
-    };
-    if let Some(db) = local_db {
-        // Remove from pool
-        state.pool_manager.remove_by_prefix(&id.to_string()).await;
-
-        db.delete_connection(id).await
-    } else {
-        Err("Local DB not initialized".to_string())
-    }
+    delete_connection_direct(&state, id).await
 }
 
 pub async fn delete_connection_direct(state: &AppState, id: i64) -> Result<(), String> {
@@ -659,6 +649,11 @@ pub async fn delete_connection_direct(state: &AppState, id: i64) -> Result<(), S
     };
     if let Some(db) = local_db {
         state.pool_manager.remove_by_prefix(&id.to_string()).await;
+        state
+            .redis_cache
+            .lock()
+            .await
+            .remove_by_connection_id(id);
         db.delete_connection(id).await
     } else {
         Err("Local DB not initialized".to_string())
