@@ -168,6 +168,34 @@ pub struct RedisZSetMember {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisStreamEntry {
+    pub id: String,
+    pub fields: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisStreamInfo {
+    pub length: u64,
+    pub radix_tree_keys: u64,
+    pub radix_tree_nodes: u64,
+    pub groups: u64,
+    pub last_generated_id: String,
+    pub first_entry: Option<RedisStreamEntry>,
+    pub last_entry: Option<RedisStreamEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisKeyExtra {
+    pub subtype: Option<String>,
+    pub stream_info: Option<RedisStreamInfo>,
+    pub hll_count: Option<u64>,
+    pub geo_count: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind", content = "value")]
 pub enum RedisValue {
     String(String),
@@ -175,6 +203,8 @@ pub enum RedisValue {
     List(Vec<String>),
     Set(Vec<String>),
     ZSet(Vec<RedisZSetMember>),
+    Stream(Vec<RedisStreamEntry>),
+    Json(String),
     None,
 }
 
@@ -188,6 +218,7 @@ pub struct RedisKeyValue {
     pub value_total_len: Option<u64>,
     pub value_offset: u64,
     pub is_binary: bool,
+    pub extra: Option<RedisKeyExtra>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -212,7 +243,7 @@ pub struct RedisListSetItem {
     pub value: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisKeyPatchPayload {
     pub key: String,
@@ -229,6 +260,8 @@ pub struct RedisKeyPatchPayload {
     pub list_rem: Option<Vec<String>>,
     pub list_lpop: Option<usize>,
     pub list_rpop: Option<usize>,
+    pub stream_add: Option<Vec<RedisStreamEntry>>,
+    pub stream_del: Option<Vec<String>>,
 }
 
 fn parse_database(database: Option<&str>) -> Result<i64, String> {
@@ -289,9 +322,110 @@ fn validate_value_for_write(value: &RedisValue) -> Result<(), String> {
         RedisValue::ZSet(items) if items.is_empty() => {
             Err("[VALIDATION_ERROR] Redis zset must contain at least one member".into())
         }
+        RedisValue::Stream(entries) if entries.is_empty() => {
+            Err("[VALIDATION_ERROR] Redis stream must contain at least one entry".into())
+        }
+        RedisValue::Json(s) => {
+            if serde_json::from_str::<serde_json::Value>(s).is_err() {
+                return Err("[VALIDATION_ERROR] Invalid JSON".into());
+            }
+            Ok(())
+        }
         RedisValue::None => Err("[VALIDATION_ERROR] Redis value is required".into()),
         _ => Ok(()),
     }
+}
+
+fn parse_xrange_value(value: Value) -> Vec<RedisStreamEntry> {
+    let arr = match value {
+        Value::Array(a) => a,
+        _ => return Vec::new(),
+    };
+    arr.into_iter()
+        .filter_map(|entry| {
+            let inner = match entry {
+                Value::Array(a) if a.len() >= 2 => a,
+                _ => return None,
+            };
+            let id = from_redis_value::<String>(&inner[0]).ok()?;
+            let fields_arr = match &inner[1] {
+                Value::Array(a) => a,
+                _ => return None,
+            };
+            let mut fields = BTreeMap::new();
+            for chunk in fields_arr.chunks_exact(2) {
+                let k = from_redis_value::<String>(&chunk[0]).ok()?;
+                let v = from_redis_value::<String>(&chunk[1]).ok()?;
+                fields.insert(k, v);
+            }
+            Some(RedisStreamEntry { id, fields })
+        })
+        .collect()
+}
+
+fn parse_stream_info(value: Value) -> Option<RedisStreamInfo> {
+    let arr = match value {
+        Value::Array(a) => a,
+        _ => return None,
+    };
+    let mut map: HashMap<String, Value> = HashMap::new();
+    let mut iter = arr.into_iter();
+    while let (Some(k), Some(v)) = (iter.next(), iter.next()) {
+        if let Ok(key) = from_redis_value::<String>(&k) {
+            map.insert(key.to_lowercase().replace('-', "_"), v);
+        }
+    }
+    let get_u64 = |k: &str| -> u64 {
+        map.get(k)
+            .and_then(|v| from_redis_value::<u64>(v).ok())
+            .unwrap_or(0)
+    };
+    let get_string = |k: &str| -> String {
+        map.get(k)
+            .and_then(|v| from_redis_value::<String>(v).ok())
+            .unwrap_or_default()
+    };
+    let parse_entry = |v: &Value| -> Option<RedisStreamEntry> {
+        let a = match v {
+            Value::Array(a) if a.len() >= 2 => a.clone(),
+            _ => return None,
+        };
+        let id = from_redis_value::<String>(&a[0]).ok()?;
+        let fields_arr = match &a[1] {
+            Value::Array(a) => a,
+            _ => return None,
+        };
+        let mut fields = BTreeMap::new();
+        for chunk in fields_arr.chunks_exact(2) {
+            let k = from_redis_value::<String>(&chunk[0]).ok()?;
+            let v = from_redis_value::<String>(&chunk[1]).ok()?;
+            fields.insert(k, v);
+        }
+        Some(RedisStreamEntry { id, fields })
+    };
+    Some(RedisStreamInfo {
+        length: get_u64("length"),
+        radix_tree_keys: get_u64("radix_tree_keys"),
+        radix_tree_nodes: get_u64("radix_tree_nodes"),
+        groups: get_u64("groups"),
+        last_generated_id: get_string("last_generated_id"),
+        first_entry: map.get("first_entry").and_then(parse_entry),
+        last_entry: map.get("last_entry").and_then(parse_entry),
+    })
+}
+
+pub async fn get_stream_range(
+    conn: &mut RedisConnection,
+    key: String,
+    start_id: String,
+    count: u32,
+) -> Result<Vec<RedisStreamEntry>, String> {
+    validate_key(&key)?;
+    let count = count.clamp(1, MAX_SCAN_LIMIT);
+    let mut cmd = redis::cmd("XRANGE");
+    cmd.arg(&key).arg(&start_id).arg("+").arg("COUNT").arg(count);
+    let value: Value = conn.query(cmd).await.map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+    Ok(parse_xrange_value(value))
 }
 
 fn parse_host_port(raw: &str, fallback_port: i64) -> Result<(String, i64), String> {
@@ -695,96 +829,194 @@ pub async fn get_key(
         .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
 
     let page = PAGE_SIZE - 1;
-    let (value, value_total_len, value_offset, is_binary): (RedisValue, Option<u64>, u64, bool) =
-        match key_type.as_str() {
-            "none" => (RedisValue::None, None, 0, false),
-            "string" => {
-                let mut cmd = redis::cmd("GET");
-                cmd.arg(&key);
-                let bytes: Vec<u8> = conn.query(cmd).await.unwrap_or_default();
-                let (text, is_binary) = match String::from_utf8(bytes) {
-                    Ok(s) => (s, false),
-                    Err(e) => {
-                        let encoded = base64::prelude::BASE64_STANDARD.encode(e.into_bytes());
-                        (encoded, true)
+    let (value, value_total_len, value_offset, is_binary, extra): (
+        RedisValue,
+        Option<u64>,
+        u64,
+        bool,
+        Option<RedisKeyExtra>,
+    ) = match key_type.as_str() {
+        "none" => (RedisValue::None, None, 0, false, None),
+        "string" => {
+            // HyperLogLog detection must happen before GET, because HLL
+            // internal encoding is binary and would set is_binary=true.
+            let mut extra = None;
+            let mut hll_cmd = redis::cmd("PFCOUNT");
+            hll_cmd.arg(&key);
+            match conn.query::<i64>(hll_cmd).await {
+                Ok(count) if count >= 0 => {
+                    extra = Some(RedisKeyExtra {
+                        subtype: Some("hyperloglog".to_string()),
+                        stream_info: None,
+                        hll_count: Some(count as u64),
+                        geo_count: None,
+                    });
+                }
+                _ => {}
+            }
+
+            let mut cmd = redis::cmd("GET");
+            cmd.arg(&key);
+            let bytes: Vec<u8> = conn.query(cmd).await.unwrap_or_default();
+            let (text, is_binary) = match String::from_utf8(bytes) {
+                Ok(s) => (s, false),
+                Err(e) => {
+                    let encoded = base64::prelude::BASE64_STANDARD.encode(e.into_bytes());
+                    (encoded, true)
+                }
+            };
+            (RedisValue::String(text), None, 0, is_binary, extra)
+        }
+        "hash" => {
+            let mut pipe = redis::pipe();
+            pipe.cmd("HLEN")
+                .arg(&key)
+                .cmd("HSCAN")
+                .arg(&key)
+                .arg(0u64)
+                .arg("COUNT")
+                .arg(PAGE_SIZE);
+            let (total, (next_cursor, fields)): (u64, (u64, BTreeMap<String, String>)) =
+                conn.pipe_query(&mut pipe).await.unwrap_or_default();
+            (RedisValue::Hash(fields), Some(total), next_cursor, false, None)
+        }
+        "list" => {
+            let mut pipe = redis::pipe();
+            pipe.cmd("LLEN")
+                .arg(&key)
+                .cmd("LRANGE")
+                .arg(&key)
+                .arg(0)
+                .arg(page);
+            let (total, items): (u64, Vec<String>) =
+                conn.pipe_query(&mut pipe).await.unwrap_or_default();
+            let next_offset = (items.len() as u64).min(total);
+            (RedisValue::List(items), Some(total), next_offset, false, None)
+        }
+        "set" => {
+            let mut pipe = redis::pipe();
+            pipe.cmd("SCARD")
+                .arg(&key)
+                .cmd("SSCAN")
+                .arg(&key)
+                .arg(0u64)
+                .arg("COUNT")
+                .arg(PAGE_SIZE);
+            let (total, (next_cursor, members)): (u64, (u64, Vec<String>)) =
+                conn.pipe_query(&mut pipe).await.unwrap_or_default();
+            (RedisValue::Set(members), Some(total), next_cursor, false, None)
+        }
+        "zset" => {
+            let mut pipe = redis::pipe();
+            pipe.cmd("ZCARD")
+                .arg(&key)
+                .cmd("ZRANGE")
+                .arg(&key)
+                .arg(0)
+                .arg(page)
+                .arg("WITHSCORES");
+            let (total, members): (u64, Vec<(String, f64)>) =
+                conn.pipe_query(&mut pipe).await.unwrap_or_default();
+            let next_offset = (members.len() as u64).min(total);
+            let mut extra = None;
+            if let Some(first) = members.first() {
+                let mut geo_cmd = redis::cmd("GEOPOS");
+                geo_cmd.arg(&key).arg(&first.0);
+                if let Ok(positions) = conn.query::<Vec<Option<(f64, f64)>>>(geo_cmd).await {
+                    if positions.iter().any(|p| p.is_some()) {
+                        extra = Some(RedisKeyExtra {
+                            subtype: Some("geo".to_string()),
+                            stream_info: None,
+                            hll_count: None,
+                            geo_count: Some(total),
+                        });
                     }
-                };
-                (
-                    RedisValue::String(text),
+                }
+            }
+            (
+                RedisValue::ZSet(
+                    members
+                        .into_iter()
+                        .map(|(member, score)| RedisZSetMember { member, score })
+                        .collect(),
+                ),
+                Some(total),
+                next_offset,
+                false,
+                extra,
+            )
+        }
+        "stream" => {
+            let mut pipe = redis::pipe();
+            pipe.cmd("XLEN")
+                .arg(&key)
+                .cmd("XRANGE")
+                .arg(&key)
+                .arg("-")
+                .arg("+")
+                .arg("COUNT")
+                .arg(PAGE_SIZE)
+                .cmd("XINFO")
+                .arg("STREAM")
+                .arg(&key);
+            let (total, entries_raw, info_raw): (u64, Value, Value) =
+                conn.pipe_query(&mut pipe).await.unwrap_or((0, Value::Nil, Value::Nil));
+            let entries = parse_xrange_value(entries_raw);
+            let stream_info = parse_stream_info(info_raw);
+            let extra = Some(RedisKeyExtra {
+                subtype: None,
+                stream_info,
+                hll_count: None,
+                geo_count: None,
+            });
+            (
+                RedisValue::Stream(entries),
+                Some(total),
+                total.min(PAGE_SIZE as u64),
+                false,
+                extra,
+            )
+        }
+        "ReJSON-RL" | "json" | "JSON" => {
+            let mut cmd = redis::cmd("JSON.GET");
+            cmd.arg(&key).arg(".");
+            match conn.query::<String>(cmd).await {
+                Ok(json_str) => (
+                    RedisValue::Json(json_str),
                     None,
                     0,
-                    is_binary,
-                )
-            }
-            "hash" => {
-                let mut pipe = redis::pipe();
-                pipe.cmd("HLEN")
-                    .arg(&key)
-                    .cmd("HSCAN")
-                    .arg(&key)
-                    .arg(0u64)
-                    .arg("COUNT")
-                    .arg(PAGE_SIZE);
-                let (total, (next_cursor, fields)): (u64, (u64, BTreeMap<String, String>)) =
-                    conn.pipe_query(&mut pipe).await.unwrap_or_default();
-                (RedisValue::Hash(fields), Some(total), next_cursor, false)
-            }
-            "list" => {
-                let mut pipe = redis::pipe();
-                pipe.cmd("LLEN")
-                    .arg(&key)
-                    .cmd("LRANGE")
-                    .arg(&key)
-                    .arg(0)
-                    .arg(page);
-                let (total, items): (u64, Vec<String>) =
-                    conn.pipe_query(&mut pipe).await.unwrap_or_default();
-                let next_offset = (items.len() as u64).min(total);
-                (RedisValue::List(items), Some(total), next_offset, false)
-            }
-            "set" => {
-                let mut pipe = redis::pipe();
-                pipe.cmd("SCARD")
-                    .arg(&key)
-                    .cmd("SSCAN")
-                    .arg(&key)
-                    .arg(0u64)
-                    .arg("COUNT")
-                    .arg(PAGE_SIZE);
-                let (total, (next_cursor, members)): (u64, (u64, Vec<String>)) =
-                    conn.pipe_query(&mut pipe).await.unwrap_or_default();
-                (RedisValue::Set(members), Some(total), next_cursor, false)
-            }
-            "zset" => {
-                let mut pipe = redis::pipe();
-                pipe.cmd("ZCARD")
-                    .arg(&key)
-                    .cmd("ZRANGE")
-                    .arg(&key)
-                    .arg(0)
-                    .arg(page)
-                    .arg("WITHSCORES");
-                let (total, members): (u64, Vec<(String, f64)>) =
-                    conn.pipe_query(&mut pipe).await.unwrap_or_default();
-                let next_offset = (members.len() as u64).min(total);
-                (
-                    RedisValue::ZSet(
-                        members
-                            .into_iter()
-                            .map(|(member, score)| RedisZSetMember { member, score })
-                            .collect(),
-                    ),
-                    Some(total),
-                    next_offset,
                     false,
-                )
+                    None,
+                ),
+                Err(e) if e.to_string().to_lowercase().contains("unknown command") => {
+                    let mut cmd = redis::cmd("GET");
+                    cmd.arg(&key);
+                    let bytes: Vec<u8> = conn.query(cmd).await.unwrap_or_default();
+                    let (text, is_binary) = match String::from_utf8(bytes) {
+                        Ok(s) => (s, false),
+                        Err(e) => {
+                            let encoded =
+                                base64::prelude::BASE64_STANDARD.encode(e.into_bytes());
+                            (encoded, true)
+                        }
+                    };
+                    let extra = Some(RedisKeyExtra {
+                        subtype: Some("json-module-missing".to_string()),
+                        stream_info: None,
+                        hll_count: None,
+                        geo_count: None,
+                    });
+                    (RedisValue::String(text), None, 0, is_binary, extra)
+                }
+                Err(e) => return Err(format!("[REDIS_ERROR] {e}")),
             }
-            other => {
-                return Err(format!(
-                    "[UNSUPPORTED] Redis type '{other}' is not supported"
-                ))
-            }
-        };
+        }
+        other => {
+            return Err(format!(
+                "[UNSUPPORTED] Redis type '{other}' is not supported"
+            ))
+        }
+    };
 
     Ok(RedisKeyValue {
         key,
@@ -794,6 +1026,7 @@ pub async fn get_key(
         value_total_len,
         value_offset,
         is_binary,
+        extra,
     })
 }
 
@@ -815,79 +1048,99 @@ pub async fn get_key_page(
 
     let end = offset.saturating_add(limit as u64).saturating_sub(1);
 
-    let (value, value_total_len, value_offset): (RedisValue, Option<u64>, u64) =
-        match key_type.as_str() {
-            "list" => {
-                let mut pipe = redis::pipe();
-                pipe.cmd("LLEN")
-                    .arg(&key)
-                    .cmd("LRANGE")
-                    .arg(&key)
-                    .arg(offset)
-                    .arg(end);
-                let (total, items): (u64, Vec<String>) =
-                    conn.pipe_query(&mut pipe).await.unwrap_or_default();
-                let next_offset = offset.saturating_add(items.len() as u64).min(total);
-                (RedisValue::List(items), Some(total), next_offset)
+    let (value, value_total_len, value_offset, extra): (
+        RedisValue,
+        Option<u64>,
+        u64,
+        Option<RedisKeyExtra>,
+    ) = match key_type.as_str() {
+        "list" => {
+            let mut pipe = redis::pipe();
+            pipe.cmd("LLEN")
+                .arg(&key)
+                .cmd("LRANGE")
+                .arg(&key)
+                .arg(offset)
+                .arg(end);
+            let (total, items): (u64, Vec<String>) =
+                conn.pipe_query(&mut pipe).await.unwrap_or_default();
+            let next_offset = offset.saturating_add(items.len() as u64).min(total);
+            (RedisValue::List(items), Some(total), next_offset, None)
+        }
+        "zset" => {
+            let mut pipe = redis::pipe();
+            pipe.cmd("ZCARD")
+                .arg(&key)
+                .cmd("ZRANGE")
+                .arg(&key)
+                .arg(offset)
+                .arg(end)
+                .arg("WITHSCORES");
+            let (total, members): (u64, Vec<(String, f64)>) =
+                conn.pipe_query(&mut pipe).await.unwrap_or_default();
+            let next_offset = offset.saturating_add(members.len() as u64).min(total);
+            let mut extra = None;
+            if let Some(first) = members.first() {
+                let mut geo_cmd = redis::cmd("GEOPOS");
+                geo_cmd.arg(&key).arg(&first.0);
+                if let Ok(positions) = conn.query::<Vec<Option<(f64, f64)>>>(geo_cmd).await {
+                    if positions.iter().any(|p| p.is_some()) {
+                        extra = Some(RedisKeyExtra {
+                            subtype: Some("geo".to_string()),
+                            stream_info: None,
+                            hll_count: None,
+                            geo_count: Some(total),
+                        });
+                    }
+                }
             }
-            "zset" => {
-                let mut pipe = redis::pipe();
-                pipe.cmd("ZCARD")
-                    .arg(&key)
-                    .cmd("ZRANGE")
-                    .arg(&key)
-                    .arg(offset)
-                    .arg(end)
-                    .arg("WITHSCORES");
-                let (total, members): (u64, Vec<(String, f64)>) =
-                    conn.pipe_query(&mut pipe).await.unwrap_or_default();
-                let next_offset = offset.saturating_add(members.len() as u64).min(total);
-                (
-                    RedisValue::ZSet(
-                        members
-                            .into_iter()
-                            .map(|(member, score)| RedisZSetMember { member, score })
-                            .collect(),
-                    ),
-                    Some(total),
-                    next_offset,
-                )
-            }
-            "hash" => {
-                let mut pipe = redis::pipe();
-                pipe.cmd("HLEN")
-                    .arg(&key)
-                    .cmd("HSCAN")
-                    .arg(&key)
-                    .arg(offset)
-                    .arg("COUNT")
-                    .arg(limit);
-                let (total, (next_cursor, fields)): (u64, (u64, BTreeMap<String, String>)) =
-                    conn.pipe_query(&mut pipe).await.unwrap_or_default();
-                (RedisValue::Hash(fields), Some(total), next_cursor)
-            }
-            "set" => {
-                let mut pipe = redis::pipe();
-                pipe.cmd("SCARD")
-                    .arg(&key)
-                    .cmd("SSCAN")
-                    .arg(&key)
-                    .arg(offset)
-                    .arg("COUNT")
-                    .arg(limit);
-                let (total, (next_cursor, members)): (u64, (u64, Vec<String>)) =
-                    conn.pipe_query(&mut pipe).await.unwrap_or_default();
-                (RedisValue::Set(members), Some(total), next_cursor)
-            }
-            "string" | "none" => {
-                return get_key(conn, key).await;
-            }
-            other => {
-                return Err(format!(
-                    "[UNSUPPORTED] Redis type '{other}' is not supported"
-                ))
-            }
-        };
+            (
+                RedisValue::ZSet(
+                    members
+                        .into_iter()
+                        .map(|(member, score)| RedisZSetMember { member, score })
+                        .collect(),
+                ),
+                Some(total),
+                next_offset,
+                extra,
+            )
+        }
+        "hash" => {
+            let mut pipe = redis::pipe();
+            pipe.cmd("HLEN")
+                .arg(&key)
+                .cmd("HSCAN")
+                .arg(&key)
+                .arg(offset)
+                .arg("COUNT")
+                .arg(limit);
+            let (total, (next_cursor, fields)): (u64, (u64, BTreeMap<String, String>)) =
+                conn.pipe_query(&mut pipe).await.unwrap_or_default();
+            (RedisValue::Hash(fields), Some(total), next_cursor, None)
+        }
+        "set" => {
+            let mut pipe = redis::pipe();
+            pipe.cmd("SCARD")
+                .arg(&key)
+                .cmd("SSCAN")
+                .arg(&key)
+                .arg(offset)
+                .arg("COUNT")
+                .arg(limit);
+            let (total, (next_cursor, members)): (u64, (u64, Vec<String>)) =
+                conn.pipe_query(&mut pipe).await.unwrap_or_default();
+            (RedisValue::Set(members), Some(total), next_cursor, None)
+        }
+        "string" | "none" | "stream" | "ReJSON-RL" | "json" | "JSON" => {
+            return get_key(conn, key).await;
+        }
+        other => {
+            return Err(format!(
+                "[UNSUPPORTED] Redis type '{other}' is not supported"
+            ))
+        }
+    };
 
     Ok(RedisKeyValue {
         key,
@@ -897,6 +1150,7 @@ pub async fn get_key_page(
         value_total_len,
         value_offset,
         is_binary: false,
+        extra,
     })
 }
 
@@ -940,6 +1194,21 @@ pub async fn set_key(
                 cmd.arg(&payload.key).arg(item.score).arg(item.member);
                 conn.query::<i64>(cmd).await?;
             }
+        }
+        RedisValue::Stream(entries) => {
+            for entry in entries {
+                let mut cmd = redis::cmd("XADD");
+                cmd.arg(&payload.key).arg(&entry.id);
+                for (field, value) in entry.fields {
+                    cmd.arg(field).arg(value);
+                }
+                conn.query::<String>(cmd).await?;
+            }
+        }
+        RedisValue::Json(json_str) => {
+            let mut cmd = redis::cmd("JSON.SET");
+            cmd.arg(&payload.key).arg(".").arg(json_str);
+            conn.query::<()>(cmd).await?;
         }
         RedisValue::None => unreachable!("validated above"),
     }
@@ -1070,6 +1339,25 @@ pub async fn patch_key(
             let mut cmd = redis::cmd("RPOP");
             cmd.arg(key).arg(count);
             conn.query::<()>(cmd).await?;
+        }
+    }
+    if let Some(entries) = payload.stream_add {
+        if !entries.is_empty() {
+            for entry in entries {
+                let mut cmd = redis::cmd("XADD");
+                cmd.arg(key).arg(&entry.id);
+                for (field, value) in entry.fields {
+                    cmd.arg(field).arg(value);
+                }
+                conn.query::<String>(cmd).await?;
+            }
+        }
+    }
+    if let Some(ids) = payload.stream_del {
+        if !ids.is_empty() {
+            let mut cmd = redis::cmd("XDEL");
+            cmd.arg(key).arg(ids);
+            conn.query::<i64>(cmd).await?;
         }
     }
 

@@ -1,6 +1,6 @@
 use crate::datasources::redis::{
     self, RedisDatabaseInfo, RedisKeyPatchPayload, RedisKeyValue, RedisMutationResult,
-    RedisRawResult, RedisScanResponse, RedisSetKeyPayload,
+    RedisRawResult, RedisScanResponse, RedisSetKeyPayload, RedisStreamEntry,
 };
 use crate::datasources::redis::{connect, RedisConnection};
 use crate::models::ConnectionForm;
@@ -313,6 +313,28 @@ pub async fn redis_set_ttl(
             evict(&state, id, &form, db).await;
             let mut conn = acquire(&state, id, &form, db).await?;
             redis::set_ttl(&mut conn, key, ttl_seconds).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_get_stream_range(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    start_id: String,
+    count: u32,
+) -> Result<Vec<RedisStreamEntry>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::get_stream_range(&mut conn, key.clone(), start_id.clone(), count).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::get_stream_range(&mut conn, key, start_id, count).await
         }
         r => r,
     }

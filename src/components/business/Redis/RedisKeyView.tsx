@@ -28,6 +28,8 @@ import { RedisHashViewer } from "./value-viewer/RedisHashViewer";
 import { RedisListViewer } from "./value-viewer/RedisListViewer";
 import { RedisSetViewer } from "./value-viewer/RedisSetViewer";
 import { RedisZSetViewer } from "./value-viewer/RedisZSetViewer";
+import { RedisStreamViewer } from "./value-viewer/RedisStreamViewer";
+import { RedisJsonViewer } from "./value-viewer/RedisJsonViewer";
 import {
   countRedisValueItems,
   isRedisValuePagePartial,
@@ -44,7 +46,15 @@ interface RedisKeyViewProps {
   onSavedKeyChange?: (key: string) => void;
 }
 
-const EDITABLE_KINDS: RedisKind[] = ["string", "hash", "list", "set", "zSet"];
+const EDITABLE_KINDS: RedisKind[] = [
+  "string",
+  "hash",
+  "list",
+  "set",
+  "zSet",
+  "stream",
+  "json",
+];
 
 const KIND_DEFAULT: Record<RedisKind, RedisValue> = {
   string: { kind: "string", value: "" },
@@ -52,6 +62,8 @@ const KIND_DEFAULT: Record<RedisKind, RedisValue> = {
   list: { kind: "list", value: [] },
   set: { kind: "set", value: [] },
   zSet: { kind: "zSet", value: [] },
+  stream: { kind: "stream", value: [] },
+  json: { kind: "json", value: "{}" },
   none: { kind: "none" },
 };
 
@@ -80,6 +92,16 @@ const TYPE_BADGE: Record<string, { label: string; className: string }> = {
     label: "zset",
     className:
       "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800",
+  },
+  stream: {
+    label: "stream",
+    className:
+      "bg-cyan-100 text-cyan-700 border-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400 dark:border-cyan-800",
+  },
+  json: {
+    label: "json",
+    className:
+      "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800",
   },
 };
 
@@ -113,6 +135,11 @@ function mergeValues(base: RedisValue, next: RedisValue): RedisValue {
   }
   if (base.kind === "hash" && next.kind === "hash") {
     return { kind: "hash", value: { ...base.value, ...next.value } };
+  }
+  if (base.kind === "stream" && next.kind === "stream") {
+    const existingIds = new Set(base.value.map((e) => e.id));
+    const added = next.value.filter((e) => !existingIds.has(e.id));
+    return { kind: "stream", value: [...base.value, ...added] };
   }
   return base;
 }
@@ -234,6 +261,18 @@ function buildPatch(
     );
   }
 
+  if (current.kind === "stream" && original.kind === "stream") {
+    const origIds = new Set(original.value.map((e) => e.id));
+    const currIds = new Set(current.value.map((e) => e.id));
+    const streamAdd = current.value.filter((e) => !origIds.has(e.id));
+    const streamDel = original.value
+      .filter((e) => !currIds.has(e.id))
+      .map((e) => e.id);
+    if (streamAdd.length > 0) patch.streamAdd = streamAdd;
+    if (streamDel.length > 0) patch.streamDel = streamDel;
+    return patch;
+  }
+
   return patch;
 }
 
@@ -260,6 +299,7 @@ export function RedisKeyView({
   const [loadedOffset, setLoadedOffset] = useState(0);
   const [loadedCount, setLoadedCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [lastStreamId, setLastStreamId] = useState("");
 
   const isCreateMode = redisKey.trim().length === 0;
 
@@ -292,6 +332,11 @@ export function RedisKeyView({
       setLoadedOffset(next.valueOffset);
       setOriginalValue(resolvedKind === v.kind ? v : KIND_DEFAULT[resolvedKind]);
       setOriginalLoadedCount(count);
+      if (v.kind === "stream" && v.value.length > 0) {
+        setLastStreamId(v.value[v.value.length - 1].id);
+      } else {
+        setLastStreamId("");
+      }
     } catch (e) {
       toast.error("Failed to load Redis key", {
         description: e instanceof Error ? e.message : String(e),
@@ -338,6 +383,44 @@ export function RedisKeyView({
     }
   };
 
+  const handleLoadMoreStream = async () => {
+    if (!record || value.kind !== "stream") return;
+    setIsLoadingMore(true);
+    try {
+      // Use '(' prefix to exclude the last already-loaded entry from XRANGE.
+      const lastId =
+        lastStreamId || (value.value.length > 0 ? value.value[value.value.length - 1].id : "");
+      const startId = lastId ? `(${lastId}` : "-";
+      const result = await api.redis.getStreamRange(
+        connectionId,
+        database,
+        redisKey,
+        startId,
+        200,
+      );
+      const nextEntries = result;
+      const merged = mergeValues(value, {
+        kind: "stream",
+        value: nextEntries,
+      });
+      setValue(merged);
+      const newCount = countRedisValueItems(merged);
+      setLoadedCount(newCount);
+      if (nextEntries.length > 0) {
+        setLastStreamId(nextEntries[nextEntries.length - 1].id);
+      }
+      setValueIsPartial(
+        valueTotalLen !== null && valueTotalLen > newCount,
+      );
+    } catch (e) {
+      toast.error("Failed to load more stream entries", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
   const doSave = async (forceRename?: boolean) => {
     const normalizedKey = keyName.trim();
     if (!normalizedKey) throw new Error("Redis key cannot be empty");
@@ -377,6 +460,13 @@ export function RedisKeyView({
       toast.success("TTL updated");
       await load();
       return;
+    } else if (value.kind === "json") {
+      // JSON always full-replace (no incremental patch for arbitrary JSON)
+      await api.redis.updateKey(connectionId, database, {
+        key: normalizedKey,
+        value,
+        ttlSeconds: parsedTtl,
+      });
     } else if (valueIsPartial) {
       // Partial load: use incremental patch to avoid overwriting unloaded data.
       // Three distinct TTL intents for patch_key:
@@ -600,6 +690,8 @@ export function RedisKeyView({
                   <SelectItem value="list">list</SelectItem>
                   <SelectItem value="set">set</SelectItem>
                   <SelectItem value="zSet">zset</SelectItem>
+                  <SelectItem value="stream">stream</SelectItem>
+                  <SelectItem value="json">json</SelectItem>
                 </SelectContent>
               </Select>
             ) : (
@@ -641,6 +733,8 @@ export function RedisKeyView({
             <RedisStringViewer
               value={value.value}
               onChange={(v) => setValue({ kind: "string", value: v })}
+              isBinary={record?.isBinary}
+              extra={record?.extra}
             />
           )}
           {value.kind === "hash" && (
@@ -665,6 +759,20 @@ export function RedisKeyView({
             <RedisZSetViewer
               value={value.value}
               onChange={(v) => setValue({ kind: "zSet", value: v })}
+              extra={record?.extra}
+            />
+          )}
+          {value.kind === "stream" && (
+            <RedisStreamViewer
+              value={value.value}
+              onChange={(v) => setValue({ kind: "stream", value: v })}
+            />
+          )}
+          {value.kind === "json" && (
+            <RedisJsonViewer
+              value={value.value}
+              onChange={(v) => setValue({ kind: "json", value: v })}
+              moduleMissing={record?.extra?.subtype === "json-module-missing"}
             />
           )}
           {value.kind === "none" && (
@@ -673,7 +781,7 @@ export function RedisKeyView({
             </div>
           )}
 
-          {valueIsPartial && !isCreateMode && (
+          {valueIsPartial && !isCreateMode && value.kind !== "stream" && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground pt-1">
               <span>
                 Showing {loadedCount} of {valueTotalLen} items
@@ -682,6 +790,25 @@ export function RedisKeyView({
                 variant="outline"
                 size="sm"
                 onClick={() => void handleLoadMore()}
+                disabled={isLoadingMore}
+              >
+                {isLoadingMore ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Load more
+              </Button>
+            </div>
+          )}
+
+          {value.kind === "stream" && valueIsPartial && !isCreateMode && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground pt-1">
+              <span>
+                Showing {loadedCount} of {valueTotalLen} entries
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleLoadMoreStream()}
                 disabled={isLoadingMore}
               >
                 {isLoadingMore ? (

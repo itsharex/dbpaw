@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { ArrowUpDown, Check, Plus, Trash2, X } from "lucide-react";
+import { ArrowUpDown, Check, Info, Plus, Trash2, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -10,6 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { RedisKeyExtra } from "@/services/api";
 import { parseRedisZSetScore } from "../redis-utils";
 
 interface ZSetMember {
@@ -20,9 +22,10 @@ interface ZSetMember {
 interface Props {
   value: ZSetMember[];
   onChange: (v: ZSetMember[]) => void;
+  extra?: RedisKeyExtra | null;
 }
 
-export function RedisZSetViewer({ value, onChange }: Props) {
+export function RedisZSetViewer({ value, onChange, extra }: Props) {
   const [sortAsc, setSortAsc] = useState(true);
   const [editingMember, setEditingMember] = useState<string | null>(null);
   const [editingScore, setEditingScore] = useState("");
@@ -30,6 +33,7 @@ export function RedisZSetViewer({ value, onChange }: Props) {
   const [newMember, setNewMember] = useState("");
   const [newScore, setNewScore] = useState("");
   const [scoreError, setScoreError] = useState<string | null>(null);
+  const isGeo = extra?.subtype === "geo";
 
   const sorted = [...value].sort((a, b) =>
     sortAsc ? a.score - b.score : b.score - a.score,
@@ -91,6 +95,18 @@ export function RedisZSetViewer({ value, onChange }: Props) {
 
   return (
     <div className="space-y-2">
+      {isGeo && (
+        <div className="flex items-center gap-2 text-xs text-teal-700 bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900 rounded px-3 py-2">
+          <Info className="w-3.5 h-3.5 shrink-0" />
+          <span>
+            Geo spatial index detected. Scores are geohash values.
+            Use Console for GEOPOS / GEODIST / GEORADIUS operations.
+          </span>
+          <Badge variant="outline" className="text-xs text-teal-600 border-teal-200 ml-auto">
+            Geo
+          </Badge>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
           {value.length} members

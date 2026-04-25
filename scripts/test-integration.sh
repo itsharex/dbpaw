@@ -75,9 +75,14 @@ esac
 run_integration_test() {
   local test_name="$1"
   echo "[run] integration test: ${test_name} (IT_REUSE_LOCAL_DB=${it_reuse_local_db})"
+  local ignored_flag="--ignored"
+  # redis_integration tests no longer use #[ignore]
+  if [[ "${test_name}" == "redis_integration" ]]; then
+    ignored_flag=""
+  fi
   cargo test \
     --manifest-path src-tauri/Cargo.toml \
-    --test "${test_name}" -- --ignored --nocapture --test-threads=1
+    --test "${test_name}" -- ${ignored_flag} --nocapture --test-threads=1
 }
 
 case "${it_db}" in

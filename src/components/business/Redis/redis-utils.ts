@@ -28,7 +28,7 @@ export function isRedisClusterDatabaseList(
 }
 
 export function countRedisValueItems(value: RedisValue): number {
-  if (value.kind === "string" || value.kind === "none") return 0;
+  if (value.kind === "string" || value.kind === "json" || value.kind === "none") return 0;
   if (value.kind === "hash") return Object.keys(value.value).length;
   return value.value.length;
 }
@@ -41,6 +41,10 @@ export function isRedisValuePagePartial(
 ): boolean {
   if (value.kind === "hash" || value.kind === "set") {
     return nextPageToken !== 0;
+  }
+  if (value.kind === "stream") {
+    // Stream uses its own pagination mechanism; rely on totalLen
+    return totalLen !== null && totalLen > loadedCount;
   }
   return totalLen !== null && totalLen > loadedCount;
 }

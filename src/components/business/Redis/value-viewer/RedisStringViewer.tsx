@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Braces, AlertTriangle } from "lucide-react";
+import { Braces, AlertTriangle, Info, ToggleLeft, ToggleRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import type { RedisKeyExtra } from "@/services/api";
 
 interface Props {
   value: string;
   onChange: (v: string) => void;
   isBinary?: boolean;
+  extra?: RedisKeyExtra | null;
 }
 
 function tryParseJson(s: string): unknown | null {
@@ -20,11 +23,16 @@ function tryParseJson(s: string): unknown | null {
   }
 }
 
-export function RedisStringViewer({ value, onChange, isBinary }: Props) {
+export function RedisStringViewer({ value, onChange, isBinary, extra }: Props) {
   const [formatted, setFormatted] = useState(false);
   const [editAsText, setEditAsText] = useState(false);
+  const [bitmapMode, setBitmapMode] = useState(false);
+  const [bitmapOffset, setBitmapOffset] = useState("");
+  const [bitmapBit, setBitmapBit] = useState("");
   const parsed = tryParseJson(value);
   const isJson = parsed !== null && !isBinary;
+  const isHll = extra?.subtype === "hyperloglog";
+  const isJsonMissing = extra?.subtype === "json-module-missing";
 
   const displayValue =
     formatted && isJson ? JSON.stringify(parsed, null, 2) : value;
@@ -42,6 +50,11 @@ export function RedisStringViewer({ value, onChange, isBinary }: Props) {
           {isBinary && (
             <Badge variant="destructive" className="text-xs">
               Binary
+            </Badge>
+          )}
+          {isHll && (
+            <Badge variant="outline" className="text-xs text-violet-600 border-violet-200">
+              HyperLogLog
             </Badge>
           )}
           {isJson && (
@@ -65,8 +78,68 @@ export function RedisStringViewer({ value, onChange, isBinary }: Props) {
               {editAsText ? "Base64" : "Edit as text"}
             </Button>
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 px-2 text-xs"
+            onClick={() => setBitmapMode((b) => !b)}
+            title="Toggle Bitmap mode"
+          >
+            {bitmapMode ? (
+              <ToggleRight className="w-3 h-3 mr-1 text-green-500" />
+            ) : (
+              <ToggleLeft className="w-3 h-3 mr-1" />
+            )}
+            Bitmap
+          </Button>
         </div>
       </div>
+
+      {isHll && (
+        <div className="flex items-center gap-2 text-xs text-violet-700 bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-900 rounded px-3 py-2">
+          <Info className="w-3.5 h-3.5 shrink-0" />
+          <span>
+            HyperLogLog detected. Cardinality estimate: <strong>{extra?.hllCount?.toLocaleString() ?? "unknown"}</strong>.
+            Use Console for PFADD / PFMERGE operations.
+          </span>
+        </div>
+      )}
+
+      {isJsonMissing && (
+        <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded px-3 py-2">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+          <span>
+            RedisJSON module is not loaded on this server. Displaying raw string value.
+            Editing will overwrite the key as a plain string.
+          </span>
+        </div>
+      )}
+
+      {bitmapMode && (
+        <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+          <div className="text-xs font-medium text-muted-foreground">Bitmap Operations</div>
+          <div className="flex gap-2 items-center">
+            <Input
+              className="h-7 font-mono text-xs w-32"
+              placeholder="Offset"
+              value={bitmapOffset}
+              onChange={(e) => setBitmapOffset(e.target.value)}
+              inputMode="numeric"
+            />
+            <Input
+              className="h-7 font-mono text-xs w-20"
+              placeholder="Bit (0/1)"
+              value={bitmapBit}
+              onChange={(e) => setBitmapBit(e.target.value)}
+              inputMode="numeric"
+            />
+            <span className="text-xs text-muted-foreground">
+              Use Console: GETBIT / SETBIT / BITCOUNT / BITPOS
+            </span>
+          </div>
+        </div>
+      )}
+
       {isBinary && editAsText && (
         <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded px-3 py-2">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" />

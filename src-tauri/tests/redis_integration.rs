@@ -2,7 +2,9 @@
 mod redis_context;
 
 use dbpaw_lib::datasources::redis;
-use dbpaw_lib::datasources::redis::{RedisSetKeyPayload, RedisValue, RedisZSetMember};
+use dbpaw_lib::datasources::redis::{
+    RedisKeyPatchPayload, RedisSetKeyPayload, RedisStreamEntry, RedisValue, RedisZSetMember,
+};
 use std::collections::BTreeMap;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -453,4 +455,238 @@ async fn cluster_scan_requires_narrow_pattern() {
         err.contains("requires a non-wildcard pattern"),
         "unexpected error: {err}"
     );
+}
+
+// ── CRUD: stream ──────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn crud_stream() {
+    let form = noauth();
+    let key = redis_context::unique_name("crud_stream");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let mut fields = BTreeMap::new();
+    fields.insert("f1".to_string(), "v1".to_string());
+    fields.insert("f2".to_string(), "v2".to_string());
+
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::Stream(vec![RedisStreamEntry {
+            id: "*".to_string(),
+            fields,
+        }]),
+        ttl_seconds: Some(60),
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    let got = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    assert_eq!(got.key_type, "stream");
+    assert_eq!(got.value_total_len, Some(1));
+    if let RedisValue::Stream(entries) = &got.value {
+        assert_eq!(entries.len(), 1);
+        assert!(!entries[0].id.is_empty(), "expected generated stream id");
+        assert_eq!(entries[0].fields.get("f1").map(String::as_str), Some("v1"));
+    } else {
+        panic!("expected Stream");
+    }
+    assert!(got.extra.is_some(), "expected extra for stream");
+    assert!(
+        got.extra.as_ref().unwrap().stream_info.is_some(),
+        "expected stream_info"
+    );
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn crud_stream_patch_add_and_del() {
+    let form = noauth();
+    let key = redis_context::unique_name("crud_stream_patch");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let mut fields = BTreeMap::new();
+    fields.insert("f1".to_string(), "v1".to_string());
+
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::Stream(vec![RedisStreamEntry {
+            id: "*".to_string(),
+            fields,
+        }]),
+        ttl_seconds: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    let got = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    let first_id = if let RedisValue::Stream(entries) = &got.value {
+        entries[0].id.clone()
+    } else {
+        panic!("expected Stream");
+    };
+
+    let mut new_fields = BTreeMap::new();
+    new_fields.insert("f2".to_string(), "v2".to_string());
+    let patch = RedisKeyPatchPayload {
+        key: key.clone(),
+        ttl_seconds: None,
+        stream_add: Some(vec![RedisStreamEntry {
+            id: "*".to_string(),
+            fields: new_fields,
+        }]),
+        stream_del: None,
+        ..Default::default()
+    };
+    redis::patch_key(&mut conn, patch).await.unwrap();
+
+    let after_add = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    if let RedisValue::Stream(entries) = &after_add.value {
+        assert_eq!(entries.len(), 2);
+    } else {
+        panic!("expected Stream after add");
+    }
+
+    let patch_del = RedisKeyPatchPayload {
+        key: key.clone(),
+        ttl_seconds: None,
+        stream_add: None,
+        stream_del: Some(vec![first_id]),
+        ..Default::default()
+    };
+    redis::patch_key(&mut conn, patch_del).await.unwrap();
+
+    let after_del = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    if let RedisValue::Stream(entries) = &after_del.value {
+        assert_eq!(entries.len(), 1);
+    } else {
+        panic!("expected Stream after del");
+    }
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn crud_stream_range_pagination() {
+    let form = noauth();
+    let key = redis_context::unique_name("crud_stream_range");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let entries: Vec<RedisStreamEntry> = (0..250)
+        .map(|i| {
+            let mut f = BTreeMap::new();
+            f.insert("idx".to_string(), i.to_string());
+            RedisStreamEntry {
+                id: "*".to_string(),
+                fields: f,
+            }
+        })
+        .collect();
+
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::Stream(entries),
+        ttl_seconds: Some(120),
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    let first = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    assert_eq!(first.value_total_len, Some(250));
+    let first_len = if let RedisValue::Stream(v) = &first.value {
+        v.len()
+    } else {
+        panic!("expected stream");
+    };
+    assert_eq!(first_len, 200);
+
+    let last_id = if let RedisValue::Stream(v) = &first.value {
+        v.last().unwrap().id.clone()
+    } else {
+        panic!("expected stream");
+    };
+
+    let range = redis::get_stream_range(&mut conn, key.clone(), last_id, 200)
+        .await
+        .unwrap();
+    assert!(
+        !range.is_empty(),
+        "expected non-empty stream range page"
+    );
+
+    cleanup(&form, &key).await;
+}
+
+// ── CRUD: json ────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn crud_json() {
+    let form = noauth();
+    let key = redis_context::unique_name("crud_json");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::Json(r#"{"name":"alice","age":30}"#.to_string()),
+        ttl_seconds: Some(60),
+    };
+
+    match redis::set_key(&mut conn, payload).await {
+        Ok(_) => {
+            let got = redis::get_key(&mut conn, key.clone()).await.unwrap();
+            assert_eq!(got.key_type, "ReJSON-RL");
+            assert!(
+                matches!(&got.value, RedisValue::Json(v) if v.contains("alice")),
+                "expected JSON value"
+            );
+            cleanup(&form, &key).await;
+        }
+        Err(e) if e.to_lowercase().contains("unknown command") => {
+            eprintln!("[skip] RedisJSON module not loaded; skipping json test");
+        }
+        Err(e) => panic!("unexpected error: {e}"),
+    }
+}
+
+// ── subtype detection ─────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn hyperloglog_detection() {
+    let form = noauth();
+    let key = redis_context::unique_name("hll_detect");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let mut cmd = ::redis::cmd("PFADD");
+    cmd.arg(&key).arg("a").arg("b").arg("c");
+    conn.query::<i64>(cmd).await.unwrap();
+
+    let got = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    assert_eq!(got.key_type, "string");
+    assert_eq!(
+        got.extra.as_ref().and_then(|e| e.subtype.as_deref()),
+        Some("hyperloglog")
+    );
+    assert!(
+        got.extra.as_ref().and_then(|e| e.hll_count).unwrap_or(0) > 0,
+        "expected positive hll count"
+    );
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn geo_detection() {
+    let form = noauth();
+    let key = redis_context::unique_name("geo_detect");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let mut cmd = ::redis::cmd("GEOADD");
+    cmd.arg(&key).arg("116.40").arg("39.90").arg("beijing");
+    conn.query::<i64>(cmd).await.unwrap();
+
+    let got = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    assert_eq!(got.key_type, "zset");
+    assert_eq!(
+        got.extra.as_ref().and_then(|e| e.subtype.as_deref()),
+        Some("geo")
+    );
+
+    cleanup(&form, &key).await;
 }

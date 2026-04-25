@@ -68,7 +68,24 @@ export type RedisValue =
   | { kind: "list"; value: string[] }
   | { kind: "set"; value: string[] }
   | { kind: "zSet"; value: { member: string; score: number }[] }
+  | { kind: "stream"; value: { id: string; fields: Record<string, string> }[] }
+  | { kind: "json"; value: string }
   | { kind: "none"; value?: null };
+
+export interface RedisKeyExtra {
+  subtype?: string | null;
+  streamInfo?: {
+    length: number;
+    radixTreeKeys: number;
+    radixTreeNodes: number;
+    groups: number;
+    lastGeneratedId: string;
+    firstEntry?: { id: string; fields: Record<string, string> } | null;
+    lastEntry?: { id: string; fields: Record<string, string> } | null;
+  } | null;
+  hllCount?: number | null;
+  geoCount?: number | null;
+}
 
 export interface RedisKeyValue {
   key: string;
@@ -78,6 +95,7 @@ export interface RedisKeyValue {
   valueTotalLen: number | null;
   valueOffset: number;
   isBinary?: boolean;
+  extra?: RedisKeyExtra | null;
 }
 
 export interface RedisSetKeyPayload {
@@ -96,6 +114,11 @@ export interface RedisListSetItem {
   value: string;
 }
 
+export interface RedisStreamEntry {
+  id: string;
+  fields: Record<string, string>;
+}
+
 export interface RedisKeyPatchPayload {
   key: string;
   ttlSeconds: number | null;
@@ -111,6 +134,8 @@ export interface RedisKeyPatchPayload {
   listRem?: string[];
   listLpop?: number;
   listRpop?: number;
+  streamAdd?: RedisStreamEntry[];
+  streamDel?: string[];
 }
 
 export interface RedisRawResult {
@@ -631,6 +656,20 @@ export const api = {
         key,
         offset,
         limit,
+      }),
+    getStreamRange: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      startId: string,
+      count: number,
+    ) =>
+      invoke<RedisStreamEntry[]>("redis_get_stream_range", {
+        id,
+        database,
+        key,
+        startId,
+        count,
       }),
     executeRaw: (id: number, database: string | undefined, command: string) =>
       invoke<RedisRawResult>("redis_execute_raw", { id, database, command }),
