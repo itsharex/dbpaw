@@ -117,7 +117,7 @@ interface DatabaseInfo {
   name: string;
   schemas: SchemaInfo[];
   tables: TableInfo[];
-  redisCursor?: number;
+  redisCursor?: string;
   redisIsPartial?: boolean;
   redisRequiresPattern?: boolean;
 }
@@ -1079,7 +1079,7 @@ export function ConnectionList({
     async (
       connectionId: string,
       databaseName: string,
-      cursor: number,
+      cursor: string,
       append: boolean,
     ): Promise<TableInfo[]> => {
       const targetConnection = connectionsRef.current.find(
@@ -1099,7 +1099,7 @@ export function ConnectionList({
                 return {
                   ...db,
                   tables: [],
-                  redisCursor: 0,
+                  redisCursor: "0",
                   redisIsPartial: false,
                   redisRequiresPattern: true,
                 };
@@ -1148,7 +1148,7 @@ export function ConnectionList({
         const dbKey = `${conn.id}-${db.name}`;
         if (!expandedDatabasesRef.current.has(dbKey) || db.tables.length === 0)
           return;
-        void loadRedisKeysPage(conn.id, db.name, 0, false);
+        void loadRedisKeysPage(conn.id, db.name, "0", false);
       });
     });
   }, [searchTerm, loadRedisKeysPage]);
@@ -1178,7 +1178,7 @@ export function ConnectionList({
         (conn) => conn.id === connectionId,
       );
       if (targetConnection?.type === "redis") {
-        await loadRedisKeysPage(connectionId, databaseName, 0, false);
+        await loadRedisKeysPage(connectionId, databaseName, "0", false);
         return [];
       }
       const nextTables: TableInfo[] = await fetchSqlTablesAsTableInfo(
@@ -1365,7 +1365,7 @@ export function ConnectionList({
     void loadRedisKeysPage(
       String(redisRefreshRequest.connectionId),
       redisRefreshRequest.database,
-      0,
+      "0",
       false,
     );
   }, [redisRefreshRequest, loadRedisKeysPage]);
@@ -2331,7 +2331,7 @@ export function ConnectionList({
               );
             }
             if (!db.redisIsPartial) return null;
-            return db.redisCursor !== 0 ? (
+            return db.redisCursor !== "0" ? (
               <button
                 key="redis-load-more"
                 className="block w-full text-left text-xs text-muted-foreground hover:text-foreground px-3 py-1"

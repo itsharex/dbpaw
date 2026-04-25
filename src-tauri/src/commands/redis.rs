@@ -112,7 +112,22 @@ pub async fn redis_list_databases(
         }
         return Err(e);
     }
-    redis::list_databases(&form)
+
+    let db_count = if conn.is_cluster() {
+        1
+    } else {
+        let mut cmd = ::redis::cmd("CONFIG");
+        cmd.arg("GET").arg("databases");
+        match conn.query::<Vec<String>>(cmd).await {
+            Ok(values) if values.len() >= 2 => values[1]
+                .parse::<i64>()
+                .unwrap_or(16)
+                .clamp(1, 256),
+            _ => 16,
+        }
+    };
+
+    redis::list_databases(&form, db_count)
 }
 
 #[tauri::command]
@@ -120,14 +135,14 @@ pub async fn redis_scan_keys(
     state: State<'_, AppState>,
     id: i64,
     database: Option<String>,
-    cursor: Option<u64>,
+    cursor: Option<String>,
     pattern: Option<String>,
     limit: Option<u32>,
 ) -> Result<RedisScanResponse, String> {
     let form = connection_form(&state, id).await?;
     let db = database.as_deref();
     let mut conn = acquire(&state, id, &form, db).await?;
-    match redis::scan_keys(&mut conn, cursor, pattern.clone(), limit).await {
+    match redis::scan_keys(&mut conn, cursor.clone(), pattern.clone(), limit).await {
         Err(ref e) if is_io_error(e) => {
             evict(&state, id, &form, db).await;
             let mut conn = acquire(&state, id, &form, db).await?;

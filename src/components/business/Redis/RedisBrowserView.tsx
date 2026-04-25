@@ -46,7 +46,7 @@ type DetailState =
 export function RedisBrowserView({ connectionId, database }: Props) {
   const [pattern, setPattern] = useState("");
   const [keys, setKeys] = useState<RedisKeyInfo[]>([]);
-  const [cursor, setCursor] = useState(0);
+  const [cursor, setCursor] = useState("0");
   const [isPartial, setIsPartial] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [detail, setDetail] = useState<DetailState>({ mode: "none" });
@@ -55,10 +55,10 @@ export function RedisBrowserView({ connectionId, database }: Props) {
 
   // scan never touches detail — callers decide what happens to selection
   const scan = useCallback(
-    async (pat: string, cur: number, append: boolean) => {
+    async (pat: string, cur: string, append: boolean) => {
       if (isClusterMode && !pat.trim()) {
         setKeys([]);
-        setCursor(0);
+        setCursor("0");
         setIsPartial(false);
         setRequiresPattern(true);
         return;
@@ -97,10 +97,10 @@ export function RedisBrowserView({ connectionId, database }: Props) {
         setIsClusterMode(clusterMode);
         setRequiresPattern(clusterMode);
         if (!clusterMode) {
-          await scan("", 0, false);
+          await scan("", "0", false);
         } else {
           setKeys([]);
-          setCursor(0);
+          setCursor("0");
           setIsPartial(false);
         }
       } catch (e) {
@@ -117,7 +117,7 @@ export function RedisBrowserView({ connectionId, database }: Props) {
 
   const handleSearch = () => {
     setDetail({ mode: "none" });
-    void scan(pattern, 0, false);
+    void scan(pattern, "0", false);
   };
 
   const handleLoadMore = () => void scan(pattern, cursor, true);
@@ -131,18 +131,18 @@ export function RedisBrowserView({ connectionId, database }: Props) {
       setKeys((prev) => prev.filter((k) => k.key !== detail.key));
     }
     setDetail({ mode: "none" });
-    void scan(pattern, 0, false);
+    void scan(pattern, "0", false);
   };
 
   const handleKeySaved = (newKey: string) => {
     if (detail.mode === "new") {
       setDetail({ mode: "view", key: newKey });
-      void scan(pattern, 0, false);
+      void scan(pattern, "0", false);
     } else if (detail.mode === "view" && newKey !== detail.key) {
       setDetail({ mode: "view", key: newKey });
-      void scan(pattern, 0, false);
+      void scan(pattern, "0", false);
     } else {
-      void scan(pattern, 0, false);
+      void scan(pattern, "0", false);
     }
   };
 

@@ -72,21 +72,21 @@ async fn scan_keys_cursor_works() {
     }
 
     let mut all_keys = Vec::new();
-    let mut cursor = 0u64;
+    let mut cursor = "0".to_string();
     let mut rounds = 0;
     loop {
         let resp = redis::scan_keys(
             &mut conn,
-            Some(cursor),
+            Some(cursor.clone()),
             Some(format!("{prefix}:*")),
             Some(50),
         )
         .await
         .unwrap();
         all_keys.extend(resp.keys.iter().map(|k| k.key.clone()));
-        cursor = resp.cursor;
+        cursor = resp.cursor.clone();
         rounds += 1;
-        if cursor == 0 {
+        if cursor == "0" {
             break;
         }
         assert!(rounds < 50, "cursor loop did not terminate");
@@ -437,7 +437,7 @@ async fn cluster_scan_is_partial() {
         .await
         .unwrap();
     assert!(resp.is_partial, "cluster scan should always set is_partial");
-    assert_eq!(resp.cursor, 0, "cluster scan cursor should always be 0");
+    assert!(!resp.cursor.is_empty(), "cluster scan cursor should not be empty");
 }
 
 #[tokio::test]

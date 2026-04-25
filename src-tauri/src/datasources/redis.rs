@@ -4,7 +4,7 @@ use redis::aio::ConnectionLike;
 use redis::aio::MultiplexedConnection;
 use redis::cluster::ClusterClient;
 use redis::cluster_async::ClusterConnection;
-use redis::cluster_routing::{MultipleNodeRoutingInfo, ResponsePolicy, RoutingInfo};
+use redis::cluster_routing::{MultipleNodeRoutingInfo, ResponsePolicy, RoutingInfo, SingleNodeRoutingInfo};
 use redis::{
     from_redis_value, Cmd, ConnectionAddr, ConnectionInfo, FromRedisValue, ProtocolVersion,
     RedisConnectionInfo, Value,
@@ -12,6 +12,7 @@ use redis::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
+use base64::Engine;
 use tokio::sync::Mutex as TokioMutex;
 
 const DEFAULT_REDIS_PORT: i64 = 6379;
@@ -112,6 +113,27 @@ impl RedisConnection {
             }
         }
     }
+
+    pub async fn query_on_node<T: FromRedisValue>(
+        &mut self,
+        host: &str,
+        port: u16,
+        cmd: Cmd,
+    ) -> Result<T, String> {
+        let RedisConnection::Cluster(arc) = self else {
+            return self.query(cmd).await;
+        };
+        let mut cluster = arc.lock().await;
+        let routing = RoutingInfo::SingleNode(SingleNodeRoutingInfo::ByAddress {
+            host: host.to_string(),
+            port,
+        });
+        let value = cluster
+            .route_command(&cmd, routing)
+            .await
+            .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+        from_redis_value(&value).map_err(|e| format!("[REDIS_ERROR] {e}"))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,7 +155,7 @@ pub struct RedisKeyInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RedisScanResponse {
-    pub cursor: u64,
+    pub cursor: String,
     pub keys: Vec<RedisKeyInfo>,
     pub is_partial: bool,
 }
@@ -236,18 +258,6 @@ fn is_cluster_form(form: &ConnectionForm) -> bool {
 fn validate_key(key: &str) -> Result<(), String> {
     if key.trim().is_empty() {
         return Err("[VALIDATION_ERROR] Redis key cannot be empty".to_string());
-    }
-    Ok(())
-}
-
-fn validate_cluster_scan_pattern(pattern: &str) -> Result<(), String> {
-    let trimmed = pattern.trim();
-    let has_literal = trimmed.chars().any(|c| !matches!(c, '*' | '?' | '[' | ']'));
-    if !has_literal {
-        return Err(
-            "[VALIDATION_ERROR] Redis Cluster browsing requires a non-wildcard pattern such as user:*"
-                .to_string(),
-        );
     }
     Ok(())
 }
@@ -408,7 +418,7 @@ pub async fn ping(conn: &mut RedisConnection) -> Result<(), String> {
         .map_err(|e| conn_failed_error(&e))
 }
 
-pub fn list_databases(form: &ConnectionForm) -> Result<Vec<RedisDatabaseInfo>, String> {
+pub fn list_databases(form: &ConnectionForm, db_count: i64) -> Result<Vec<RedisDatabaseInfo>, String> {
     if is_cluster_form(form) {
         build_cluster_nodes(form)?;
         return Ok(vec![RedisDatabaseInfo {
@@ -419,7 +429,8 @@ pub fn list_databases(form: &ConnectionForm) -> Result<Vec<RedisDatabaseInfo>, S
     }
 
     let selected = selected_database(form, None)?;
-    Ok((0..16)
+    let db_count = db_count.clamp(1, 256);
+    Ok((0..db_count)
         .map(|index| RedisDatabaseInfo {
             index,
             name: format!("db{index}"),
@@ -428,9 +439,159 @@ pub fn list_databases(form: &ConnectionForm) -> Result<Vec<RedisDatabaseInfo>, S
         .collect())
 }
 
+fn encode_cluster_scan_state(cursors: &HashMap<String, u64>) -> Result<String, String> {
+    let json = serde_json::to_string(cursors)
+        .map_err(|e| format!("[REDIS_SCAN_ERROR] {e}"))?;
+    Ok(base64::prelude::BASE64_STANDARD.encode(json.as_bytes()))
+}
+
+fn decode_cluster_scan_state(s: &str) -> Result<HashMap<String, u64>, String> {
+    let bytes = base64::prelude::BASE64_STANDARD
+        .decode(s)
+        .map_err(|e| format!("[REDIS_SCAN_ERROR] Invalid cursor: {e}"))?;
+    let json = String::from_utf8(bytes)
+        .map_err(|e| format!("[REDIS_SCAN_ERROR] Invalid cursor: {e}"))?;
+    serde_json::from_str(&json)
+        .map_err(|e| format!("[REDIS_SCAN_ERROR] Invalid cursor: {e}"))
+}
+
+async fn get_cluster_master_nodes(
+    conn: &mut RedisConnection,
+) -> Result<Vec<(String, u16)>, String> {
+    let mut cmd = redis::cmd("CLUSTER");
+    cmd.arg("SLOTS");
+    let value: Value = conn.query(cmd).await?;
+
+    let slots = match value {
+        Value::Array(arr) => arr,
+        _ => {
+            return Err(
+                "[REDIS_SCAN_ERROR] Unexpected CLUSTER SLOTS response".to_string(),
+            )
+        }
+    };
+
+    let mut masters = Vec::new();
+    for slot in slots {
+        let slot_arr = match slot {
+            Value::Array(arr) => arr,
+            _ => continue,
+        };
+        if slot_arr.len() < 3 {
+            continue;
+        }
+        let master_info = match &slot_arr[2] {
+            Value::Array(info) => info,
+            _ => continue,
+        };
+        if master_info.len() < 2 {
+            continue;
+        }
+        let host = from_redis_value::<String>(&master_info[0])
+            .map_err(|e| format!("[REDIS_SCAN_ERROR] {e}"))?;
+        let port = from_redis_value::<u16>(&master_info[1])
+            .map_err(|e| format!("[REDIS_SCAN_ERROR] {e}"))?;
+        masters.push((host, port));
+    }
+
+    masters.sort();
+    masters.dedup();
+    Ok(masters)
+}
+
+fn parse_node_addr(addr: &str) -> Result<(&str, u16), String> {
+    let mut parts = addr.rsplitn(2, ':');
+    let port_part = parts.next().ok_or_else(|| "[REDIS_SCAN_ERROR] Invalid node addr".to_string())?;
+    let host_part = parts.next().ok_or_else(|| "[REDIS_SCAN_ERROR] Invalid node addr".to_string())?;
+    let port = port_part
+        .parse::<u16>()
+        .map_err(|_| "[REDIS_SCAN_ERROR] Invalid node port".to_string())?;
+    Ok((host_part, port))
+}
+
+async fn scan_cluster_keys(
+    conn: &mut RedisConnection,
+    state: Option<&str>,
+    pattern: &str,
+    count: u32,
+) -> Result<(Vec<String>, String, bool), String> {
+    let masters = get_cluster_master_nodes(conn).await?;
+
+    let mut cursors: HashMap<String, u64> = match state {
+        Some(s) => decode_cluster_scan_state(s)?,
+        None => HashMap::new(),
+    };
+
+    // Seed any newly-discovered masters with cursor 0
+    for (host, port) in &masters {
+        cursors
+            .entry(format!("{host}:{port}"))
+            .or_insert(0);
+    }
+
+    let mut keys: Vec<String> = Vec::new();
+    let mut addresses: Vec<String> = cursors.keys().cloned().collect();
+    addresses.sort();
+
+    // Scan every master that still has a non-zero cursor once per call.
+    for addr in &addresses {
+        let cursor = cursors.get(addr).copied().unwrap_or(0);
+        if cursor == 0 {
+            continue;
+        }
+        let (host, port) = parse_node_addr(addr)?;
+        let mut cmd = redis::cmd("SCAN");
+        cmd.arg(cursor)
+            .arg("MATCH")
+            .arg(pattern)
+            .arg("COUNT")
+            .arg(count);
+        let (next_cursor, node_keys): (u64, Vec<String>) = conn
+            .query_on_node(host, port, cmd)
+            .await
+            .map_err(|e| format!("[REDIS_SCAN_ERROR] {e}"))?;
+        keys.extend(node_keys);
+        cursors.insert(addr.clone(), next_cursor);
+    }
+
+    // If we still haven't reached the limit and some nodes remain unfinished,
+    // perform one more round to be more eager.
+    if keys.len() < count as usize {
+        for addr in &addresses {
+            let cursor = cursors.get(addr).copied().unwrap_or(0);
+            if cursor == 0 {
+                continue;
+            }
+            let (host, port) = parse_node_addr(addr)?;
+            let mut cmd = redis::cmd("SCAN");
+            cmd.arg(cursor)
+                .arg("MATCH")
+                .arg(pattern)
+                .arg("COUNT")
+                .arg(count);
+            let (next_cursor, node_keys): (u64, Vec<String>) = conn
+                .query_on_node(host, port, cmd)
+                .await
+                .map_err(|e| format!("[REDIS_SCAN_ERROR] {e}"))?;
+            keys.extend(node_keys);
+            cursors.insert(addr.clone(), next_cursor);
+            if keys.len() >= count as usize {
+                break;
+            }
+        }
+    }
+
+    keys.sort();
+    keys.truncate(count as usize);
+
+    let is_partial = cursors.values().any(|c| *c != 0);
+    let next_state = encode_cluster_scan_state(&cursors)?;
+    Ok((keys, next_state, is_partial))
+}
+
 pub async fn scan_keys(
     conn: &mut RedisConnection,
-    cursor: Option<u64>,
+    cursor: Option<String>,
     pattern: Option<String>,
     limit: Option<u32>,
 ) -> Result<RedisScanResponse, String> {
@@ -440,32 +601,29 @@ pub async fn scan_keys(
         .map(str::trim)
         .filter(|p| !p.is_empty())
         .unwrap_or("*");
-    let scan_cursor = cursor.unwrap_or(0);
 
-    let (next_cursor, is_partial, keys): (u64, bool, Vec<String>) = if conn.is_cluster() {
-        validate_cluster_scan_pattern(match_pattern)?;
-        let mut cmd = redis::cmd("KEYS");
-        cmd.arg(match_pattern);
-        let mut keys: Vec<String> = conn
-            .route_all_masters_combine_arrays(&cmd)
-            .await
-            .map_err(|e| format!("[REDIS_SCAN_ERROR] {e}"))?;
-        keys.sort();
-        keys.truncate(count as usize);
-        (0, true, keys)
+    let (next_cursor, is_partial, keys): (String, bool, Vec<String>) = if conn.is_cluster() {
+        let (keys, next_state, partial) =
+            scan_cluster_keys(conn, cursor.as_deref(), match_pattern, count).await?;
+        (next_state, partial, keys)
     } else {
+        let scan_cursor: u64 = cursor
+            .as_deref()
+            .unwrap_or("0")
+            .parse()
+            .map_err(|_| "[VALIDATION_ERROR] Invalid cursor".to_string())?;
         let mut cmd = redis::cmd("SCAN");
         cmd.arg(scan_cursor)
             .arg("MATCH")
             .arg(match_pattern)
             .arg("COUNT")
             .arg(count);
-        let (cursor, keys): (u64, Vec<String>) = conn
+        let (next_cursor, keys): (u64, Vec<String>) = conn
             .query(cmd)
             .await
             .map_err(|e| format!("[REDIS_SCAN_ERROR] {e}"))?;
-        let partial = cursor != 0;
-        (cursor, partial, keys)
+        let partial = next_cursor != 0;
+        (next_cursor.to_string(), partial, keys)
     };
 
     let out = if keys.is_empty() {
@@ -476,7 +634,10 @@ pub async fn scan_keys(
             pipe.cmd("TYPE").arg(key);
             pipe.cmd("TTL").arg(key);
         }
-        let results: Vec<Value> = conn.pipe_query(&mut pipe).await.unwrap_or_default();
+        let results: Vec<Value> = conn
+            .pipe_query(&mut pipe)
+            .await
+            .map_err(|e| format!("[REDIS_SCAN_ERROR] {e}"))?;
         keys.into_iter()
             .enumerate()
             .map(|(i, key)| {
@@ -871,9 +1032,15 @@ pub async fn rename_key(
 ) -> Result<RedisMutationResult, String> {
     validate_key(&old_key)?;
     validate_key(&new_key)?;
-    let mut cmd = redis::cmd("RENAME");
-    cmd.arg(old_key).arg(new_key);
-    conn.query::<()>(cmd).await?;
+    let mut cmd = redis::cmd("RENAMENX");
+    cmd.arg(&old_key).arg(&new_key);
+    let renamed: i64 = conn.query(cmd).await?;
+    if renamed == 0 {
+        return Err(format!(
+            "[REDIS_ERROR] Key '{}' already exists. RENAMENX refused to overwrite.",
+            new_key
+        ));
+    }
     Ok(RedisMutationResult {
         success: true,
         affected: 1,
@@ -1048,7 +1215,7 @@ pub async fn execute_raw(
 mod tests {
     use super::{
         build_cluster_nodes, build_connection_info, is_cluster_form, list_databases,
-        parse_database, validate_cluster_scan_pattern, validate_value_for_write, RedisValue,
+        parse_database, validate_value_for_write, RedisValue,
     };
     use crate::models::ConnectionForm;
     use redis::ConnectionAddr;
@@ -1090,7 +1257,7 @@ mod tests {
             database: Some("db5".to_string()),
             ..ConnectionForm::default()
         };
-        let dbs = list_databases(&form).unwrap();
+        let dbs = list_databases(&form, 16).unwrap();
         assert_eq!(dbs.len(), 16);
         assert!(dbs[5].selected);
     }
@@ -1138,13 +1305,6 @@ mod tests {
         assert!(validate_value_for_write(&RedisValue::Set(vec![])).is_err());
         assert!(validate_value_for_write(&RedisValue::ZSet(vec![])).is_err());
         assert!(validate_value_for_write(&RedisValue::String(String::new())).is_ok());
-    }
-
-    #[test]
-    fn cluster_scan_pattern_requires_literal_characters() {
-        assert!(validate_cluster_scan_pattern("*").is_err());
-        assert!(validate_cluster_scan_pattern("??").is_err());
-        assert!(validate_cluster_scan_pattern("user:*").is_ok());
     }
 
     use super::{format_redis_value, tokenize_command};

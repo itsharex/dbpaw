@@ -57,7 +57,7 @@ export interface RedisKeyInfo {
 }
 
 export interface RedisScanResponse {
-  cursor: number;
+  cursor: string;
   keys: RedisKeyInfo[];
   isPartial: boolean;
 }
@@ -557,7 +557,7 @@ export const api = {
     scanKeys: (params: {
       id: number;
       database?: string;
-      cursor?: number;
+      cursor?: string;
       pattern?: string;
       limit?: number;
     }) => invoke<RedisScanResponse>("redis_scan_keys", params),
