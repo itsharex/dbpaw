@@ -1035,6 +1035,7 @@ mod tests {
             include_str!("../../migrations/009_ai_provider_type_relaxed.sql"),
             include_str!("../../migrations/010_sql_execution_logs.sql"),
             include_str!("../../migrations/011_add_ssl_fields.sql"),
+            include_str!("../../migrations/012_add_redis_connection_options.sql"),
         ] {
             sqlx::query(migration)
                 .execute(&pool)
