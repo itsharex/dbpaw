@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Database, Server } from "lucide-react";
+import { Server } from "lucide-react";
 import {
   siMysql,
   siMariadb,
@@ -9,6 +9,7 @@ import {
   siDuckdb,
   siRedis,
   siApachedoris,
+  siTidb,
 } from "simple-icons";
 
 export type ImportDriverCapability =
@@ -45,6 +46,15 @@ const renderSimpleIcon = (icon: { path: string }) => (
   >
     <path d={icon.path} fill="currentColor" />
   </svg>
+);
+
+const renderLocalIcon = (src: string) => (
+  <img
+    src={src}
+    alt=""
+    className="h-4 w-4 object-contain shrink-0"
+    aria-hidden="true"
+  />
 );
 
 export interface DriverConfig {
@@ -112,7 +122,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSchemaBrowsing: false,
     supportsCreateDatabase: true,
     importCapability: "supported",
-    icon: () => renderSimpleIcon(siMysql),
+    icon: () => renderSimpleIcon(siTidb),
   },
   {
     id: "starrocks",
@@ -125,7 +135,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSchemaBrowsing: false,
     supportsCreateDatabase: true,
     importCapability: "unsupported",
-    icon: () => <Database className="w-4 h-4" />,
+    icon: () => renderLocalIcon("/icons/db/starrocks.svg"),
   },
   {
     id: "doris",
@@ -190,7 +200,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSchemaBrowsing: true,
     supportsCreateDatabase: true,
     importCapability: "supported",
-    icon: () => <Database className="w-4 h-4" />,
+    icon: () => renderLocalIcon("/icons/db/mssql.svg"),
   },
   {
     id: "oracle",
@@ -203,7 +213,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSchemaBrowsing: true,
     supportsCreateDatabase: false,
     importCapability: "supported",
-    icon: () => <Database className="w-4 h-4" />,
+    icon: () => renderLocalIcon("/icons/db/oracle.svg"),
   },
   {
     id: "redis",
