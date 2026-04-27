@@ -1,5 +1,25 @@
 use crate::models::ConnectionForm;
 
+fn trim_string_list(values: Option<Vec<String>>) -> Option<Vec<String>> {
+    values.and_then(|items| {
+        let normalized = items
+            .into_iter()
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .fold(Vec::<String>::new(), |mut acc, item| {
+                if !acc.iter().any(|existing| existing == &item) {
+                    acc.push(item);
+                }
+                acc
+            });
+        if normalized.is_empty() {
+            None
+        } else {
+            Some(normalized)
+        }
+    })
+}
+
 fn trim_to_option(value: Option<String>) -> Option<String> {
     value
         .map(|v| v.trim().to_string())
@@ -36,6 +56,74 @@ fn validate_port_range(field: &str, port: Option<i64>) -> Result<(), String> {
     Ok(())
 }
 
+fn normalize_redis_options(form: &mut ConnectionForm) -> Result<(), String> {
+    let mode = form
+        .mode
+        .as_deref()
+        .map(|value| value.trim().to_ascii_lowercase());
+    form.mode = match mode.as_deref() {
+        Some("standalone") | Some("cluster") | Some("sentinel") => mode,
+        _ => None,
+    };
+    form.seed_nodes = trim_string_list(form.seed_nodes.take());
+    form.sentinels = trim_string_list(form.sentinels.take());
+
+    if let Some(timeout_ms) = form.connect_timeout_ms {
+        if timeout_ms <= 0 {
+            return Err("[VALIDATION_ERROR] connect timeout must be greater than 0".to_string());
+        }
+    }
+
+    if let Some(host) = form.host.clone() {
+        let detected_mode = if form.mode.is_some() {
+            form.mode.clone()
+        } else if host.split(',').filter(|part| !part.trim().is_empty()).count() > 1 {
+            Some("cluster".to_string())
+        } else {
+            Some("standalone".to_string())
+        };
+        form.mode = detected_mode;
+    } else if form.mode.is_none() {
+        form.mode = Some("standalone".to_string());
+    }
+
+    match form.mode.as_deref() {
+        Some("standalone") => {
+            if let Some(host) = form.host.clone() {
+                let seed = if let Some(port) = form.port {
+                    format!("{host}:{port}")
+                } else {
+                    host
+                };
+                form.seed_nodes = trim_string_list(Some(vec![seed]));
+            }
+        }
+        Some("cluster") => {
+            if form.seed_nodes.is_none() {
+                if let Some(host) = form.host.clone() {
+                    form.seed_nodes = trim_string_list(Some(
+                        host.split(',').map(|part| part.to_string()).collect(),
+                    ));
+                }
+            }
+            if form.seed_nodes.as_ref().map(|nodes| nodes.len()).unwrap_or(0) < 2 {
+                return Err(
+                    "[VALIDATION_ERROR] Redis cluster requires at least two seed nodes"
+                        .to_string(),
+                );
+            }
+        }
+        Some("sentinel") => {
+            if form.sentinels.as_ref().map(|nodes| nodes.is_empty()).unwrap_or(true) {
+                return Err("[VALIDATION_ERROR] Redis sentinel requires at least one sentinel node".to_string());
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
 pub fn normalize_connection_form(mut form: ConnectionForm) -> Result<ConnectionForm, String> {
     form.name = trim_to_option(form.name);
     form.host = trim_to_option(form.host);
@@ -49,13 +137,16 @@ pub fn normalize_connection_form(mut form: ConnectionForm) -> Result<ConnectionF
     form.ssh_username = trim_to_option(form.ssh_username);
     form.ssh_password = trim_preserve_empty(form.ssh_password);
     form.ssh_key_path = trim_to_option(form.ssh_key_path);
+    form.mode = trim_to_option(form.mode);
+    form.seed_nodes = trim_string_list(form.seed_nodes);
+    form.sentinels = trim_string_list(form.sentinels);
 
     validate_port_range("port", form.port)?;
     validate_port_range("ssh port", form.ssh_port)?;
 
     let driver = form.driver.to_ascii_lowercase();
     form.driver = driver.clone();
-    if crate::db::drivers::is_mysql_family_driver(&driver) || driver == "redis" {
+    if crate::db::drivers::is_mysql_family_driver(&driver) {
         if let Some(host) = form.host.clone() {
             let (normalized_host, normalized_port) = parse_host_embedded_port(&host, form.port);
             form.host = Some(normalized_host);
@@ -63,9 +154,27 @@ pub fn normalize_connection_form(mut form: ConnectionForm) -> Result<ConnectionF
         }
     }
 
+    if driver == "redis" {
+        if let Some(host) = form.host.clone() {
+            let should_parse_host =
+                form.mode.as_deref().unwrap_or("standalone") == "standalone" && !host.contains(',');
+            if should_parse_host {
+                let (normalized_host, normalized_port) =
+                    parse_host_embedded_port(&host, form.port);
+                form.host = Some(normalized_host);
+                form.port = normalized_port.or(form.port);
+            }
+        }
+        normalize_redis_options(&mut form)?;
+    }
+
     if matches!(driver.as_str(), "sqlite" | "duckdb") {
         if form.file_path.is_none() {
             return Err("[VALIDATION_ERROR] file path cannot be empty".to_string());
+        }
+    } else if driver == "redis" {
+        if form.mode.as_deref() == Some("standalone") && form.host.is_none() {
+            return Err("[VALIDATION_ERROR] host cannot be empty".to_string());
         }
     } else if form.host.is_none() {
         return Err("[VALIDATION_ERROR] host cannot be empty".to_string());
@@ -183,5 +292,39 @@ mod tests {
             ..Default::default()
         };
         assert!(normalize_connection_form(form).is_err());
+    }
+
+    #[test]
+    fn normalize_redis_cluster_seed_nodes_and_mode() {
+        let form = ConnectionForm {
+            driver: "redis".to_string(),
+            mode: Some("cluster".to_string()),
+            seed_nodes: Some(vec![
+                " 10.0.0.1:6379 ".to_string(),
+                "10.0.0.2:6379".to_string(),
+            ]),
+            ..Default::default()
+        };
+        let normalized = normalize_connection_form(form).unwrap();
+        assert_eq!(normalized.mode.as_deref(), Some("cluster"));
+        assert_eq!(
+            normalized.seed_nodes.unwrap(),
+            vec!["10.0.0.1:6379".to_string(), "10.0.0.2:6379".to_string()]
+        );
+    }
+
+    #[test]
+    fn normalize_redis_legacy_cluster_host_into_seed_nodes() {
+        let form = ConnectionForm {
+            driver: "redis".to_string(),
+            host: Some("10.0.0.1:6379,10.0.0.2:6379".to_string()),
+            ..Default::default()
+        };
+        let normalized = normalize_connection_form(form).unwrap();
+        assert_eq!(normalized.mode.as_deref(), Some("cluster"));
+        assert_eq!(
+            normalized.seed_nodes.unwrap(),
+            vec!["10.0.0.1:6379".to_string(), "10.0.0.2:6379".to_string()]
+        );
     }
 }

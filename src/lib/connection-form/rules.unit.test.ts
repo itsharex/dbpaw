@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   allowsHostWithPort,
   buildConnectionFormDefaults,
+  formatRedisNodeList,
   getConnectionFormCapabilities,
+  getRedisConnectionMode,
   isFileBasedDriver,
   isMysqlFamilyDriver,
   normalizeConnectionFormInput,
+  normalizeRedisNodeListInput,
   normalizePortNumber,
   normalizeTextValue,
   parseHostEmbeddedPort,
@@ -70,8 +73,8 @@ describe("getConnectionFormCapabilities", () => {
 
   test("returns redis-specific capabilities", () => {
     expect(getConnectionFormCapabilities("redis")).toEqual({
-      showHost: true,
-      showPort: true,
+      showHost: false,
+      showPort: false,
       showUsername: true,
       showPassword: true,
       showDatabase: false,
@@ -112,6 +115,9 @@ describe("buildConnectionFormDefaults", () => {
     const form = buildConnectionFormDefaults("redis", { name: "Cache" });
     expect(form.name).toBe("Cache");
     expect(form.port).toBe(6379);
+    expect(form.mode).toBe("standalone");
+    expect(form.seedNodes).toEqual([]);
+    expect(form.connectTimeoutMs).toBe(5000);
   });
 });
 
@@ -249,5 +255,64 @@ describe("normalizeConnectionFormInput", () => {
     expect(normalized.password).toBe("");
     expect(normalized.sslCaCert).toBe("");
     expect(normalized.sshPassword).toBe("");
+  });
+
+  test("normalizes structured redis cluster options", () => {
+    const normalized = normalizeConnectionFormInput({
+      driver: "redis",
+      mode: "cluster",
+      seedNodes: [" 10.0.0.1:6379 ", "10.0.0.2:6379"],
+      connectTimeoutMs: 4000,
+    });
+
+    expect(normalized.mode).toBe("cluster");
+    expect(normalized.seedNodes).toEqual(["10.0.0.1:6379", "10.0.0.2:6379"]);
+    expect(normalized.connectTimeoutMs).toBe(4000);
+  });
+
+  test("derives redis standalone seed node from host and port", () => {
+    const normalized = normalizeConnectionFormInput({
+      driver: "redis",
+      mode: "standalone",
+      host: " 127.0.0.1 ",
+      port: 6379,
+    });
+
+    expect(normalized.seedNodes).toEqual(["127.0.0.1:6379"]);
+  });
+
+  test("keeps legacy redis comma-separated host as cluster seed nodes", () => {
+    const normalized = normalizeConnectionFormInput({
+      driver: "redis",
+      host: "10.0.0.1:6379,10.0.0.2:6379",
+    });
+
+    expect(normalized.mode).toBe("cluster");
+    expect(normalized.seedNodes).toEqual(["10.0.0.1:6379", "10.0.0.2:6379"]);
+  });
+});
+
+describe("redis helpers", () => {
+  test("normalizes node list input from text", () => {
+    expect(
+      normalizeRedisNodeListInput("10.0.0.1:6379\n10.0.0.2:6379,10.0.0.1:6379"),
+    ).toEqual(["10.0.0.1:6379", "10.0.0.2:6379"]);
+  });
+
+  test("formats node list back to text", () => {
+    expect(formatRedisNodeList(["10.0.0.1:6379", "10.0.0.2:6379"])).toBe(
+      "10.0.0.1:6379\n10.0.0.2:6379",
+    );
+  });
+
+  test("detects redis mode from saved fields", () => {
+    expect(
+      getRedisConnectionMode({
+        driver: "redis",
+        mode: undefined,
+        host: "10.0.0.1:6379,10.0.0.2:6379",
+        seedNodes: undefined,
+      }),
+    ).toBe("cluster");
   });
 });

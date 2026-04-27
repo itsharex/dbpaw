@@ -22,6 +22,10 @@ pub struct Connection {
     pub ssh_username: Option<String>,
     pub ssh_password: Option<String>,
     pub ssh_key_path: Option<String>,
+    pub mode: Option<String>,
+    pub seed_nodes: Option<Vec<String>>,
+    pub sentinels: Option<Vec<String>>,
+    pub connect_timeout_ms: Option<i64>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -184,11 +188,25 @@ pub struct ClickHouseTableExtra {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SpecialTypeSummary {
+    pub column_name: String,
+    pub category: String,
+    pub type_name: String,
+    pub declared_length: Option<String>,
+    pub memory_usage_bytes: Option<u64>,
+    pub memory_usage_display: Option<String>,
+    pub raw_type: String,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TableMetadata {
     pub columns: Vec<ColumnInfo>,
     pub indexes: Vec<IndexInfo>,
     pub foreign_keys: Vec<ForeignKeyInfo>,
     pub clickhouse_extra: Option<ClickHouseTableExtra>,
+    pub special_type_summaries: Vec<SpecialTypeSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -240,6 +258,10 @@ pub struct ConnectionForm {
     pub ssh_username: Option<String>,
     pub ssh_password: Option<String>,
     pub ssh_key_path: Option<String>,
+    pub mode: Option<String>,
+    pub seed_nodes: Option<Vec<String>>,
+    pub sentinels: Option<Vec<String>>,
+    pub connect_timeout_ms: Option<i64>,
 }
 
 impl fmt::Debug for ConnectionForm {
@@ -268,6 +290,10 @@ impl fmt::Debug for ConnectionForm {
             .field("ssh_username", &ssh_username)
             .field("ssh_password", &ssh_password)
             .field("ssh_key_path", &self.ssh_key_path)
+            .field("mode", &self.mode)
+            .field("seed_nodes", &self.seed_nodes)
+            .field("sentinels", &self.sentinels)
+            .field("connect_timeout_ms", &self.connect_timeout_ms)
             .finish()
     }
 }

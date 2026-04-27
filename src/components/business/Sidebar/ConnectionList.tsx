@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
@@ -69,7 +70,9 @@ import type {
   ConnectionForm,
   CreateDatabasePayload,
   Driver,
+  RedisConnectionMode,
   SavedQuery,
+  SavedConnection,
 } from "@/services/api";
 import {
   getConnectionIcon,
@@ -143,6 +146,10 @@ interface Connection {
   sshUsername?: string;
   sshPassword?: string;
   sshKeyPath?: string;
+  mode?: RedisConnectionMode;
+  seedNodes?: string[];
+  sentinels?: string[];
+  connectTimeoutMs?: number;
   databases: DatabaseInfo[];
   isConnected: boolean;
   connectState: "idle" | "connecting" | "success" | "error";
@@ -166,6 +173,24 @@ type SelectedTableNode = {
   table: string;
   schema: string;
 };
+
+interface DatasourceTreeAdapter {
+  supportsSchemaNode: boolean;
+  isDatabaseExpandable: boolean;
+  listDatabases: () => Promise<string[]>;
+  loadDatabaseChildren: (databaseName: string) => Promise<TableInfo[]>;
+  shouldSkipTableColumns: boolean;
+  getItemIcon: () => ReactNode;
+  onItemActivate: (database: DatabaseInfo, table: TableInfo) => void;
+  getDatabaseRowActions: (database: DatabaseInfo) => ReactNode | undefined;
+  onDatabaseDoubleClick?: (database: DatabaseInfo) => void;
+  renderDatabaseFooter: (database: DatabaseInfo, level: number) => ReactNode;
+  renderTableContextMenu: (
+    database: DatabaseInfo,
+    table: TableInfo,
+  ) => ReactNode;
+  renderDatabaseContextMenu?: (databaseName: string) => ReactNode;
+}
 
 const defaultCreateDatabaseForm: CreateDatabaseForm = {
   name: "",
@@ -307,6 +332,10 @@ const buildFormFromConnection = (
     | "sshPort"
     | "sshUsername"
     | "sshKeyPath"
+    | "mode"
+    | "seedNodes"
+    | "sentinels"
+    | "connectTimeoutMs"
   >,
   overrides: Partial<ConnectionForm> = {},
 ): ConnectionForm =>
@@ -328,8 +357,40 @@ const buildFormFromConnection = (
     sshUsername: connection.sshUsername || "",
     sshPassword: "",
     sshKeyPath: connection.sshKeyPath || "",
+    mode: connection.mode,
+    seedNodes: connection.seedNodes || [],
+    sentinels: connection.sentinels || [],
+    connectTimeoutMs: connection.connectTimeoutMs,
     ...overrides,
   });
+
+const mapSavedConnection = (c: SavedConnection, fallbackName: string): Connection => ({
+  id: String(c.id),
+  name: c.name || fallbackName,
+  type: (c.dbType as Driver) || "postgres",
+  host: c.host || "",
+  port: String(c.port || ""),
+  database: c.database || "",
+  username: c.username || "",
+  ssl: c.ssl || false,
+  sslMode: c.sslMode || "require",
+  sslCaCert: c.sslCaCert || "",
+  filePath: c.filePath || "",
+  sshEnabled: c.sshEnabled || false,
+  sshHost: c.sshHost || "",
+  sshPort: c.sshPort || 22,
+  sshUsername: c.sshUsername || "root",
+  sshPassword: c.sshPassword || "",
+  sshKeyPath: c.sshKeyPath || "",
+  mode: c.mode || undefined,
+  seedNodes: c.seedNodes || [],
+  sentinels: c.sentinels || [],
+  connectTimeoutMs: c.connectTimeoutMs || undefined,
+  isConnected: false,
+  connectState: "idle",
+  connectError: undefined,
+  databases: [],
+});
 
 interface ConnectionListProps {
   onTableSelect?: (
@@ -841,31 +902,7 @@ export function ConnectionList({
   const fetchConnections = async () => {
     try {
       const conns = await api.connections.list();
-      setConnections(
-        conns.map((c) => ({
-          id: String(c.id),
-          name: c.name || t("common.unknown"),
-          type: (c.dbType as Driver) || "postgres",
-          host: c.host || "",
-          port: String(c.port || ""),
-          database: c.database || "",
-          username: c.username || "",
-          ssl: c.ssl || false,
-          sslMode: c.sslMode || "require",
-          sslCaCert: c.sslCaCert || "",
-          filePath: c.filePath || "",
-          sshEnabled: c.sshEnabled || false,
-          sshHost: c.sshHost || "",
-          sshPort: c.sshPort || 22,
-          sshUsername: c.sshUsername || "root",
-          sshPassword: c.sshPassword || "",
-          sshKeyPath: c.sshKeyPath || "",
-          isConnected: false,
-          connectState: "idle",
-          connectError: undefined,
-          databases: [],
-        })),
-      );
+      setConnections(conns.map((c) => mapSavedConnection(c, t("common.unknown"))));
       setExpandedConnections(new Set());
       setExpandedDatabases(new Set());
       setExpandedDatabaseGroups(new Set());
@@ -946,12 +983,8 @@ export function ConnectionList({
   ): Promise<boolean> => {
     try {
       const current = connections.find((conn) => conn.id === connectionId);
-      const dbNames =
-        current?.type === "redis"
-          ? (await api.redis.listDatabases(Number(connectionId))).map(
-              (db) => db.name,
-            )
-          : await api.metadata.listDatabasesById(Number(connectionId));
+      if (!current) return false;
+      const dbNames = await getDatasourceTreeAdapter(current).listDatabases();
       setConnections((prev) =>
         prev.map((conn) => {
           if (conn.id !== connectionId) return conn;
@@ -1086,7 +1119,8 @@ export function ConnectionList({
         (conn) => conn.id === connectionId,
       );
       const isRedisCluster =
-        targetConnection?.type === "redis" &&
+        targetConnection &&
+        !getDatasourceTreeAdapter(targetConnection).isDatabaseExpandable &&
         isRedisClusterDatabaseList(targetConnection.databases);
       if (isRedisCluster && !searchTerm.trim()) {
         setConnections((prev) =>
@@ -1143,7 +1177,7 @@ export function ConnectionList({
 
   useEffect(() => {
     connectionsRef.current.forEach((conn) => {
-      if (conn.type !== "redis") return;
+      if (getDatasourceTreeAdapter(conn).isDatabaseExpandable) return;
       conn.databases.forEach((db) => {
         const dbKey = `${conn.id}-${db.name}`;
         if (!expandedDatabasesRef.current.has(dbKey) || db.tables.length === 0)
@@ -1168,6 +1202,205 @@ export function ConnectionList({
     }));
   };
 
+  const getDatasourceTreeAdapter = (
+    connection: Connection,
+  ): DatasourceTreeAdapter => {
+    if (connection.type === "redis") {
+      return {
+        supportsSchemaNode: false,
+        isDatabaseExpandable: false,
+        listDatabases: async () =>
+          (await api.redis.listDatabases(Number(connection.id))).map(
+            (db) => db.name,
+          ),
+        loadDatabaseChildren: async (databaseName: string) => {
+          await loadRedisKeysPage(connection.id, databaseName, "0", false);
+          return [];
+        },
+        shouldSkipTableColumns: true,
+        getItemIcon: () => <Key className="w-4 h-4" />,
+        onItemActivate: (database, table) => {
+          onRedisKeySelect?.(
+            connection.name,
+            database.name,
+            table.name,
+            Number(connection.id),
+            connection.type,
+          );
+        },
+        getDatabaseRowActions: (database) => (
+          <div onClick={(e) => e.stopPropagation()}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => handleCreateRedisKey(connection, database)}
+            >
+              <Plus className="w-3 h-3" />
+            </Button>
+          </div>
+        ),
+        onDatabaseDoubleClick: (database) => {
+          onOpenRedisBrowser?.(
+            connection.name,
+            database.name,
+            Number(connection.id),
+            connection.type,
+          );
+        },
+        renderDatabaseFooter: (database, level) => {
+          const indent = `${(level + 1) * 12 + 8}px`;
+          if (database.redisRequiresPattern) {
+            return (
+              <span
+                key="redis-pattern-required"
+                className="block px-3 py-1 text-xs text-muted-foreground"
+                style={{ paddingLeft: indent }}
+              >
+                Enter a search pattern to browse cluster keys safely
+              </span>
+            );
+          }
+          if (!database.redisIsPartial) return null;
+          return database.redisCursor !== "0" ? (
+            <button
+              key="redis-load-more"
+              className="block w-full px-3 py-1 text-left text-xs text-muted-foreground hover:text-foreground"
+              style={{ paddingLeft: indent }}
+              onClick={() =>
+                void loadRedisKeysPage(
+                  connection.id,
+                  database.name,
+                  database.redisCursor!,
+                  true,
+                )
+              }
+            >
+              Load more…
+            </button>
+          ) : (
+            <span
+              key="redis-capped"
+              className="block px-3 py-1 text-xs text-muted-foreground"
+              style={{ paddingLeft: indent }}
+            >
+              Results capped — use a pattern to narrow down
+            </span>
+          );
+        },
+        renderTableContextMenu: () => null,
+        renderDatabaseContextMenu: (databaseName) => (
+          <>
+            <button
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+              onClick={() => {
+                onRedisKeySelect?.(
+                  connection.name,
+                  databaseName,
+                  "",
+                  Number(connection.id),
+                  connection.type,
+                );
+                setContextMenu((prev) => ({ ...prev, visible: false }));
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              New key
+            </button>
+            <button
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+              onClick={() => {
+                onOpenRedisBrowser?.(
+                  connection.name,
+                  databaseName,
+                  Number(connection.id),
+                  connection.type,
+                );
+                setContextMenu((prev) => ({ ...prev, visible: false }));
+              }}
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              Open browser
+            </button>
+            <button
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+              onClick={() => {
+                onOpenRedisConsole?.(
+                  connection.name,
+                  databaseName,
+                  Number(connection.id),
+                  connection.type,
+                );
+                setContextMenu((prev) => ({ ...prev, visible: false }));
+              }}
+            >
+              <Terminal className="h-4 w-4" />
+              Open console
+            </button>
+          </>
+        ),
+      };
+    }
+
+    return {
+      supportsSchemaNode: supportsSchemaNodeForDriver(connection.type),
+      isDatabaseExpandable: true,
+      listDatabases: () => api.metadata.listDatabasesById(Number(connection.id)),
+      loadDatabaseChildren: (databaseName: string) =>
+        fetchSqlTablesAsTableInfo(connection.id, databaseName),
+      shouldSkipTableColumns: false,
+      getItemIcon: () => <Table className="w-4 h-4" />,
+      onItemActivate: (database, table) => {
+        onTableSelect?.(
+          connection.name,
+          database.name,
+          table.name,
+          Number(connection.id),
+          connection.type,
+          table.schema,
+        );
+      },
+      getDatabaseRowActions: () => undefined,
+      renderDatabaseFooter: () => null,
+      renderTableContextMenu: (database, table) => (
+        <>
+          <ContextMenuItem
+            onClick={() =>
+              handleCreateQueryFromContext(connection.id, database.name)
+            }
+          >
+            <FileCode className="mr-2 h-4 w-4" />
+            {t("connection.menu.newQuery")}
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() =>
+              handleTableExportDialog(connection, database, table)
+            }
+          >
+            <Download className="mr-2 h-4 w-4" />
+            {t("connection.menu.exportTable")}
+          </ContextMenuItem>
+          {onAlterTable ? (
+            <ContextMenuItem
+              onClick={() =>
+                onAlterTable(
+                  Number(connection.id),
+                  database.name,
+                  table.schema ?? "",
+                  table.name,
+                  connection.type,
+                )
+              }
+            >
+              <TableIcon className="mr-2 h-4 w-4" />
+              {t("connection.menu.alterTable")}
+            </ContextMenuItem>
+          ) : null}
+        </>
+      ),
+    };
+  };
+
   const fetchAndSetTables = async (
     connectionId: string,
     databaseName: string,
@@ -1177,18 +1410,19 @@ export function ConnectionList({
       const targetConnection = connections.find(
         (conn) => conn.id === connectionId,
       );
-      if (targetConnection?.type === "redis") {
-        await loadRedisKeysPage(connectionId, databaseName, "0", false);
+      if (!targetConnection) {
         return [];
       }
-      const nextTables: TableInfo[] = await fetchSqlTablesAsTableInfo(
-        connectionId,
-        databaseName,
-      );
+      const datasourceAdapter = getDatasourceTreeAdapter(targetConnection);
+      if (!datasourceAdapter.isDatabaseExpandable) {
+        await datasourceAdapter.loadDatabaseChildren(databaseName);
+        return [];
+      }
+      const nextTables = await datasourceAdapter.loadDatabaseChildren(databaseName);
       setConnections((prev) =>
         prev.map((conn) => {
           if (conn.id !== connectionId) return conn;
-          const supportsSchemaNode = supportsSchemaNodeForDriver(conn.type);
+          const supportsSchemaNode = datasourceAdapter.supportsSchemaNode;
           return {
             ...conn,
             databases: conn.databases.map((db) => {
@@ -1584,7 +1818,7 @@ export function ConnectionList({
     } else {
       newExpanded.add(tableKey);
       const conn = connections.find((c) => c.id === connectionId);
-      if (conn?.type === "redis") {
+      if (conn && getDatasourceTreeAdapter(conn).shouldSkipTableColumns) {
         setExpandedTables(newExpanded);
         return;
       }
@@ -1613,26 +1847,7 @@ export function ConnectionList({
     database: DatabaseInfo,
     table: TableInfo,
   ) => {
-    if (connection.type === "redis") {
-      onRedisKeySelect?.(
-        connection.name,
-        database.name,
-        table.name,
-        Number(connection.id),
-        connection.type,
-      );
-      return;
-    }
-    if (onTableSelect) {
-      onTableSelect(
-        connection.name,
-        database.name,
-        table.name,
-        Number(connection.id),
-        connection.type,
-        table.schema,
-      );
-    }
+    getDatasourceTreeAdapter(connection).onItemActivate(database, table);
   };
 
   const handleCreateRedisKey = (
@@ -1811,29 +2026,7 @@ export function ConnectionList({
     try {
       const res = await api.connections.create(normalizedForm);
       setConnections((prev) => [
-        {
-          id: String(res.id),
-          name: res.name || t("common.unknown"),
-          type: (res.dbType as Driver) || "postgres",
-          host: res.host || "",
-          port: String(res.port || ""),
-          database: res.database || "",
-          username: res.username || "",
-          ssl: res.ssl || false,
-          sslMode: res.sslMode || "require",
-          sslCaCert: res.sslCaCert || "",
-          filePath: res.filePath || "",
-          sshEnabled: res.sshEnabled || false,
-          sshHost: res.sshHost || "",
-          sshPort: res.sshPort || 22,
-          sshUsername: res.sshUsername || "root",
-          sshPassword: "",
-          sshKeyPath: res.sshKeyPath || "",
-          isConnected: false,
-          connectState: "idle",
-          connectError: undefined,
-          databases: [],
-        },
+        mapSavedConnection(res, t("common.unknown")),
         ...prev,
       ]);
       setIsDialogOpen(false);
@@ -1959,29 +2152,7 @@ export function ConnectionList({
     try {
       const res = await api.connections.create(duplicateForm);
       setConnections((prev) => [
-        {
-          id: String(res.id),
-          name: res.name || t("common.unknown"),
-          type: (res.dbType as Driver) || "postgres",
-          host: res.host || "",
-          port: String(res.port || ""),
-          database: res.database || "",
-          username: res.username || "",
-          ssl: res.ssl || false,
-          sslMode: res.sslMode || "require",
-          sslCaCert: res.sslCaCert || "",
-          filePath: res.filePath || "",
-          sshEnabled: res.sshEnabled || false,
-          sshHost: res.sshHost || "",
-          sshPort: res.sshPort || 22,
-          sshUsername: res.sshUsername || "root",
-          sshPassword: "",
-          sshKeyPath: res.sshKeyPath || "",
-          isConnected: false,
-          connectState: "idle",
-          connectError: undefined,
-          databases: [],
-        },
+        mapSavedConnection(res, t("common.unknown")),
         ...prev,
       ]);
       toast.success(t("connection.toast.duplicateSuccess"));
@@ -2231,6 +2402,9 @@ export function ConnectionList({
   const contextMenuDatabaseConnection = contextMenu.connectionId
     ? connections.find((conn) => conn.id === contextMenu.connectionId)
     : null;
+  const contextMenuDatabaseAdapter = contextMenuDatabaseConnection
+    ? getDatasourceTreeAdapter(contextMenuDatabaseConnection)
+    : null;
 
   return (
     <div className="h-full flex flex-col bg-background border-r border-border">
@@ -2304,6 +2478,7 @@ export function ConnectionList({
         onClick={() => setContextMenu((prev) => ({ ...prev, visible: false }))}
       >
         {filteredConnections.map((connection) => {
+          const datasourceAdapter = getDatasourceTreeAdapter(connection);
           const queriesForConnection = (
             savedQueriesByConnection[connection.id] || []
           ).filter((query) =>
@@ -2316,70 +2491,12 @@ export function ConnectionList({
               ),
           );
 
-          const renderRedisPageFooter = (db: DatabaseInfo, level: number) => {
-            const indent = `${(level + 1) * 12 + 8}px`;
-            if (connection.type !== "redis") return null;
-            if (db.redisRequiresPattern) {
-              return (
-                <span
-                  key="redis-pattern-required"
-                  className="block text-xs text-muted-foreground px-3 py-1"
-                  style={{ paddingLeft: indent }}
-                >
-                  Enter a search pattern to browse cluster keys safely
-                </span>
-              );
-            }
-            if (!db.redisIsPartial) return null;
-            return db.redisCursor !== "0" ? (
-              <button
-                key="redis-load-more"
-                className="block w-full text-left text-xs text-muted-foreground hover:text-foreground px-3 py-1"
-                style={{ paddingLeft: indent }}
-                onClick={() =>
-                  void loadRedisKeysPage(
-                    connection.id,
-                    db.name,
-                    db.redisCursor!,
-                    true,
-                  )
-                }
-              >
-                Load more…
-              </button>
-            ) : (
-              <span
-                key="redis-capped"
-                className="block text-xs text-muted-foreground px-3 py-1"
-                style={{ paddingLeft: indent }}
-              >
-                Results capped — use a pattern to narrow down
-              </span>
-            );
-          };
-
-          const makeRedisDbActions = (db: DatabaseInfo) =>
-            connection.type !== "redis" ? undefined : (
-              <div onClick={(e) => e.stopPropagation()}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0"
-                  onClick={() => handleCreateRedisKey(connection, db)}
-                >
-                  <Plus className="w-3 h-3" />
-                </Button>
-              </div>
-            );
-
           const renderDatabaseTreeNode = (
             database: DatabaseInfo,
             level: number,
           ) => {
             const dbKey = `${connection.id}-${database.name}`;
-            const supportsSchemaNode = supportsSchemaNodeForDriver(
-              connection.type,
-            );
+            const supportsSchemaNode = datasourceAdapter.supportsSchemaNode;
             const renderTableNode = (
               table: TableInfo,
               tableLevel: number,
@@ -2400,13 +2517,7 @@ export function ConnectionList({
                     >
                       <TreeNode
                         level={tableLevel}
-                        icon={
-                          connection.type === "redis" ? (
-                            <Key className="w-4 h-4" />
-                          ) : (
-                            <Table className="w-4 h-4" />
-                          )
-                        }
+                        icon={datasourceAdapter.getItemIcon()}
                         label={table.name}
                         isSelected={selectedTableKey === tableKey}
                         isExpanded={expandedTables.has(tableKey)}
@@ -2476,49 +2587,7 @@ export function ConnectionList({
                     </div>
                   </ContextMenuTrigger>
                   <ContextMenuContent>
-                    {connection.type !== "redis" ? (
-                      <>
-                        <ContextMenuItem
-                          onClick={() =>
-                            handleCreateQueryFromContext(
-                              connection.id,
-                              database.name,
-                            )
-                          }
-                        >
-                          <FileCode className="w-4 h-4 mr-2" />
-                          {t("connection.menu.newQuery")}
-                        </ContextMenuItem>
-                        <ContextMenuItem
-                          onClick={() =>
-                            handleTableExportDialog(
-                              connection,
-                              database,
-                              table,
-                            )
-                          }
-                        >
-                          <Download className="w-4 h-4 mr-2" />
-                          {t("connection.menu.exportTable")}
-                        </ContextMenuItem>
-                        {onAlterTable && (
-                          <ContextMenuItem
-                            onClick={() =>
-                              onAlterTable(
-                                Number(connection.id),
-                                database.name,
-                                table.schema ?? "",
-                                table.name,
-                                connection.type,
-                              )
-                            }
-                          >
-                            <TableIcon className="w-4 h-4 mr-2" />
-                            {t("connection.menu.alterTable")}
-                          </ContextMenuItem>
-                        )}
-                      </>
-                    ) : null}
+                    {datasourceAdapter.renderTableContextMenu(database, table)}
                   </ContextMenuContent>
                 </ContextMenu>
               );
@@ -2541,29 +2610,22 @@ export function ConnectionList({
                     : database.name
                 }
                 isExpanded={
-                  connection.type === "redis"
-                    ? false
-                    : expandedDatabases.has(dbKey)
+                  datasourceAdapter.isDatabaseExpandable
+                    ? expandedDatabases.has(dbKey)
+                    : false
                 }
                 onToggle={() => toggleDatabase(dbKey)}
-                toggleOnRowClick={connection.type !== "redis"}
-                hideToggle={connection.type === "redis"}
+                toggleOnRowClick={datasourceAdapter.isDatabaseExpandable}
+                hideToggle={!datasourceAdapter.isDatabaseExpandable}
                 statusIndicator={
                   loadingDatabaseKeys.has(dbKey)
                     ? loadingSpinner
                     : undefined
                 }
-                actions={makeRedisDbActions(database)}
+                actions={datasourceAdapter.getDatabaseRowActions(database)}
                 onDoubleClick={
-                  connection.type === "redis"
-                    ? () => {
-                        onOpenRedisBrowser?.(
-                          connection.name,
-                          database.name,
-                          Number(connection.id),
-                          connection.type,
-                        );
-                      }
+                  datasourceAdapter.onDatabaseDoubleClick
+                    ? () => datasourceAdapter.onDatabaseDoubleClick?.(database)
                     : undefined
                 }
                 onContextMenu={(e) => {
@@ -2618,7 +2680,7 @@ export function ConnectionList({
                     {database.tables.map((table) =>
                       renderTableNode(table, level + 1),
                     )}
-                    {renderRedisPageFooter(database, level)}
+                    {datasourceAdapter.renderDatabaseFooter(database, level)}
                   </>
                 )}
               </TreeNode>
@@ -2820,72 +2882,11 @@ export function ConnectionList({
                 <RefreshCw className="w-4 h-4" />
                 {t("connection.menu.refreshTables")}
               </button>
-              {contextMenuDatabaseConnection?.type === "redis" ? (
-                <>
-                  <button
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
-                    onClick={() => {
-                      if (
-                        contextMenu.databaseName &&
-                        contextMenuDatabaseConnection
-                      ) {
-                        onRedisKeySelect?.(
-                          contextMenuDatabaseConnection.name,
-                          contextMenu.databaseName,
-                          "",
-                          Number(contextMenu.connectionId),
-                          contextMenuDatabaseConnection.type,
-                        );
-                      }
-                      setContextMenu((prev) => ({ ...prev, visible: false }));
-                    }}
-                  >
-                    <Plus className="w-4 h-4" />
-                    New key
-                  </button>
-                  <button
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
-                    onClick={() => {
-                      if (
-                        contextMenu.connectionId &&
-                        contextMenu.databaseName &&
-                        contextMenuDatabaseConnection
-                      ) {
-                        onOpenRedisBrowser?.(
-                          contextMenuDatabaseConnection.name,
-                          contextMenu.databaseName,
-                          Number(contextMenu.connectionId),
-                          contextMenuDatabaseConnection.type,
-                        );
-                      }
-                      setContextMenu((prev) => ({ ...prev, visible: false }));
-                    }}
-                  >
-                    <LayoutDashboard className="w-4 h-4" />
-                    Open browser
-                  </button>
-                  <button
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-accent flex items-center gap-2"
-                    onClick={() => {
-                      if (
-                        contextMenu.connectionId &&
-                        contextMenu.databaseName &&
-                        contextMenuDatabaseConnection
-                      ) {
-                        onOpenRedisConsole?.(
-                          contextMenuDatabaseConnection.name,
-                          contextMenu.databaseName,
-                          Number(contextMenu.connectionId),
-                          contextMenuDatabaseConnection.type,
-                        );
-                      }
-                      setContextMenu((prev) => ({ ...prev, visible: false }));
-                    }}
-                  >
-                    <Terminal className="w-4 h-4" />
-                    Open console
-                  </button>
-                </>
+              {contextMenuDatabaseAdapter?.renderDatabaseContextMenu &&
+              contextMenu.databaseName ? (
+                contextMenuDatabaseAdapter.renderDatabaseContextMenu(
+                  contextMenu.databaseName,
+                )
               ) : (
                 <>
                   {contextMenu.connectionId &&

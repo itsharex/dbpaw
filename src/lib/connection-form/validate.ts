@@ -1,6 +1,7 @@
 import type { ConnectionForm } from "@/services/api";
 import {
   allowsHostWithPort,
+  getRedisConnectionMode,
   isFileBasedDriver,
   requiresPasswordOnCreate,
   requiresUsername,
@@ -20,6 +21,9 @@ const isPortInRange = (value: number | undefined) =>
   (value as number) >= 1 &&
   (value as number) <= 65535;
 
+const hasAtLeastOneValue = (values: string[] | undefined) =>
+  !!values?.some((value) => value.trim().length > 0);
+
 export const validateConnectionFormInput = (
   form: ConnectionForm,
   mode: Mode,
@@ -31,6 +35,42 @@ export const validateConnectionFormInput = (
       issues.push({
         key: "connection.dialog.inputValidation.filePathRequired",
       });
+    }
+    return issues;
+  }
+
+  if (form.driver === "redis") {
+    const mode = getRedisConnectionMode(form);
+    if (mode === "standalone") {
+      if (!form.host) {
+        issues.push({ key: "connection.dialog.inputValidation.hostRequired" });
+      }
+      if (!isPortInRange(form.port)) {
+        issues.push({ key: "connection.dialog.inputValidation.portRange" });
+      }
+    }
+    if (mode === "cluster") {
+      if ((form.seedNodes?.filter((value) => value.trim().length > 0).length ?? 0) < 2) {
+        issues.push({
+          key: "connection.dialog.inputValidation.redisSeedNodesRequired",
+        });
+      }
+    }
+    if (mode === "sentinel" && !hasAtLeastOneValue(form.sentinels)) {
+      issues.push({
+        key: "connection.dialog.inputValidation.redisSentinelsRequired",
+      });
+    }
+    if (
+      form.connectTimeoutMs !== undefined &&
+      (!Number.isInteger(form.connectTimeoutMs) || form.connectTimeoutMs <= 0)
+    ) {
+      issues.push({
+        key: "connection.dialog.inputValidation.redisConnectTimeoutRange",
+      });
+    }
+    if (hasWhitespace(form.host)) {
+      issues.push({ key: "connection.dialog.inputValidation.hostWhitespace" });
     }
     return issues;
   }

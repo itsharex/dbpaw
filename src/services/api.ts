@@ -62,6 +62,8 @@ export interface RedisScanResponse {
   isPartial: boolean;
 }
 
+export type RedisConnectionMode = "standalone" | "cluster" | "sentinel";
+
 export type RedisValue =
   | { kind: "string"; value: string }
   | { kind: "hash"; value: Record<string, string> }
@@ -221,6 +223,37 @@ export interface ConnectionForm {
   sshUsername?: string;
   sshPassword?: string;
   sshKeyPath?: string;
+  mode?: RedisConnectionMode;
+  seedNodes?: string[];
+  sentinels?: string[];
+  connectTimeoutMs?: number;
+}
+
+export interface SavedConnection {
+  id: number;
+  uuid: string;
+  name: string;
+  dbType: string;
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  ssl: boolean;
+  sslMode?: "require" | "verify_ca";
+  sslCaCert?: string | null;
+  filePath?: string | null;
+  sshEnabled: boolean;
+  sshHost?: string | null;
+  sshPort?: number | null;
+  sshUsername?: string | null;
+  sshPassword?: string | null;
+  sshKeyPath?: string | null;
+  mode?: RedisConnectionMode | null;
+  seedNodes?: string[] | null;
+  sentinels?: string[] | null;
+  connectTimeoutMs?: number | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CreateDatabasePayload {
@@ -591,11 +624,11 @@ export const api = {
     }) => invoke<ImportSqlResult>("import_sql_file", params),
   },
   connections: {
-    list: () => invoke<any[]>("get_connections"),
+    list: () => invoke<SavedConnection[]>("get_connections"),
     create: (form: ConnectionForm) =>
-      invoke<any>("create_connection", { form }),
+      invoke<SavedConnection>("create_connection", { form }),
     update: (id: number, form: ConnectionForm) =>
-      invoke<any>("update_connection", { id, form }),
+      invoke<SavedConnection>("update_connection", { id, form }),
     delete: (id: number) => invoke<void>("delete_connection", { id }),
     createDatabase: (id: number, payload: CreateDatabasePayload) =>
       invoke<void>("create_database_by_id", { id, payload }),

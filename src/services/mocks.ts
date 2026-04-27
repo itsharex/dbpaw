@@ -23,30 +23,46 @@ import {
 export const mockConnections: any[] = [
   {
     id: 1,
+    uuid: "mock-1",
     name: "PostgreSQL Dev",
     dbType: "postgres",
     host: "localhost",
     port: 5432,
     database: "testdb",
     username: "postgres",
+    ssl: false,
+    sshEnabled: false,
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   {
     id: 2,
+    uuid: "mock-2",
     name: "SQLite Local",
     dbType: "sqlite",
+    host: "",
+    port: 0,
+    database: "",
+    username: "",
+    ssl: false,
     filePath: "/path/to/database.db",
+    sshEnabled: false,
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   {
     id: 3,
+    uuid: "mock-3",
     name: "PostgreSQL JSONB Test",
     dbType: "postgres",
     host: "localhost",
     port: 5432,
     database: "jsondb",
     username: "postgres",
+    ssl: false,
+    sshEnabled: false,
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
 ];
 
@@ -1152,10 +1168,10 @@ export async function mockCreateConnection(form: ConnectionForm): Promise<any> {
     id: mockConnections.length + 1,
     name: form.name || "New Connection",
     dbType: form.driver,
-    host: form.host,
-    port: form.port,
-    database: form.database,
-    username: form.username,
+    host: form.host ?? "",
+    port: form.port ?? 0,
+    database: form.database ?? "",
+    username: form.username ?? "",
     ssl: form.ssl ?? false,
     filePath: form.filePath ?? null,
     sshEnabled: form.sshEnabled ?? false,
@@ -1198,6 +1214,7 @@ export async function mockUpdateConnection(
     dbType: form.driver || existing.dbType,
     host: form.host ?? existing.host,
     port: form.port ?? existing.port,
+    uuid: `mock-${mockConnections.length + 1}`,
     database: form.database ?? existing.database,
     username: form.username ?? existing.username,
     password: nextPassword,
@@ -1212,6 +1229,10 @@ export async function mockUpdateConnection(
     updatedAt: new Date().toISOString(),
   };
 
+    mode: form.mode ?? null,
+    seedNodes: form.seedNodes ?? null,
+    sentinels: form.sentinels ?? null,
+    connectTimeoutMs: form.connectTimeoutMs ?? null,
   mockConnections[index] = updatedConnection;
   return updatedConnection;
 }
@@ -1257,6 +1278,11 @@ export async function mockGetSavedQueries(): Promise<SavedQuery[]> {
   await new Promise((resolve) => setTimeout(resolve, 50));
   return [...mockSavedQueries];
 }
+    mode: form.mode ?? existing.mode ?? null,
+    seedNodes: form.seedNodes ?? existing.seedNodes ?? null,
+    sentinels: form.sentinels ?? existing.sentinels ?? null,
+    connectTimeoutMs:
+      form.connectTimeoutMs ?? existing.connectTimeoutMs ?? null,
 
 /**
  * Mock save query

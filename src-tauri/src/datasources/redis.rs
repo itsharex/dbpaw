@@ -1,5 +1,6 @@
 use crate::db::drivers::conn_failed_error;
 use crate::models::ConnectionForm;
+use redis::AsyncConnectionConfig;
 use redis::aio::ConnectionLike;
 use redis::aio::MultiplexedConnection;
 use redis::cluster::ClusterClient;
@@ -12,10 +13,12 @@ use redis::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
+use std::time::Duration;
 use base64::Engine;
 use tokio::sync::Mutex as TokioMutex;
 
 const DEFAULT_REDIS_PORT: i64 = 6379;
+const DEFAULT_CONNECT_TIMEOUT_MS: i64 = 5000;
 const DEFAULT_SCAN_LIMIT: u32 = 100;
 const MAX_SCAN_LIMIT: u32 = 1000;
 const PAGE_SIZE: isize = 200;
@@ -314,16 +317,33 @@ fn selected_database(form: &ConnectionForm, database: Option<&str>) -> Result<i6
     }
 }
 
+fn redis_mode(form: &ConnectionForm) -> &str {
+    match form.mode.as_deref() {
+        Some("standalone") => "standalone",
+        Some("cluster") => "cluster",
+        Some("sentinel") => "sentinel",
+        _ if form
+            .host
+            .as_deref()
+            .map(|host| host.split(',').filter(|part| !part.trim().is_empty()).count() > 1)
+            .unwrap_or(false) =>
+        {
+            "cluster"
+        }
+        _ => "standalone",
+    }
+}
+
 fn is_cluster_form(form: &ConnectionForm) -> bool {
-    form.host
-        .as_deref()
-        .map(|host| {
-            host.split(',')
-                .filter(|part| !part.trim().is_empty())
-                .count()
-                > 1
-        })
-        .unwrap_or(false)
+    redis_mode(form) == "cluster"
+}
+
+fn is_sentinel_form(form: &ConnectionForm) -> bool {
+    redis_mode(form) == "sentinel"
+}
+
+fn connect_timeout(form: &ConnectionForm) -> Duration {
+    Duration::from_millis(form.connect_timeout_ms.unwrap_or(DEFAULT_CONNECT_TIMEOUT_MS) as u64)
 }
 
 fn validate_key(key: &str) -> Result<(), String> {
@@ -673,12 +693,18 @@ fn build_connection_info_for_host(
 }
 
 fn build_connection_info(form: &ConnectionForm, db: i64) -> Result<ConnectionInfo, String> {
-    let host = form
-        .host
-        .as_deref()
-        .filter(|h| !h.trim().is_empty())
-        .ok_or_else(|| "[VALIDATION_ERROR] Redis host is required".to_string())?;
-    build_connection_info_for_host(form, host, db)
+    let host = if let Some(seed_nodes) = form.seed_nodes.as_ref() {
+        seed_nodes
+            .first()
+            .cloned()
+            .or_else(|| form.host.clone())
+            .ok_or_else(|| "[VALIDATION_ERROR] Redis host is required".to_string())?
+    } else {
+        form.host
+            .clone()
+            .ok_or_else(|| "[VALIDATION_ERROR] Redis host is required".to_string())?
+    };
+    build_connection_info_for_host(form, &host, db)
 }
 
 fn build_cluster_nodes(form: &ConnectionForm) -> Result<Vec<ConnectionInfo>, String> {
@@ -686,16 +712,21 @@ fn build_cluster_nodes(form: &ConnectionForm) -> Result<Vec<ConnectionInfo>, Str
     if db != 0 {
         return Err("[VALIDATION_ERROR] Redis Cluster only supports database 0".to_string());
     }
-    let host = form
-        .host
-        .as_deref()
-        .filter(|h| !h.trim().is_empty())
-        .ok_or_else(|| "[VALIDATION_ERROR] Redis host is required".to_string())?;
-    let nodes: Vec<ConnectionInfo> = host
-        .split(',')
-        .map(str::trim)
-        .filter(|part| !part.is_empty())
-        .map(|part| build_connection_info_for_host(form, part, 0))
+    let nodes: Vec<ConnectionInfo> = form
+        .seed_nodes
+        .clone()
+        .or_else(|| {
+            form.host.as_deref().map(|host| {
+                host.split(',')
+                    .map(str::trim)
+                    .filter(|part| !part.is_empty())
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .map(|part| build_connection_info_for_host(form, &part, 0))
         .collect::<Result<_, _>>()?;
     if nodes.len() < 2 {
         return Err(
@@ -706,6 +737,10 @@ fn build_cluster_nodes(form: &ConnectionForm) -> Result<Vec<ConnectionInfo>, Str
 }
 
 pub async fn connect(form: &ConnectionForm, database: Option<&str>) -> Result<RedisConnection, String> {
+    if is_sentinel_form(form) {
+        return Err("[NOT_SUPPORTED] Redis Sentinel is not implemented yet".to_string());
+    }
+
     if is_cluster_form(form) {
         if let Some(db) = database {
             if parse_database(Some(db))? != 0 {
@@ -713,7 +748,10 @@ pub async fn connect(form: &ConnectionForm, database: Option<&str>) -> Result<Re
             }
         }
         let nodes = build_cluster_nodes(form)?;
-        let client = ClusterClient::new(nodes).map_err(|e| conn_failed_error(&e))?;
+        let client = ClusterClient::builder(nodes)
+            .connection_timeout(connect_timeout(form))
+            .build()
+            .map_err(|e| conn_failed_error(&e))?;
         let conn = client
             .get_async_connection()
             .await
@@ -724,8 +762,9 @@ pub async fn connect(form: &ConnectionForm, database: Option<&str>) -> Result<Re
     let db = selected_database(form, database)?;
     let info = build_connection_info(form, db)?;
     let client = redis::Client::open(info).map_err(|e| conn_failed_error(&e))?;
+    let config = AsyncConnectionConfig::new().set_connection_timeout(connect_timeout(form));
     let conn = client
-        .get_multiplexed_async_connection()
+        .get_multiplexed_async_connection_with_config(&config)
         .await
         .map_err(|e| conn_failed_error(&e))?;
     Ok(RedisConnection::Standalone(conn))
@@ -748,6 +787,9 @@ pub async fn ping(conn: &mut RedisConnection) -> Result<(), String> {
 }
 
 pub fn list_databases(form: &ConnectionForm, db_count: i64) -> Result<Vec<RedisDatabaseInfo>, String> {
+    if is_sentinel_form(form) {
+        return Err("[NOT_SUPPORTED] Redis Sentinel is not implemented yet".to_string());
+    }
     if is_cluster_form(form) {
         build_cluster_nodes(form)?;
         return Ok(vec![RedisDatabaseInfo {
@@ -1757,7 +1799,7 @@ pub async fn execute_raw(
 mod tests {
     use super::{
         build_cluster_nodes, build_connection_info, is_cluster_form, list_databases,
-        parse_database, validate_value_for_write, RedisValue,
+        parse_database, redis_mode, validate_value_for_write, RedisValue,
     };
     use crate::models::ConnectionForm;
     use redis::ConnectionAddr;
@@ -1809,6 +1851,23 @@ mod tests {
         let form = ConnectionForm {
             driver: "redis".to_string(),
             host: Some("10.0.0.1:6379,10.0.0.2:6380".to_string()),
+            ..ConnectionForm::default()
+        };
+        assert!(is_cluster_form(&form));
+        assert_eq!(redis_mode(&form), "cluster");
+        let nodes = build_cluster_nodes(&form).unwrap();
+        assert_eq!(nodes.len(), 2);
+    }
+
+    #[test]
+    fn structured_seed_nodes_enable_cluster_mode() {
+        let form = ConnectionForm {
+            driver: "redis".to_string(),
+            mode: Some("cluster".to_string()),
+            seed_nodes: Some(vec![
+                "10.0.0.1:6379".to_string(),
+                "10.0.0.2:6380".to_string(),
+            ]),
             ..ConnectionForm::default()
         };
         assert!(is_cluster_form(&form));

@@ -223,6 +223,10 @@ export const en = {
         sshUsername: "SSH Username",
         sshPassword: "SSH Password",
         sshKeyPath: "SSH Key Path",
+        redisMode: "Redis Mode",
+        seedNodes: "Seed Nodes",
+        sentinels: "Sentinels",
+        connectTimeoutMs: "Connect Timeout (ms)",
         sqliteFilePath: "SQLite File Path",
         sqliteKey: "Encryption Key (SQLCipher)",
         duckdbFilePath: "DuckDB File Path",
@@ -236,6 +240,8 @@ export const en = {
         sshUsername: "root",
         sshPassword: "Optional if using key",
         sshKeyPath: "/path/to/private_key",
+        seedNodes: "10.0.0.1:6379\n10.0.0.2:6379",
+        sentinels: "10.0.0.10:26379\n10.0.0.11:26379",
         sqlitePath: "/path/to/db.sqlite",
         sqliteKey: "Leave empty for unencrypted databases",
         duckdbPath: "/path/to/db.duckdb",
@@ -277,6 +283,14 @@ export const en = {
         require: "Encrypt only (skip CA verification)",
         verifyCa: "Verify server certificate (CA)",
       },
+      redisMode: {
+        standalone: "Standalone",
+        cluster: "Cluster",
+        sentinel: "Sentinel",
+      },
+      redisSentinelPendingTitle: "Sentinel support is not wired yet",
+      redisSentinelPendingDescription:
+        "Sentinel nodes can be saved now, but connection and browsing are not implemented yet.",
       sslValidation: {
         caRequired: "CA certificate is required in verify CA mode.",
       },
@@ -311,6 +325,12 @@ export const en = {
         hostWhitespace: "Host cannot contain whitespace characters.",
         hostPortNotAllowed:
           "This database type does not support host:port in host field. Please set port in the port field.",
+        redisSeedNodesRequired:
+          "Redis cluster mode requires at least two seed nodes.",
+        redisSentinelsRequired:
+          "Redis sentinel mode requires at least one sentinel node.",
+        redisConnectTimeoutRange:
+          "Redis connect timeout must be a positive integer.",
         sshHostRequired: "SSH is enabled. SSH host is required.",
         sshUsernameRequired: "SSH is enabled. SSH username is required.",
         sshPortRange: "SSH port must be an integer between 1 and 65535.",

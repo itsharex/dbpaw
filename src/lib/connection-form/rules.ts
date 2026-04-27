@@ -1,4 +1,8 @@
-import type { ConnectionForm, Driver } from "@/services/api";
+import type {
+  ConnectionForm,
+  Driver,
+  RedisConnectionMode,
+} from "@/services/api";
 import {
   getDefaultPort,
   isFileBasedDriver,
@@ -40,8 +44,8 @@ export const getConnectionFormCapabilities = (
 
   if (driver === "redis") {
     return {
-      showHost: true,
-      showPort: true,
+      showHost: false,
+      showPort: false,
       showUsername: true,
       showPassword: true,
       showDatabase: false,
@@ -90,6 +94,10 @@ export const buildConnectionFormDefaults = (
   sshUsername: "",
   sshPassword: "",
   sshKeyPath: "",
+  mode: driver === "redis" ? "standalone" : undefined,
+  seedNodes: driver === "redis" ? [] : undefined,
+  sentinels: driver === "redis" ? [] : undefined,
+  connectTimeoutMs: driver === "redis" ? 5000 : undefined,
   ...overrides,
 });
 
@@ -148,16 +156,87 @@ export const parseHostEmbeddedPort = (
   };
 };
 
+export const normalizeStringList = (values: string[] | undefined) => {
+  if (!values) {
+    return undefined;
+  }
+  const normalized = values
+    .map((value) => value.trim())
+    .filter((value, index, items) => value.length > 0 && items.indexOf(value) === index);
+  return normalized.length > 0 ? normalized : undefined;
+};
+
+export const normalizeRedisNodeListInput = (value: string | undefined) =>
+  normalizeStringList(
+    (value || "")
+      .split(/[\n,]/)
+      .map((item) => item.trim()),
+  );
+
+export const formatRedisNodeList = (values: string[] | undefined) =>
+  values?.join("\n") ?? "";
+
+export const getRedisConnectionMode = (
+  form: Pick<ConnectionForm, "driver" | "mode" | "host" | "seedNodes">,
+): RedisConnectionMode => {
+  if (form.driver !== "redis") {
+    return "standalone";
+  }
+  if (
+    form.mode === "standalone" ||
+    form.mode === "cluster" ||
+    form.mode === "sentinel"
+  ) {
+    return form.mode;
+  }
+  const seedNodes = normalizeStringList(form.seedNodes);
+  if ((seedNodes?.length ?? 0) > 1) {
+    return "cluster";
+  }
+  const host = normalizeTextValue(form.host);
+  if (host?.includes(",")) {
+    return "cluster";
+  }
+  return "standalone";
+};
+
 export const normalizeConnectionFormInput = (
   raw: ConnectionForm,
 ): ConnectionForm => {
   const driver = raw.driver;
+  const redisMode = getRedisConnectionMode(raw);
   const normalizedHost = normalizeTextValue(raw.host);
   const normalizedPort = normalizePortNumber(raw.port);
   const hostPortNormalized =
-    allowsHostWithPort(driver) && normalizedHost
+    allowsHostWithPort(driver) &&
+    normalizedHost &&
+    !(driver === "redis" && redisMode !== "standalone")
       ? parseHostEmbeddedPort(normalizedHost, normalizedPort)
       : { host: normalizedHost, port: normalizedPort };
+  const seedNodes =
+    driver === "redis"
+      ? normalizeStringList(raw.seedNodes) ??
+        normalizeRedisNodeListInput(
+          redisMode === "cluster"
+            ? hostPortNormalized.host
+            : hostPortNormalized.host && hostPortNormalized.port
+              ? `${hostPortNormalized.host}:${hostPortNormalized.port}`
+              : hostPortNormalized.host,
+        )
+      : undefined;
+  const sentinels =
+    driver === "redis" ? normalizeStringList(raw.sentinels) : undefined;
+  const normalizedTimeout =
+    driver === "redis"
+      ? normalizePortNumber(raw.connectTimeoutMs)
+      : raw.connectTimeoutMs;
+  const fallbackSeedNode =
+    driver === "redis" &&
+    redisMode === "standalone" &&
+    hostPortNormalized.host &&
+    hostPortNormalized.port
+      ? `${hostPortNormalized.host}:${hostPortNormalized.port}`
+      : hostPortNormalized.host;
 
   return {
     ...raw,
@@ -175,5 +254,17 @@ export const normalizeConnectionFormInput = (
     sshUsername: normalizeTextValue(raw.sshUsername),
     sshPassword: normalizeTextValue(raw.sshPassword, false),
     sshKeyPath: normalizeTextValue(raw.sshKeyPath),
+    mode: driver === "redis" ? redisMode : undefined,
+    seedNodes:
+      driver === "redis"
+        ? redisMode === "standalone"
+          ? normalizeStringList([
+              ...(seedNodes ?? []),
+              ...(fallbackSeedNode ? [fallbackSeedNode] : []),
+            ])
+          : seedNodes
+        : undefined,
+    sentinels,
+    connectTimeoutMs: normalizedTimeout,
   };
 };

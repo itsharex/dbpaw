@@ -225,6 +225,10 @@ export const ja: Translations = {
         sshUsername: "SSH ユーザー名",
         sshPassword: "SSH パスワード",
         sshKeyPath: "SSH キーパス",
+        redisMode: "Redis モード",
+        seedNodes: "シードノード",
+        sentinels: "Sentinel ノード",
+        connectTimeoutMs: "接続タイムアウト (ms)",
         sqliteFilePath: "SQLite ファイルパス",
         sqliteKey: "暗号化キー（SQLCipher）",
         duckdbFilePath: "DuckDB ファイルパス",
@@ -238,6 +242,8 @@ export const ja: Translations = {
         sshUsername: "root",
         sshPassword: "キー利用時は任意",
         sshKeyPath: "/path/to/private_key",
+        seedNodes: "10.0.0.1:6379\n10.0.0.2:6379",
+        sentinels: "10.0.0.10:26379\n10.0.0.11:26379",
         sqlitePath: "/path/to/db.sqlite",
         sqliteKey: "暗号化されていないデータベースは空欄のまま",
         duckdbPath: "/path/to/db.duckdb",
@@ -279,6 +285,14 @@ export const ja: Translations = {
         require: "暗号化のみ（CA 検証なし）",
         verifyCa: "サーバー証明書を検証（CA）",
       },
+      redisMode: {
+        standalone: "スタンドアロン",
+        cluster: "クラスター",
+        sentinel: "Sentinel",
+      },
+      redisSentinelPendingTitle: "Sentinel 接続はまだ未実装です",
+      redisSentinelPendingDescription:
+        "Sentinel ノード構成は保存できますが、接続とブラウズはまだ実装されていません。",
       sslValidation: {
         caRequired: "CA 検証モードでは CA 証明書が必須です。",
       },
@@ -313,6 +327,12 @@ export const ja: Translations = {
         hostWhitespace: "ホストには空白文字を含められません。",
         hostPortNotAllowed:
           "このデータベースタイプではホスト欄に host:port は使えません。ポート欄に入力してください。",
+        redisSeedNodesRequired:
+          "Redis クラスターモードでは少なくとも 2 つのシードノードが必要です。",
+        redisSentinelsRequired:
+          "Redis Sentinel モードでは少なくとも 1 つの Sentinel ノードが必要です。",
+        redisConnectTimeoutRange:
+          "Redis 接続タイムアウトは 0 より大きい整数で入力してください。",
         sshHostRequired: "SSH を有効にしたため、SSH ホストを入力してください。",
         sshUsernameRequired:
           "SSH を有効にしたため、SSH ユーザー名を入力してください。",

@@ -6,6 +6,7 @@ use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use base64::{engine::general_purpose, Engine as _};
 use rand::RngCore;
+use serde_json;
 use sqlx::{sqlite::SqlitePoolOptions, Pool, Row, Sqlite};
 use std::fs;
 use std::path::Path;
@@ -14,6 +15,26 @@ use tauri::Manager;
 pub struct LocalDb {
     pool: Pool<Sqlite>,
     ai_master_key: [u8; 32],
+}
+
+fn encode_string_list(values: Option<Vec<String>>) -> Option<String> {
+    values.and_then(|items| {
+        if items.is_empty() {
+            None
+        } else {
+            serde_json::to_string(&items).ok()
+        }
+    })
+}
+
+fn decode_string_list(value: Option<String>) -> Option<Vec<String>> {
+    value.and_then(|raw| {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        serde_json::from_str::<Vec<String>>(trimmed).ok()
+    })
 }
 
 impl LocalDb {
@@ -184,6 +205,22 @@ impl LocalDb {
                 .map_err(|e| format!("[MIGRATION_011_ERROR] {e}"))?;
         }
 
+        let has_redis_mode_column: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('connections') WHERE name='mode')",
+        )
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| format!("[MIGRATION_012_CHECK_ERROR] {e}"))?;
+
+        if !has_redis_mode_column {
+            sqlx::query(include_str!(
+                "../../migrations/012_add_redis_connection_options.sql"
+            ))
+            .execute(&pool)
+            .await
+            .map_err(|e| format!("[MIGRATION_012_ERROR] {e}"))?;
+        }
+
         Ok(Self {
             pool,
             ai_master_key,
@@ -288,8 +325,8 @@ impl LocalDb {
         }
 
         let id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, ssl_mode, ssl_ca_cert, file_path, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
+            "INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, ssl_mode, ssl_ca_cert, file_path, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path, mode, seed_nodes, sentinels, connect_timeout_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
         )
         .bind(&uuid)
         .bind(&form.driver)
@@ -309,6 +346,10 @@ impl LocalDb {
         .bind(form.ssh_username)
         .bind(form.ssh_password)
         .bind(form.ssh_key_path)
+        .bind(form.mode)
+        .bind(encode_string_list(form.seed_nodes))
+        .bind(encode_string_list(form.sentinels))
+        .bind(form.connect_timeout_ms)
         .fetch_one(&self.pool)
         .await
         .map_err(|e| format!("[INSERT_ERROR] {e}"))?;
@@ -322,7 +363,7 @@ impl LocalDb {
         form: ConnectionForm,
     ) -> Result<Connection, String> {
         sqlx::query(
-            "UPDATE connections SET name = COALESCE(NULLIF(?, ''), name), type = ?, host = ?, port = ?, database = ?, username = ?, password = COALESCE(NULLIF(?, ''), password), ssl = ?, ssl_mode = ?, ssl_ca_cert = ?, file_path = ?, ssh_enabled = ?, ssh_host = ?, ssh_port = ?, ssh_username = ?, ssh_password = ?, ssh_key_path = ?, updated_at = datetime('now') WHERE id = ?"
+            "UPDATE connections SET name = COALESCE(NULLIF(?, ''), name), type = ?, host = ?, port = ?, database = ?, username = ?, password = COALESCE(NULLIF(?, ''), password), ssl = ?, ssl_mode = ?, ssl_ca_cert = ?, file_path = ?, ssh_enabled = ?, ssh_host = ?, ssh_port = ?, ssh_username = ?, ssh_password = ?, ssh_key_path = ?, mode = ?, seed_nodes = ?, sentinels = ?, connect_timeout_ms = ?, updated_at = datetime('now') WHERE id = ?"
         )
         .bind(form.name)
         .bind(&form.driver)
@@ -341,6 +382,10 @@ impl LocalDb {
         .bind(form.ssh_username)
         .bind(form.ssh_password)
         .bind(form.ssh_key_path)
+        .bind(form.mode)
+        .bind(encode_string_list(form.seed_nodes))
+        .bind(encode_string_list(form.sentinels))
+        .bind(form.connect_timeout_ms)
         .bind(id)
         .execute(&self.pool)
         .await
@@ -359,10 +404,11 @@ impl LocalDb {
     }
 
     pub async fn list_connections(&self) -> Result<Vec<Connection>, String> {
-        let rows = sqlx::query_as::<_, Connection>(
+        let rows = sqlx::query(
             r#"SELECT
                 id, uuid, name, type as db_type, host, port, database, username, ssl, ssl_mode, ssl_ca_cert, file_path,
                 ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path,
+                mode, seed_nodes, sentinels, connect_timeout_ms,
                 created_at, updated_at
                FROM connections
                ORDER BY created_at DESC, id DESC"#,
@@ -370,14 +416,43 @@ impl LocalDb {
         .fetch_all(&self.pool)
         .await
         .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
-        Ok(rows)
+        Ok(rows
+            .into_iter()
+            .map(|row| Connection {
+                id: row.try_get("id").unwrap_or_default(),
+                uuid: row.try_get("uuid").unwrap_or_default(),
+                name: row.try_get("name").unwrap_or_default(),
+                db_type: row.try_get("db_type").unwrap_or_default(),
+                host: row.try_get("host").unwrap_or_default(),
+                port: row.try_get("port").unwrap_or_default(),
+                database: row.try_get("database").unwrap_or_default(),
+                username: row.try_get("username").unwrap_or_default(),
+                ssl: row.try_get("ssl").unwrap_or(false),
+                ssl_mode: row.try_get("ssl_mode").ok(),
+                ssl_ca_cert: row.try_get("ssl_ca_cert").ok(),
+                file_path: row.try_get("file_path").ok(),
+                ssh_enabled: row.try_get("ssh_enabled").unwrap_or(false),
+                ssh_host: row.try_get("ssh_host").ok(),
+                ssh_port: row.try_get("ssh_port").ok(),
+                ssh_username: row.try_get("ssh_username").ok(),
+                ssh_password: row.try_get("ssh_password").ok(),
+                ssh_key_path: row.try_get("ssh_key_path").ok(),
+                mode: row.try_get("mode").ok(),
+                seed_nodes: decode_string_list(row.try_get("seed_nodes").ok()),
+                sentinels: decode_string_list(row.try_get("sentinels").ok()),
+                connect_timeout_ms: row.try_get("connect_timeout_ms").ok(),
+                created_at: row.try_get("created_at").unwrap_or_default(),
+                updated_at: row.try_get("updated_at").unwrap_or_default(),
+            })
+            .collect())
     }
 
     pub async fn get_connection_by_id(&self, id: i64) -> Result<Connection, String> {
-        sqlx::query_as::<_, Connection>(
+        let row = sqlx::query(
             r#"SELECT
                 id, uuid, name, type as db_type, host, port, database, username, ssl, ssl_mode, ssl_ca_cert, file_path,
                 ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path,
+                mode, seed_nodes, sentinels, connect_timeout_ms,
                 created_at, updated_at
                FROM connections
                WHERE id = ?"#,
@@ -385,12 +460,39 @@ impl LocalDb {
         .bind(id)
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| format!("[QUERY_ERROR] {e}"))
+        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+
+        Ok(Connection {
+            id: row.try_get("id").unwrap_or_default(),
+            uuid: row.try_get("uuid").unwrap_or_default(),
+            name: row.try_get("name").unwrap_or_default(),
+            db_type: row.try_get("db_type").unwrap_or_default(),
+            host: row.try_get("host").unwrap_or_default(),
+            port: row.try_get("port").unwrap_or_default(),
+            database: row.try_get("database").unwrap_or_default(),
+            username: row.try_get("username").unwrap_or_default(),
+            ssl: row.try_get("ssl").unwrap_or(false),
+            ssl_mode: row.try_get("ssl_mode").ok(),
+            ssl_ca_cert: row.try_get("ssl_ca_cert").ok(),
+            file_path: row.try_get("file_path").ok(),
+            ssh_enabled: row.try_get("ssh_enabled").unwrap_or(false),
+            ssh_host: row.try_get("ssh_host").ok(),
+            ssh_port: row.try_get("ssh_port").ok(),
+            ssh_username: row.try_get("ssh_username").ok(),
+            ssh_password: row.try_get("ssh_password").ok(),
+            ssh_key_path: row.try_get("ssh_key_path").ok(),
+            mode: row.try_get("mode").ok(),
+            seed_nodes: decode_string_list(row.try_get("seed_nodes").ok()),
+            sentinels: decode_string_list(row.try_get("sentinels").ok()),
+            connect_timeout_ms: row.try_get("connect_timeout_ms").ok(),
+            created_at: row.try_get("created_at").unwrap_or_default(),
+            updated_at: row.try_get("updated_at").unwrap_or_default(),
+        })
     }
 
     pub async fn get_connection_form_by_id(&self, id: i64) -> Result<ConnectionForm, String> {
         let row = sqlx::query(
-            "SELECT type as db_type, name, host, port, database, username, password, ssl, ssl_mode, ssl_ca_cert, file_path, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path FROM connections WHERE id = ?"
+            "SELECT type as db_type, name, host, port, database, username, password, ssl, ssl_mode, ssl_ca_cert, file_path, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path, mode, seed_nodes, sentinels, connect_timeout_ms FROM connections WHERE id = ?"
         )
         .bind(id)
         .fetch_one(&self.pool)
@@ -417,6 +519,10 @@ impl LocalDb {
             ssh_username: row.try_get("ssh_username").ok(),
             ssh_password: row.try_get("ssh_password").ok(),
             ssh_key_path: row.try_get("ssh_key_path").ok(),
+            mode: row.try_get("mode").ok(),
+            seed_nodes: decode_string_list(row.try_get("seed_nodes").ok()),
+            sentinels: decode_string_list(row.try_get("sentinels").ok()),
+            connect_timeout_ms: row.try_get("connect_timeout_ms").ok(),
         })
     }
 
@@ -1103,6 +1209,7 @@ mod tests {
             ssh_password: None,
             ssh_key_path: None,
             schema: None,
+            ..Default::default()
         };
 
         let created = db.create_connection(form).await.unwrap();
@@ -1139,6 +1246,7 @@ mod tests {
                 ssh_password: None,
                 ssh_key_path: None,
                 schema: None,
+                ..Default::default()
             })
             .await
             .unwrap();
@@ -1163,6 +1271,7 @@ mod tests {
                 ssh_password: None,
                 ssh_key_path: None,
                 schema: None,
+                ..Default::default()
             })
             .await
             .unwrap();
@@ -1194,6 +1303,7 @@ mod tests {
                 ssh_password: None,
                 ssh_key_path: None,
                 schema: None,
+                ..Default::default()
             },
         )
         .await

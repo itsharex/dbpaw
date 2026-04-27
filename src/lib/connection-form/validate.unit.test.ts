@@ -80,6 +80,7 @@ describe("validateConnectionFormInput: required fields", () => {
       {
         ...baseForm,
         driver: "redis",
+        mode: "standalone",
         username: "",
         password: "",
         port: 6379,
@@ -187,6 +188,50 @@ describe("validateConnectionFormInput", () => {
     );
     expect(issues.map((i) => i.key)).toContain(
       "connection.dialog.inputValidation.hostPortNotAllowed",
+    );
+  });
+
+  test("requires seed nodes for redis cluster mode", () => {
+    const issues = validateConnectionFormInput(
+      {
+        driver: "redis",
+        mode: "cluster",
+        seedNodes: ["10.0.0.1:6379"],
+      } as any,
+      "create",
+    );
+    expect(issues.map((i) => i.key)).toContain(
+      "connection.dialog.inputValidation.redisSeedNodesRequired",
+    );
+  });
+
+  test("requires sentinel nodes for redis sentinel mode", () => {
+    const issues = validateConnectionFormInput(
+      {
+        driver: "redis",
+        mode: "sentinel",
+        sentinels: [],
+      } as any,
+      "create",
+    );
+    expect(issues.map((i) => i.key)).toContain(
+      "connection.dialog.inputValidation.redisSentinelsRequired",
+    );
+  });
+
+  test("rejects non-positive redis connect timeout", () => {
+    const issues = validateConnectionFormInput(
+      {
+        driver: "redis",
+        mode: "standalone",
+        host: "127.0.0.1",
+        port: 6379,
+        connectTimeoutMs: 0,
+      } as any,
+      "create",
+    );
+    expect(issues.map((i) => i.key)).toContain(
+      "connection.dialog.inputValidation.redisConnectTimeoutRange",
     );
   });
 });
