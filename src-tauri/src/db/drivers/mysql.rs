@@ -1,7 +1,8 @@
 use super::{strip_trailing_statement_terminator, DatabaseDriver};
 use crate::models::{
     ColumnInfo, ColumnSchema, ConnectionForm, ForeignKeyInfo, IndexInfo, QueryColumn, QueryResult,
-    SchemaOverview, TableDataResponse, TableInfo, TableMetadata, TableSchema, TableStructure,
+    SchemaOverview, SpecialTypeSummary, TableDataResponse, TableInfo, TableMetadata, TableSchema,
+    TableStructure,
 };
 use async_trait::async_trait;
 use sqlx::{
@@ -23,6 +24,7 @@ pub struct MysqlDriver {
     pub pool: sqlx::MySqlPool,
     pub ssh_tunnel: Option<SshTunnel>,
     pub ca_cert_path: Option<PathBuf>,
+    driver_name: String,
     compatibility_mode: bool,
 }
 
@@ -220,6 +222,67 @@ fn is_missing_mysql_json_object_function(err: &str) -> bool {
         && (lower.contains("json_object") || lower.contains("json object"))
 }
 
+fn mysql_special_type_category(raw_type: &str) -> Option<&'static str> {
+    let normalized = raw_type.trim().to_ascii_lowercase();
+    let base = normalized
+        .split('(')
+        .next()
+        .unwrap_or("")
+        .split_whitespace()
+        .next()
+        .unwrap_or("");
+
+    match base {
+        "bitmap" => Some("bitmap"),
+        "hll" | "hyperloglog" => Some("hyperloglog"),
+        "geometry" | "geography" | "point" | "linestring" | "polygon" | "multipoint"
+        | "multilinestring" | "multipolygon" | "geometrycollection" => Some("geo"),
+        _ => None,
+    }
+}
+
+fn mysql_special_type_name(raw_type: &str) -> String {
+    raw_type
+        .trim()
+        .split('(')
+        .next()
+        .unwrap_or("")
+        .split_whitespace()
+        .next()
+        .unwrap_or(raw_type.trim())
+        .to_ascii_uppercase()
+}
+
+fn mysql_declared_length(raw_type: &str) -> Option<String> {
+    let start = raw_type.find('(')?;
+    let rest = &raw_type[start + 1..];
+    let end = rest.find(')')?;
+    let value = rest[..end].trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn build_mysql_special_type_summary(
+    column_name: &str,
+    raw_type: &str,
+    notes: Option<String>,
+) -> Option<SpecialTypeSummary> {
+    let category = mysql_special_type_category(raw_type)?;
+    Some(SpecialTypeSummary {
+        column_name: column_name.to_string(),
+        category: category.to_string(),
+        type_name: mysql_special_type_name(raw_type),
+        declared_length: mysql_declared_length(raw_type),
+        memory_usage_bytes: None,
+        memory_usage_display: None,
+        raw_type: raw_type.trim().to_string(),
+        notes,
+    })
+}
+
 impl Drop for MysqlDriver {
     fn drop(&mut self) {
         cleanup_ca_file_opt(self.ca_cert_path.as_ref());
@@ -233,6 +296,10 @@ impl MysqlDriver {
 
     fn is_compatibility_mode(&self) -> bool {
         self.compatibility_mode
+    }
+
+    fn supports_special_type_metadata(&self) -> bool {
+        matches!(self.driver_name.as_str(), "doris" | "starrocks")
     }
 
     fn cleanup_ca_file(&self) {
@@ -270,6 +337,7 @@ impl MysqlDriver {
             pool,
             ssh_tunnel,
             ca_cert_path,
+            driver_name: dsn_form.driver.to_ascii_lowercase(),
             compatibility_mode: Self::uses_mysql_compatibility_mode(&dsn_form.driver),
         })
     }
@@ -983,8 +1051,10 @@ impl DatabaseDriver for MysqlDriver {
             .await?;
 
         let mut columns = Vec::new();
+        let mut special_type_summaries = Vec::new();
         for row in column_rows {
             let name = decode_mysql_text_cell(&row, 0)?;
+            let raw_type = decode_mysql_text_cell(&row, 1)?;
             let comment = decode_mysql_optional_text_cell(&row, 4)?;
             let comment = comment.and_then(|c| {
                 let trimmed = c.trim().to_string();
@@ -994,9 +1064,17 @@ impl DatabaseDriver for MysqlDriver {
                     Some(trimmed)
                 }
             });
+            if self.supports_special_type_metadata() {
+                let notes = Some(
+                    "Memory usage is not exposed by the current metadata driver.".to_string(),
+                );
+                if let Some(summary) = build_mysql_special_type_summary(&name, &raw_type, notes) {
+                    special_type_summaries.push(summary);
+                }
+            }
             columns.push(ColumnInfo {
                 name: name.clone(),
-                r#type: decode_mysql_text_cell(&row, 1)?,
+                r#type: raw_type,
                 nullable: decode_mysql_text_cell(&row, 2)? == "YES",
                 default_value: decode_mysql_optional_text_cell(&row, 3)?,
                 primary_key: pk_set.contains(&name),
@@ -1095,6 +1173,7 @@ impl DatabaseDriver for MysqlDriver {
             indexes,
             foreign_keys,
             clickhouse_extra: None,
+            special_type_summaries,
         })
     }
 
@@ -1764,6 +1843,46 @@ mod tests {
         assert!(is_high_precision_mysql_query_type("BIGINT UNSIGNED"));
         assert!(is_high_precision_mysql_query_type("DECIMAL(18,2)"));
         assert!(!is_high_precision_mysql_query_type("INT"));
+    }
+
+    #[test]
+    fn test_mysql_special_type_category_detects_supported_types() {
+        assert_eq!(mysql_special_type_category("BITMAP"), Some("bitmap"));
+        assert_eq!(mysql_special_type_category("hll"), Some("hyperloglog"));
+        assert_eq!(mysql_special_type_category("GEOMETRY"), Some("geo"));
+        assert_eq!(mysql_special_type_category("POINT"), Some("geo"));
+        assert_eq!(mysql_special_type_category("VARCHAR(255)"), None);
+    }
+
+    #[test]
+    fn test_mysql_declared_length_extracts_parenthesized_values() {
+        assert_eq!(mysql_declared_length("VARCHAR(255)"), Some("255".to_string()));
+        assert_eq!(
+            mysql_declared_length("DECIMAL(18, 2)"),
+            Some("18, 2".to_string())
+        );
+        assert_eq!(mysql_declared_length("BITMAP"), None);
+    }
+
+    #[test]
+    fn test_build_mysql_special_type_summary_populates_expected_fields() {
+        let summary = build_mysql_special_type_summary(
+            "uv_hll",
+            "HLL(16384)",
+            Some("Memory usage is not exposed.".to_string()),
+        )
+        .expect("summary should be built");
+
+        assert_eq!(summary.column_name, "uv_hll");
+        assert_eq!(summary.category, "hyperloglog");
+        assert_eq!(summary.type_name, "HLL");
+        assert_eq!(summary.declared_length.as_deref(), Some("16384"));
+        assert!(summary.memory_usage_bytes.is_none());
+        assert_eq!(summary.raw_type, "HLL(16384)");
+        assert_eq!(
+            summary.notes.as_deref(),
+            Some("Memory usage is not exposed.")
+        );
     }
 
     #[test]

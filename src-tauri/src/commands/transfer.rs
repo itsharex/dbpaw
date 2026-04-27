@@ -2063,6 +2063,7 @@ mod tests {
                 indexes: Vec::new(),
                 foreign_keys: Vec::new(),
                 clickhouse_extra: None,
+                special_type_summaries: Vec::new(),
             })
         }
 

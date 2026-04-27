@@ -91,6 +91,7 @@ export const mockTables: { schema: string; name: string; type: string }[] = [
   { schema: "public", name: "json_test", type: "table" },
   // array-type test table — SELECT * FROM pg_arrays returns mockArrayTypeData
   { schema: "public", name: "pg_arrays", type: "table" },
+  { schema: "public", name: "special_types", type: "table" },
 ];
 
 export const mockTableStructure = {
@@ -180,6 +181,7 @@ export const mockTableMetadata: TableMetadata = {
       onDelete: "SET NULL",
     },
   ],
+  specialTypeSummaries: [],
 };
 
 export const mockSchemaOverview: SchemaOverview = {
@@ -929,6 +931,7 @@ const mockJsonTestTableMetadata: TableMetadata = {
   ],
   indexes: [],
   foreignKeys: [],
+  specialTypeSummaries: [],
 };
 
 const mockArrayTestTableMetadata: TableMetadata = {
@@ -947,6 +950,50 @@ const mockArrayTestTableMetadata: TableMetadata = {
   ],
   indexes: [],
   foreignKeys: [],
+  specialTypeSummaries: [],
+};
+
+const mockSpecialTypeTableMetadata: TableMetadata = {
+  columns: [
+    { name: "id", type: "integer", nullable: false, primaryKey: true },
+    { name: "user_bitmap", type: "BITMAP", nullable: true, primaryKey: false },
+    { name: "region_geo", type: "GEOMETRY", nullable: true, primaryKey: false },
+    { name: "uv_hll", type: "HLL", nullable: true, primaryKey: false },
+  ],
+  indexes: [],
+  foreignKeys: [],
+  specialTypeSummaries: [
+    {
+      columnName: "user_bitmap",
+      category: "bitmap",
+      typeName: "BITMAP",
+      declaredLength: null,
+      memoryUsageBytes: null,
+      memoryUsageDisplay: null,
+      rawType: "BITMAP",
+      notes: "Memory usage is not exposed by the current metadata driver.",
+    },
+    {
+      columnName: "region_geo",
+      category: "geo",
+      typeName: "GEOMETRY",
+      declaredLength: null,
+      memoryUsageBytes: null,
+      memoryUsageDisplay: null,
+      rawType: "GEOMETRY",
+      notes: "Memory usage is not exposed by the current metadata driver.",
+    },
+    {
+      columnName: "uv_hll",
+      category: "hyperloglog",
+      typeName: "HLL",
+      declaredLength: null,
+      memoryUsageBytes: null,
+      memoryUsageDisplay: null,
+      rawType: "HLL",
+      notes: "Memory usage is not exposed by the current metadata driver.",
+    },
+  ],
 };
 
 export async function mockGetTableMetadata(
@@ -958,6 +1005,7 @@ export async function mockGetTableMetadata(
   await new Promise((resolve) => setTimeout(resolve, 50));
   if (_table === "json_test") return mockJsonTestTableMetadata;
   if (_table === "pg_arrays") return mockArrayTestTableMetadata;
+  if (_table === "special_types") return mockSpecialTypeTableMetadata;
   return mockTableMetadata;
 }
 
@@ -1166,6 +1214,7 @@ export async function mockCreateConnection(form: ConnectionForm): Promise<any> {
 
   const newConnection = {
     id: mockConnections.length + 1,
+    uuid: `mock-${mockConnections.length + 1}`,
     name: form.name || "New Connection",
     dbType: form.driver,
     host: form.host ?? "",
@@ -1180,6 +1229,10 @@ export async function mockCreateConnection(form: ConnectionForm): Promise<any> {
     sshUsername: form.sshUsername ?? null,
     sshPassword: form.sshPassword ?? null,
     sshKeyPath: form.sshKeyPath ?? null,
+    mode: form.mode ?? null,
+    seedNodes: form.seedNodes ?? null,
+    sentinels: form.sentinels ?? null,
+    connectTimeoutMs: form.connectTimeoutMs ?? null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -1214,7 +1267,6 @@ export async function mockUpdateConnection(
     dbType: form.driver || existing.dbType,
     host: form.host ?? existing.host,
     port: form.port ?? existing.port,
-    uuid: `mock-${mockConnections.length + 1}`,
     database: form.database ?? existing.database,
     username: form.username ?? existing.username,
     password: nextPassword,
@@ -1226,13 +1278,14 @@ export async function mockUpdateConnection(
     sshUsername: form.sshUsername ?? existing.sshUsername ?? null,
     sshPassword: form.sshPassword ?? existing.sshPassword ?? null,
     sshKeyPath: form.sshKeyPath ?? existing.sshKeyPath ?? null,
+    mode: form.mode ?? existing.mode ?? null,
+    seedNodes: form.seedNodes ?? existing.seedNodes ?? null,
+    sentinels: form.sentinels ?? existing.sentinels ?? null,
+    connectTimeoutMs:
+      form.connectTimeoutMs ?? existing.connectTimeoutMs ?? null,
     updatedAt: new Date().toISOString(),
   };
 
-    mode: form.mode ?? null,
-    seedNodes: form.seedNodes ?? null,
-    sentinels: form.sentinels ?? null,
-    connectTimeoutMs: form.connectTimeoutMs ?? null,
   mockConnections[index] = updatedConnection;
   return updatedConnection;
 }
@@ -1278,11 +1331,6 @@ export async function mockGetSavedQueries(): Promise<SavedQuery[]> {
   await new Promise((resolve) => setTimeout(resolve, 50));
   return [...mockSavedQueries];
 }
-    mode: form.mode ?? existing.mode ?? null,
-    seedNodes: form.seedNodes ?? existing.seedNodes ?? null,
-    sentinels: form.sentinels ?? existing.sentinels ?? null,
-    connectTimeoutMs:
-      form.connectTimeoutMs ?? existing.connectTimeoutMs ?? null,
 
 /**
  * Mock save query

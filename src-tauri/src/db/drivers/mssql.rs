@@ -704,6 +704,7 @@ impl DatabaseDriver for MssqlDriver {
             indexes,
             foreign_keys,
             clickhouse_extra: None,
+            special_type_summaries: vec![],
         })
     }
 

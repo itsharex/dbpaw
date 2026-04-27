@@ -312,11 +312,25 @@ export interface ClickHouseTableExtra {
   createTableQuery?: string | null;
 }
 
+export type SpecialTypeCategory = "bitmap" | "geo" | "hyperloglog";
+
+export interface SpecialTypeSummary {
+  columnName: string;
+  category: SpecialTypeCategory;
+  typeName: string;
+  declaredLength?: string | null;
+  memoryUsageBytes?: number | null;
+  memoryUsageDisplay?: string | null;
+  rawType: string;
+  notes?: string | null;
+}
+
 export interface TableMetadata {
   columns: ColumnInfo[];
   indexes: IndexInfo[];
   foreignKeys: ForeignKeyInfo[];
   clickhouseExtra?: ClickHouseTableExtra | null;
+  specialTypeSummaries: SpecialTypeSummary[];
 }
 
 export interface TableSchema {
