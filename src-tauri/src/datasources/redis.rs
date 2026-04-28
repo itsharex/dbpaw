@@ -302,6 +302,8 @@ pub struct RedisKeyPatchPayload {
     pub stream_add: Option<Vec<RedisStreamEntry>>,
     pub stream_del: Option<Vec<String>>,
     pub bitmap_set: Option<Vec<RedisBitmapBit>>,
+    pub string_incr_by: Option<String>,
+    pub hash_incr_by: Option<BTreeMap<String, String>>,
 }
 
 fn parse_database(database: Option<&str>) -> Result<i64, String> {
@@ -1501,10 +1503,16 @@ pub async fn set_key(
     del_cmd.arg(&payload.key);
     let _: i64 = conn.query(del_cmd).await.unwrap_or(0);
 
+    let ttl_handled_atomically = matches!(payload.value, RedisValue::String(_));
     match payload.value {
         RedisValue::String(value) => {
             let mut cmd = redis::cmd("SET");
             cmd.arg(&payload.key).arg(value);
+            if let Some(ttl) = payload.ttl_seconds {
+                if ttl > 0 {
+                    cmd.arg("EX").arg(ttl);
+                }
+            }
             conn.query::<()>(cmd).await?;
         }
         RedisValue::Hash(fields) => {
@@ -1550,11 +1558,13 @@ pub async fn set_key(
         RedisValue::None => unreachable!("validated above"),
     }
 
-    if let Some(ttl) = payload.ttl_seconds {
-        if ttl > 0 {
-            let mut cmd = redis::cmd("EXPIRE");
-            cmd.arg(&payload.key).arg(ttl);
-            conn.query::<bool>(cmd).await?;
+    if !ttl_handled_atomically {
+        if let Some(ttl) = payload.ttl_seconds {
+            if ttl > 0 {
+                let mut cmd = redis::cmd("EXPIRE");
+                cmd.arg(&payload.key).arg(ttl);
+                conn.query::<bool>(cmd).await?;
+            }
         }
     }
 
@@ -1702,6 +1712,18 @@ pub async fn patch_key(
             let mut cmd = redis::cmd("SETBIT");
             cmd.arg(key).arg(bit.offset).arg(if bit.value { 1 } else { 0 });
             conn.query::<i64>(cmd).await?;
+        }
+    }
+    if let Some(ref amount) = payload.string_incr_by {
+        let mut cmd = redis::cmd("INCRBYFLOAT");
+        cmd.arg(key).arg(amount);
+        conn.query::<String>(cmd).await?;
+    }
+    if let Some(ref fields) = payload.hash_incr_by {
+        for (field, amount) in fields {
+            let mut cmd = redis::cmd("HINCRBYFLOAT");
+            cmd.arg(key).arg(field).arg(amount);
+            conn.query::<String>(cmd).await?;
         }
     }
 

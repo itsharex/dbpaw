@@ -761,12 +761,42 @@ export function RedisKeyView({
               onChange={(v) => setValue({ kind: "string", value: v })}
               isBinary={record?.isBinary}
               extra={record?.extra}
+              onIncrBy={async (amount) => {
+                try {
+                  await api.redis.patchKey(connectionId, database, {
+                    key: redisKey,
+                    ttlSeconds: null,
+                    stringIncrBy: amount,
+                  });
+                  toast.success("Value incremented");
+                  await load();
+                } catch (e) {
+                  toast.error("Failed to increment", {
+                    description: e instanceof Error ? e.message : String(e),
+                  });
+                }
+              }}
             />
           )}
           {value.kind === "hash" && (
             <RedisHashViewer
               value={value.value}
               onChange={(v) => setValue({ kind: "hash", value: v })}
+              onHashIncrBy={async (field, amount) => {
+                try {
+                  await api.redis.patchKey(connectionId, database, {
+                    key: redisKey,
+                    ttlSeconds: null,
+                    hashIncrBy: { [field]: amount },
+                  });
+                  toast.success("Field incremented");
+                  await load();
+                } catch (e) {
+                  toast.error("Failed to increment", {
+                    description: e instanceof Error ? e.message : String(e),
+                  });
+                }
+              }}
             />
           )}
           {value.kind === "list" && (

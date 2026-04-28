@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Plus, Trash2, X } from "lucide-react";
+import { Check, Plus, Trash2, X, Minus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -14,9 +14,16 @@ import {
 interface Props {
   value: Record<string, string>;
   onChange: (v: Record<string, string>) => void;
+  onHashIncrBy?: (field: string, amount: string) => void;
 }
 
-export function RedisHashViewer({ value, onChange }: Props) {
+function isNumericValue(s: string): boolean {
+  const trimmed = s.trim();
+  if (!trimmed) return false;
+  return !isNaN(Number(trimmed)) && isFinite(Number(trimmed));
+}
+
+export function RedisHashViewer({ value, onChange, onHashIncrBy }: Props) {
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [showNewRow, setShowNewRow] = useState(false);
@@ -83,7 +90,7 @@ export function RedisHashViewer({ value, onChange }: Props) {
             <TableRow>
               <TableHead className="w-[35%] text-xs">Field</TableHead>
               <TableHead className="text-xs">Value</TableHead>
-              <TableHead className="w-[72px]" />
+              <TableHead className="w-[90px]" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -200,14 +207,38 @@ export function RedisHashViewer({ value, onChange }: Props) {
                       </Button>
                     </div>
                   ) : (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => deleteField(field)}
-                    >
-                      <Trash2 className="w-3 h-3 text-destructive" />
-                    </Button>
+                    <div className="flex items-center gap-0.5">
+                      {isNumericValue(val) && onHashIncrBy && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => onHashIncrBy(field, "-1")}
+                            title="Decrement by 1"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => onHashIncrBy(field, "1")}
+                            title="Increment by 1"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </Button>
+                        </>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => deleteField(field)}
+                      >
+                        <Trash2 className="w-3 h-3 text-destructive" />
+                      </Button>
+                    </div>
                   )}
                 </TableCell>
               </TableRow>

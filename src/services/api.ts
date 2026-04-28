@@ -184,6 +184,8 @@ export interface RedisKeyPatchPayload {
   streamAdd?: RedisStreamEntry[];
   streamDel?: string[];
   bitmapSet?: RedisBitmapBit[];
+  stringIncrBy?: string;
+  hashIncrBy?: Record<string, string>;
 }
 
 export interface RedisRawResult {
