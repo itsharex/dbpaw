@@ -328,6 +328,24 @@ describe("api command mapping", () => {
       "elasticsearch_close_index",
       () => api.elasticsearch.closeIndex(1, "products"),
     ],
+    [
+      "elasticsearch_export_documents",
+      () =>
+        api.elasticsearch.exportDocuments({
+          id: 1,
+          index: "products",
+          filePath: "/tmp/products.ndjson",
+        }),
+    ],
+    [
+      "elasticsearch_import_documents",
+      () =>
+        api.elasticsearch.importDocuments({
+          id: 1,
+          index: "products",
+          filePath: "/tmp/products.ndjson",
+        }),
+    ],
   ];
 
   for (const [expectedCmd, callFn] of commands) {

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { save, open } from "@tauri-apps/plugin-dialog";
 import {
   Copy,
+  Download,
   FileJson,
   FolderOpen,
   Loader2,
@@ -10,6 +12,7 @@ import {
   Search,
   SquareTerminal,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +22,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { api } from "@/services/api";
+import { api, isTauri } from "@/services/api";
 import type {
   ElasticsearchIndexInfo,
   ElasticsearchSearchHit,
@@ -60,6 +63,11 @@ function formatJson(value: unknown): string {
   return JSON.stringify(value ?? null, null, 2);
 }
 
+function bulkDefaultName(index: string): string {
+  const safe = index.replace(/[^a-zA-Z0-9._-]+/g, "_") || "elasticsearch";
+  return `${safe}.ndjson`;
+}
+
 export function ElasticsearchIndexView({ connectionId, index }: Props) {
   const [indices, setIndices] = useState<ElasticsearchIndexInfo[]>([]);
   const [query, setQuery] = useState("");
@@ -94,6 +102,8 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
   const [isDeletingDocument, setIsDeletingDocument] = useState(false);
   const [isExecutingRaw, setIsExecutingRaw] = useState(false);
   const [isManagingIndex, setIsManagingIndex] = useState(false);
+  const [isBulkImporting, setIsBulkImporting] = useState(false);
+  const [isBulkExporting, setIsBulkExporting] = useState(false);
 
   const selectedJson = useMemo(() => {
     if (!selectedHit) return "";
@@ -293,6 +303,86 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
     }
   };
 
+  const exportDocuments = async () => {
+    if (!isTauri()) {
+      toast.error("Export dialog is only available in Tauri desktop mode.");
+      return;
+    }
+    setIsBulkExporting(true);
+    try {
+      const selected = await save({
+        title: "Export Elasticsearch documents",
+        defaultPath: bulkDefaultName(index),
+        filters: [{ name: "NDJSON", extensions: ["ndjson"] }],
+      });
+      if (!selected) return;
+      const filePath = Array.isArray(selected) ? selected[0] : selected;
+      if (!filePath) return;
+      const result = await api.elasticsearch.exportDocuments({
+        id: connectionId,
+        index,
+        query: query.trim() || undefined,
+        dsl: dsl.trim() || undefined,
+        filePath,
+      });
+      toast.success(`Exported ${result.documents} documents`, {
+        description: result.filePath,
+      });
+    } catch (e) {
+      toast.error("Failed to export Elasticsearch documents", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setIsBulkExporting(false);
+    }
+  };
+
+  const importDocuments = async () => {
+    if (!isTauri()) {
+      toast.error("Import dialog is only available in Tauri desktop mode.");
+      return;
+    }
+    setIsBulkImporting(true);
+    try {
+      const selected = await open({
+        title: "Import Elasticsearch NDJSON",
+        multiple: false,
+        directory: false,
+        filters: [{ name: "NDJSON", extensions: ["ndjson", "json"] }],
+      });
+      if (!selected) return;
+      const filePath = Array.isArray(selected) ? selected[0] : selected;
+      if (!filePath) return;
+      if (!window.confirm(`Import documents into "${index}"?`)) return;
+      const result = await api.elasticsearch.importDocuments({
+        id: connectionId,
+        index,
+        filePath,
+        refresh: true,
+      });
+      if (result.failed > 0) {
+        toast.error(
+          `Imported ${result.successful} documents, ${result.failed} failed`,
+          {
+            description: result.errors.slice(0, 3).join("\n") || filePath,
+          },
+        );
+      } else {
+        toast.success(`Imported ${result.successful} documents`, {
+          description: result.filePath,
+        });
+      }
+      await search(0);
+      await loadMetadata();
+    } catch (e) {
+      toast.error("Failed to import Elasticsearch documents", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setIsBulkImporting(false);
+    }
+  };
+
   const manageIndex = async (action: ElasticsearchIndexAction) => {
     if (action === "delete" && !window.confirm(`Delete index "${index}"?`)) {
       return;
@@ -345,6 +435,34 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <RefreshCw className="h-4 w-4" />
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                disabled={isBulkImporting || isBulkExporting}
+                title="Import NDJSON"
+                onClick={() => void importDocuments()}
+              >
+                {isBulkImporting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                disabled={isBulkImporting || isBulkExporting}
+                title="Export NDJSON"
+                onClick={() => void exportDocuments()}
+              >
+                {isBulkExporting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
                 )}
               </Button>
               <Button

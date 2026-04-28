@@ -1,7 +1,8 @@
 use crate::datasources::elasticsearch::{
-    ElasticsearchClient, ElasticsearchConnectionInfo, ElasticsearchDocument,
-    ElasticsearchIndexInfo, ElasticsearchIndexOperationResult, ElasticsearchMutationResult,
-    ElasticsearchRawResponse, ElasticsearchSearchResponse,
+    ElasticsearchBulkExportResult, ElasticsearchBulkImportResult, ElasticsearchClient,
+    ElasticsearchConnectionInfo, ElasticsearchDocument, ElasticsearchIndexInfo,
+    ElasticsearchIndexOperationResult, ElasticsearchMutationResult, ElasticsearchRawResponse,
+    ElasticsearchSearchResponse,
 };
 use crate::models::TestConnectionResult;
 use crate::state::AppState;
@@ -186,6 +187,37 @@ pub async fn elasticsearch_delete_document(
     client_from_id(&state, id)
         .await?
         .delete_document(index, document_id, refresh.unwrap_or(true))
+        .await
+}
+
+#[tauri::command]
+pub async fn elasticsearch_export_documents(
+    state: State<'_, AppState>,
+    id: i64,
+    index: String,
+    query: Option<String>,
+    dsl: Option<String>,
+    file_path: String,
+    batch_size: Option<i64>,
+) -> Result<ElasticsearchBulkExportResult, String> {
+    client_from_id(&state, id)
+        .await?
+        .export_documents(index, query, dsl, file_path, batch_size)
+        .await
+}
+
+#[tauri::command]
+pub async fn elasticsearch_import_documents(
+    state: State<'_, AppState>,
+    id: i64,
+    index: String,
+    file_path: String,
+    batch_size: Option<i64>,
+    refresh: Option<bool>,
+) -> Result<ElasticsearchBulkImportResult, String> {
+    client_from_id(&state, id)
+        .await?
+        .import_documents(index, file_path, batch_size, refresh.unwrap_or(true))
         .await
 }
 

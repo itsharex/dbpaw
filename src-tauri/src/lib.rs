@@ -211,6 +211,8 @@ pub fn run() {
             commands::elasticsearch::elasticsearch_get_document,
             commands::elasticsearch::elasticsearch_upsert_document,
             commands::elasticsearch::elasticsearch_delete_document,
+            commands::elasticsearch::elasticsearch_export_documents,
+            commands::elasticsearch::elasticsearch_import_documents,
             commands::elasticsearch::elasticsearch_execute_raw,
         ])
         .build(tauri::generate_context!())

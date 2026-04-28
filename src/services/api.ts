@@ -228,6 +228,24 @@ export interface ElasticsearchRawResponse {
   tookMs: number;
 }
 
+export interface ElasticsearchBulkExportResult {
+  filePath: string;
+  index: string;
+  documents: number;
+  batches: number;
+  timeTakenMs: number;
+}
+
+export interface ElasticsearchBulkImportResult {
+  filePath: string;
+  index: string;
+  totalActions: number;
+  successful: number;
+  failed: number;
+  errors: string[];
+  timeTakenMs: number;
+}
+
 export type SqlExecutionSource =
   | "sql_editor"
   | "table_view_save"
@@ -936,6 +954,29 @@ export const api = {
     }) =>
       invoke<ElasticsearchMutationResult>(
         "elasticsearch_delete_document",
+        params,
+      ),
+    exportDocuments: (params: {
+      id: number;
+      index: string;
+      query?: string;
+      dsl?: string;
+      filePath: string;
+      batchSize?: number;
+    }) =>
+      invoke<ElasticsearchBulkExportResult>(
+        "elasticsearch_export_documents",
+        params,
+      ),
+    importDocuments: (params: {
+      id: number;
+      index: string;
+      filePath: string;
+      batchSize?: number;
+      refresh?: boolean;
+    }) =>
+      invoke<ElasticsearchBulkImportResult>(
+        "elasticsearch_import_documents",
         params,
       ),
     executeRaw: (params: {
