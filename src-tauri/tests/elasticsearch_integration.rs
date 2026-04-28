@@ -21,21 +21,22 @@ async fn test_elasticsearch_read_only_flow() {
         .send()
         .await
         .expect("delete old index");
-    http.put(format!("{base_url}/{index}"))
-        .json(&json!({
-            "mappings": {
-                "properties": {
-                    "title": { "type": "text" },
-                    "status": { "type": "keyword" },
-                    "count": { "type": "integer" }
+    let created = client
+        .create_index(
+            index.to_string(),
+            Some(json!({
+                "mappings": {
+                    "properties": {
+                        "title": { "type": "text" },
+                        "status": { "type": "keyword" },
+                        "count": { "type": "integer" }
+                    }
                 }
-            }
-        }))
-        .send()
+            })),
+        )
         .await
-        .expect("create index")
-        .error_for_status()
-        .expect("create index status");
+        .expect("create index");
+    assert_eq!(created.index.as_deref(), Some(index));
     http.post(format!("{base_url}/{index}/_doc/1?refresh=true"))
         .json(&json!({
             "title": "DbPaw Elasticsearch probe",
@@ -92,6 +93,31 @@ async fn test_elasticsearch_read_only_flow() {
     assert!(search.hits.iter().any(|hit| hit.id == "1"));
     assert!(search.hits.iter().any(|hit| hit.id == "2"));
 
+    let aggregation_search = client
+        .search_documents(
+            index.to_string(),
+            None,
+            Some(
+                json!({
+                    "size": 0,
+                    "aggs": {
+                        "by_status": {
+                            "terms": { "field": "status" }
+                        }
+                    }
+                })
+                .to_string(),
+            ),
+            0,
+            50,
+        )
+        .await
+        .expect("search aggregations");
+    assert_eq!(
+        aggregation_search.aggregations.unwrap()["by_status"]["buckets"][0]["key"],
+        "ok"
+    );
+
     let document = client
         .get_document(index.to_string(), "1".to_string())
         .await
@@ -112,5 +138,22 @@ async fn test_elasticsearch_read_only_flow() {
         .expect("delete document");
     assert_eq!(deleted.result.as_deref(), Some("deleted"));
 
-    let _ = http.delete(format!("{base_url}/{index}")).send().await;
+    client
+        .refresh_index(index.to_string())
+        .await
+        .expect("refresh index");
+    client
+        .close_index(index.to_string())
+        .await
+        .expect("close index");
+    client
+        .open_index(index.to_string())
+        .await
+        .expect("open index");
+    client
+        .delete_index(index.to_string())
+        .await
+        .expect("delete index");
+    let indices_after_delete = client.list_indices().await.expect("list after delete");
+    assert!(!indices_after_delete.iter().any(|item| item.name == index));
 }

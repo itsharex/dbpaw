@@ -308,6 +308,26 @@ describe("api command mapping", () => {
       "get_mysql_collations_by_id",
       () => api.connections.getMysqlCollations(1, "utf8mb4"),
     ],
+    [
+      "elasticsearch_create_index",
+      () => api.elasticsearch.createIndex({ id: 1, index: "products" }),
+    ],
+    [
+      "elasticsearch_delete_index",
+      () => api.elasticsearch.deleteIndex(1, "products"),
+    ],
+    [
+      "elasticsearch_refresh_index",
+      () => api.elasticsearch.refreshIndex(1, "products"),
+    ],
+    [
+      "elasticsearch_open_index",
+      () => api.elasticsearch.openIndex(1, "products"),
+    ],
+    [
+      "elasticsearch_close_index",
+      () => api.elasticsearch.closeIndex(1, "products"),
+    ],
   ];
 
   for (const [expectedCmd, callFn] of commands) {

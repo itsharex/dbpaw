@@ -99,6 +99,12 @@ import {
 } from "@/lib/connection-form/rules";
 import { validateConnectionFormInput } from "@/lib/connection-form/validate";
 import { isRedisClusterDatabaseList } from "@/components/business/Redis/redis-utils";
+import { CreateElasticsearchIndexDialog } from "@/components/business/Elasticsearch/CreateElasticsearchIndexDialog";
+import {
+  elasticsearchIndexActionSuccessMessage,
+  executeElasticsearchIndexAction,
+  type ElasticsearchIndexAction,
+} from "@/components/business/Elasticsearch/elasticsearch-index-management";
 
 interface Column {
   name: string;
@@ -111,6 +117,8 @@ interface TableInfo {
   name: string;
   schema: string;
   columns: Column[];
+  isSystem?: boolean;
+  indexStatus?: string | null;
 }
 
 interface RoutineInfo {
@@ -678,6 +686,13 @@ export function ConnectionList({
   const [createDbForm, setCreateDbForm] = useState<CreateDatabaseForm>(
     defaultCreateDatabaseForm,
   );
+  const [showElasticsearchSystemIndices, setShowElasticsearchSystemIndices] =
+    useState(false);
+  const [createEsIndexConnectionId, setCreateEsIndexConnectionId] = useState<
+    string | null
+  >(null);
+  const [isCreateEsIndexDialogOpen, setIsCreateEsIndexDialogOpen] =
+    useState(false);
   const [mysqlCharsets, setMysqlCharsets] = useState<string[]>([]);
   const [mysqlCollations, setMysqlCollations] = useState<string[]>([]);
   const [loadingMysqlOptions, setLoadingMysqlOptions] = useState(false);
@@ -1538,12 +1553,17 @@ export function ConnectionList({
           );
           return indices
             .filter(
-              (index) => !index.isSystem || searchTerm.trim().startsWith("."),
+              (index) =>
+                showElasticsearchSystemIndices ||
+                !index.isSystem ||
+                searchTerm.trim().startsWith("."),
             )
             .map((index) => ({
               name: index.name,
               schema: "Indices",
               columns: [],
+              isSystem: index.isSystem,
+              indexStatus: index.status,
             }));
         },
         shouldSkipTableColumns: true,
@@ -1556,11 +1576,107 @@ export function ConnectionList({
             connection.type,
           );
         },
-        getDatabaseRowActions: () => undefined,
+        getDatabaseRowActions: (database) => (
+          <div onClick={(e) => e.stopPropagation()}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              title="New index"
+              onClick={() =>
+                openCreateElasticsearchIndexDialog(connection.id, database.name)
+              }
+            >
+              <Plus className="w-3 h-3" />
+            </Button>
+          </div>
+        ),
         onDatabaseDoubleClick: undefined,
-        renderDatabaseFooter: () => null,
-        renderTableContextMenu: () => null,
-        renderDatabaseContextMenu: () => null,
+        renderDatabaseFooter: (_database, level) => (
+          <label
+            key="elasticsearch-system-indices"
+            className="flex items-center gap-2 px-3 py-1 text-xs text-muted-foreground"
+            style={{ paddingLeft: `${(level + 1) * 12 + 8}px` }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Checkbox
+              checked={showElasticsearchSystemIndices}
+              onCheckedChange={(checked) =>
+                setShowElasticsearchSystemIndices(checked === true)
+              }
+            />
+            Show system indices
+          </label>
+        ),
+        renderTableContextMenu: (database, table) => (
+          <>
+            <ContextMenuItem
+              onClick={async () => {
+                await handleElasticsearchIndexAction(
+                  connection.id,
+                  database.name,
+                  table.name,
+                  "refresh",
+                );
+              }}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh index
+            </ContextMenuItem>
+            <ContextMenuItem
+              onClick={async () => {
+                await handleElasticsearchIndexAction(
+                  connection.id,
+                  database.name,
+                  table.name,
+                  "open",
+                );
+              }}
+            >
+              <FolderOpen className="mr-2 h-4 w-4" />
+              Open index
+            </ContextMenuItem>
+            <ContextMenuItem
+              onClick={async () => {
+                await handleElasticsearchIndexAction(
+                  connection.id,
+                  database.name,
+                  table.name,
+                  "close",
+                );
+              }}
+            >
+              <TableIcon className="mr-2 h-4 w-4" />
+              Close index
+            </ContextMenuItem>
+            <ContextMenuItem
+              className="text-destructive"
+              onClick={async () => {
+                await handleElasticsearchIndexAction(
+                  connection.id,
+                  database.name,
+                  table.name,
+                  "delete",
+                );
+              }}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete index
+            </ContextMenuItem>
+          </>
+        ),
+        renderDatabaseContextMenu: (databaseName) => (
+          <button
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+            onClick={() => {
+              openCreateElasticsearchIndexDialog(connection.id, databaseName);
+              setContextMenu((prev) => ({ ...prev, visible: false }));
+            }}
+          >
+            <Plus className="h-4 w-4" />
+            New index
+          </button>
+        ),
       };
     }
 
@@ -1895,6 +2011,21 @@ export function ConnectionList({
     await fetchAndSetTables(connectionId, databaseName, { force: true });
   };
 
+  useEffect(() => {
+    connections
+      .filter(
+        (connection) =>
+          connection.type === "elasticsearch" &&
+          connection.connectState === "success" &&
+          expandedDatabases.has(`${connection.id}-Indices`),
+      )
+      .forEach((connection) => {
+        void handleRefreshDatabaseTables(connection.id, "Indices");
+      });
+    // Re-apply the client-side system-index filter for already opened ES trees.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showElasticsearchSystemIndices]);
+
   const toggleDatabase = (key: string) => {
     const newExpanded = new Set(expandedDatabases);
     if (newExpanded.has(key)) {
@@ -2161,6 +2292,41 @@ export function ConnectionList({
     setShowCreateDbAdvanced(false);
     setCreateDbForm(defaultCreateDatabaseForm);
     setIsCreateDbDialogOpen(true);
+  };
+
+  const openCreateElasticsearchIndexDialog = (
+    connectionId: string,
+    _databaseName = "Indices",
+  ) => {
+    const connection = connections.find((conn) => conn.id === connectionId);
+    if (!connection || connection.type !== "elasticsearch") return;
+    setCreateEsIndexConnectionId(connectionId);
+    setIsCreateEsIndexDialogOpen(true);
+  };
+
+  const handleElasticsearchIndexAction = async (
+    connectionId: string,
+    databaseName: string,
+    index: string,
+    action: ElasticsearchIndexAction,
+  ) => {
+    if (action === "delete" && !window.confirm(`Delete index "${index}"?`)) {
+      return;
+    }
+
+    try {
+      await executeElasticsearchIndexAction(
+        Number(connectionId),
+        index,
+        action,
+      );
+      toast.success(elasticsearchIndexActionSuccessMessage(action, index));
+      await handleRefreshDatabaseTables(connectionId, databaseName);
+    } catch (e) {
+      toast.error(`Failed to ${action} Elasticsearch index`, {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    }
   };
 
   const clearConnectionTreeCache = (connectionId: string) => {
@@ -2794,9 +2960,25 @@ export function ConnectionList({
                           handleTableClick(connection, database, table);
                         }}
                         statusIndicator={
-                          loadingTableKeys.has(tableKey)
-                            ? loadingSpinner
-                            : undefined
+                          loadingTableKeys.has(tableKey) ||
+                          table.isSystem ||
+                          table.indexStatus === "close" ? (
+                            <span className="inline-flex items-center gap-1">
+                              {table.indexStatus === "close" ? (
+                                <span className="rounded border px-1 text-[10px] leading-4 text-muted-foreground">
+                                  closed
+                                </span>
+                              ) : null}
+                              {table.isSystem ? (
+                                <span className="rounded border px-1 text-[10px] leading-4 text-muted-foreground">
+                                  system
+                                </span>
+                              ) : null}
+                              {loadingTableKeys.has(tableKey)
+                                ? loadingSpinner
+                                : null}
+                            </span>
+                          ) : undefined
                         }
                         actions={
                           <div onClick={(e) => e.stopPropagation()}>
@@ -3412,6 +3594,24 @@ export function ConnectionList({
           ) : null}
         </div>
       )}
+      <CreateElasticsearchIndexDialog
+        open={isCreateEsIndexDialogOpen}
+        connectionId={
+          createEsIndexConnectionId ? Number(createEsIndexConnectionId) : null
+        }
+        onOpenChange={(open) => {
+          setIsCreateEsIndexDialogOpen(open);
+          if (!open) setCreateEsIndexConnectionId(null);
+        }}
+        onCreated={async () => {
+          if (createEsIndexConnectionId) {
+            await handleRefreshDatabaseTables(
+              createEsIndexConnectionId,
+              "Indices",
+            );
+          }
+        }}
+      />
       <Dialog
         open={isCreateDbDialogOpen}
         onOpenChange={(open) => {

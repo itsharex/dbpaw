@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Copy,
   FileJson,
+  FolderOpen,
   Loader2,
   Plus,
   RefreshCw,
@@ -25,6 +26,11 @@ import type {
 } from "@/services/api";
 import { toast } from "sonner";
 import { cn } from "@/components/ui/utils";
+import {
+  elasticsearchIndexActionSuccessMessage,
+  executeElasticsearchIndexAction,
+  type ElasticsearchIndexAction,
+} from "./elasticsearch-index-management";
 
 const PAGE_SIZE = 50;
 const DEFAULT_DOCUMENT_SOURCE = "{\n  \n}";
@@ -63,20 +69,23 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
     hits: ElasticsearchSearchHit[];
     total: number;
     tookMs: number;
+    aggregations?: unknown;
   }>({ hits: [], total: 0, tookMs: 0 });
   const [selectedHit, setSelectedHit] = useState<ElasticsearchSearchHit | null>(
     null,
   );
   const [mapping, setMapping] = useState<unknown>(null);
-  const [detailMode, setDetailMode] = useState<"document" | "mapping" | "console">(
-    "document",
-  );
+  const [detailMode, setDetailMode] = useState<
+    "document" | "mapping" | "aggregations" | "console"
+  >("document");
   const [documentIdInput, setDocumentIdInput] = useState("");
   const [editorDocumentId, setEditorDocumentId] = useState("");
   const [editorSource, setEditorSource] = useState(DEFAULT_DOCUMENT_SOURCE);
   const [rawMethod, setRawMethod] = useState("GET");
   const [rawPath, setRawPath] = useState(`/${index}/_search`);
-  const [rawBody, setRawBody] = useState("{\n  \"query\": {\n    \"match_all\": {}\n  }\n}");
+  const [rawBody, setRawBody] = useState(
+    '{\n  "query": {\n    "match_all": {}\n  }\n}',
+  );
   const [rawResponse, setRawResponse] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingMeta, setIsLoadingMeta] = useState(false);
@@ -84,6 +93,7 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
   const [isSavingDocument, setIsSavingDocument] = useState(false);
   const [isDeletingDocument, setIsDeletingDocument] = useState(false);
   const [isExecutingRaw, setIsExecutingRaw] = useState(false);
+  const [isManagingIndex, setIsManagingIndex] = useState(false);
 
   const selectedJson = useMemo(() => {
     if (!selectedHit) return "";
@@ -96,13 +106,16 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
     });
   }, [selectedHit]);
 
-  const syncEditorFromHit = useCallback((hit: ElasticsearchSearchHit | null) => {
-    setSelectedHit(hit);
-    setDetailMode("document");
-    setEditorDocumentId(hit?.id ?? "");
-    setDocumentIdInput(hit?.id ?? "");
-    setEditorSource(hit ? formatJson(hit.source) : DEFAULT_DOCUMENT_SOURCE);
-  }, []);
+  const syncEditorFromHit = useCallback(
+    (hit: ElasticsearchSearchHit | null) => {
+      setSelectedHit(hit);
+      setDetailMode("document");
+      setEditorDocumentId(hit?.id ?? "");
+      setDocumentIdInput(hit?.id ?? "");
+      setEditorSource(hit ? formatJson(hit.source) : DEFAULT_DOCUMENT_SOURCE);
+    },
+    [],
+  );
 
   const loadMetadata = useCallback(async () => {
     setIsLoadingMeta(true);
@@ -164,9 +177,11 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
     const text =
       detailMode === "mapping"
         ? formatJson(mapping)
-        : detailMode === "console"
-          ? rawResponse
-          : selectedJson || editorSource;
+        : detailMode === "aggregations"
+          ? formatJson(result.aggregations)
+          : detailMode === "console"
+            ? rawResponse
+            : selectedJson || editorSource;
     if (!text) return;
     await navigator.clipboard.writeText(text);
     toast.success("Copied");
@@ -278,6 +293,27 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
     }
   };
 
+  const manageIndex = async (action: ElasticsearchIndexAction) => {
+    if (action === "delete" && !window.confirm(`Delete index "${index}"?`)) {
+      return;
+    }
+    setIsManagingIndex(true);
+    try {
+      await executeElasticsearchIndexAction(connectionId, index, action);
+      toast.success(elasticsearchIndexActionSuccessMessage(action, index));
+      if (action !== "delete") {
+        await loadMetadata();
+        await search(from);
+      }
+    } catch (e) {
+      toast.error(`Failed to ${action} Elasticsearch index`, {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setIsManagingIndex(false);
+    }
+  };
+
   return (
     <ResizablePanelGroup direction="horizontal" className="h-full">
       <ResizablePanel defaultSize={42} minSize={30} maxSize={60}>
@@ -288,7 +324,9 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
                 <div className="truncate text-sm font-medium">{index}</div>
                 <div className="text-xs text-muted-foreground">
                   {currentIndex?.docsCount ?? result.total} docs
-                  {currentIndex?.storeSize ? ` · ${currentIndex.storeSize}` : ""}
+                  {currentIndex?.storeSize
+                    ? ` · ${currentIndex.storeSize}`
+                    : ""}
                   {result.tookMs ? ` · ${result.tookMs}ms` : ""}
                 </div>
               </div>
@@ -307,6 +345,39 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <RefreshCw className="h-4 w-4" />
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 p-0"
+                disabled={isManagingIndex}
+                title="Open index"
+                onClick={() => void manageIndex("open")}
+              >
+                <FolderOpen className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-2"
+                disabled={isManagingIndex}
+                onClick={() => void manageIndex("close")}
+              >
+                Close
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-8 w-8 p-0"
+                disabled={isManagingIndex}
+                title="Delete index"
+                onClick={() => void manageIndex("delete")}
+              >
+                {isManagingIndex ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
                 )}
               </Button>
             </div>
@@ -427,6 +498,14 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
                 Mapping
               </Button>
               <Button
+                variant={detailMode === "aggregations" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-2"
+                onClick={() => setDetailMode("aggregations")}
+              >
+                Aggregations
+              </Button>
+              <Button
                 variant={detailMode === "console" ? "secondary" : "ghost"}
                 size="sm"
                 className="h-7 px-2"
@@ -441,7 +520,9 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
               size="sm"
               className="h-7 px-2"
               disabled={
-                detailMode === "document" && !selectedHit && !editorSource.trim()
+                detailMode === "document" &&
+                !selectedHit &&
+                !editorSource.trim()
               }
               onClick={() => void copySelected()}
             >
@@ -530,6 +611,16 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
             <pre className="min-h-0 flex-1 overflow-auto p-3 text-xs">
               {formatJson(mapping)}
             </pre>
+          ) : detailMode === "aggregations" ? (
+            result.aggregations ? (
+              <pre className="min-h-0 flex-1 overflow-auto p-3 text-xs">
+                {formatJson(result.aggregations)}
+              </pre>
+            ) : (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                No aggregations
+              </div>
+            )
           ) : (
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="flex gap-2 border-b p-3">
@@ -558,7 +649,10 @@ export function ElasticsearchIndexView({ connectionId, index }: Props) {
                   Send
                 </Button>
               </div>
-              <ResizablePanelGroup direction="vertical" className="min-h-0 flex-1">
+              <ResizablePanelGroup
+                direction="vertical"
+                className="min-h-0 flex-1"
+              >
                 <ResizablePanel defaultSize={45} minSize={20}>
                   <Textarea
                     className="h-full resize-none rounded-none border-0 font-mono text-xs focus-visible:ring-0"

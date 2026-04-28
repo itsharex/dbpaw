@@ -1736,6 +1736,32 @@ export async function invokeMock<T>(cmd: string, args?: any): Promise<T> {
       }) as Promise<T>;
     }
 
+    case "elasticsearch_create_index":
+      return Promise.resolve({
+        index: String(args.index || "new-index"),
+        acknowledged: true,
+        shardsAcknowledged: true,
+        status: 200,
+      }) as Promise<T>;
+
+    case "elasticsearch_delete_index":
+      return Promise.resolve({
+        index: String(args.index || "products"),
+        acknowledged: true,
+        shardsAcknowledged: null,
+        status: 200,
+      }) as Promise<T>;
+
+    case "elasticsearch_refresh_index":
+    case "elasticsearch_open_index":
+    case "elasticsearch_close_index":
+      return Promise.resolve({
+        index: String(args.index || "products"),
+        acknowledged: true,
+        shardsAcknowledged: true,
+        status: 200,
+      }) as Promise<T>;
+
     case "elasticsearch_search_documents": {
       const hits = Array.from({ length: 3 }, (_, i) => ({
         index: String(args.index || "products"),
@@ -1754,6 +1780,11 @@ export async function invokeMock<T>(cmd: string, args?: any): Promise<T> {
         hits,
         total: 3,
         tookMs: 5,
+        aggregations: {
+          categories: {
+            buckets: [{ key: "electronics", doc_count: 3 }],
+          },
+        },
       }) as Promise<T>;
     }
 

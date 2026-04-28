@@ -1,7 +1,7 @@
 use crate::datasources::elasticsearch::{
     ElasticsearchClient, ElasticsearchConnectionInfo, ElasticsearchDocument,
-    ElasticsearchIndexInfo, ElasticsearchMutationResult, ElasticsearchRawResponse,
-    ElasticsearchSearchResponse,
+    ElasticsearchIndexInfo, ElasticsearchIndexOperationResult, ElasticsearchMutationResult,
+    ElasticsearchRawResponse, ElasticsearchSearchResponse,
 };
 use crate::models::TestConnectionResult;
 use crate::state::AppState;
@@ -80,6 +80,55 @@ pub async fn elasticsearch_get_index_mapping(
         .await?
         .get_index_mapping(index)
         .await
+}
+
+#[tauri::command]
+pub async fn elasticsearch_create_index(
+    state: State<'_, AppState>,
+    id: i64,
+    index: String,
+    body: Option<Value>,
+) -> Result<ElasticsearchIndexOperationResult, String> {
+    client_from_id(&state, id)
+        .await?
+        .create_index(index, body)
+        .await
+}
+
+#[tauri::command]
+pub async fn elasticsearch_delete_index(
+    state: State<'_, AppState>,
+    id: i64,
+    index: String,
+) -> Result<ElasticsearchIndexOperationResult, String> {
+    client_from_id(&state, id).await?.delete_index(index).await
+}
+
+#[tauri::command]
+pub async fn elasticsearch_refresh_index(
+    state: State<'_, AppState>,
+    id: i64,
+    index: String,
+) -> Result<ElasticsearchIndexOperationResult, String> {
+    client_from_id(&state, id).await?.refresh_index(index).await
+}
+
+#[tauri::command]
+pub async fn elasticsearch_open_index(
+    state: State<'_, AppState>,
+    id: i64,
+    index: String,
+) -> Result<ElasticsearchIndexOperationResult, String> {
+    client_from_id(&state, id).await?.open_index(index).await
+}
+
+#[tauri::command]
+pub async fn elasticsearch_close_index(
+    state: State<'_, AppState>,
+    id: i64,
+    index: String,
+) -> Result<ElasticsearchIndexOperationResult, String> {
+    client_from_id(&state, id).await?.close_index(index).await
 }
 
 #[tauri::command]

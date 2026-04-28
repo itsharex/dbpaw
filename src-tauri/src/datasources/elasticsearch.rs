@@ -69,6 +69,7 @@ pub struct ElasticsearchSearchResponse {
     pub hits: Vec<ElasticsearchSearchHit>,
     pub total: i64,
     pub took_ms: i64,
+    pub aggregations: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +88,15 @@ pub struct ElasticsearchMutationResult {
     pub index: Option<String>,
     pub id: Option<String>,
     pub result: Option<String>,
+    pub status: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElasticsearchIndexOperationResult {
+    pub index: Option<String>,
+    pub acknowledged: Option<bool>,
+    pub shards_acknowledged: Option<bool>,
     pub status: u16,
 }
 
@@ -317,6 +327,48 @@ fn validate_raw_path(path: &str) -> Result<String, String> {
     Ok(path)
 }
 
+fn validate_index_name(index: &str) -> Result<String, String> {
+    let trimmed = index.trim();
+    if trimmed.is_empty() {
+        return Err("[VALIDATION_ERROR] index name cannot be empty".to_string());
+    }
+    Ok(trimmed.to_string())
+}
+
+fn parse_search_response(value: Value, elapsed_ms: i64) -> ElasticsearchSearchResponse {
+    let took_ms = value
+        .get("took")
+        .and_then(Value::as_i64)
+        .unwrap_or(elapsed_ms);
+    let total = match value.pointer("/hits/total") {
+        Some(Value::Number(n)) => n.as_i64().unwrap_or(0),
+        Some(Value::Object(obj)) => obj.get("value").and_then(Value::as_i64).unwrap_or(0),
+        _ => 0,
+    };
+    let hits = value
+        .pointer("/hits/hits")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|hit| {
+            Some(ElasticsearchSearchHit {
+                index: hit.get("_index")?.as_str()?.to_string(),
+                id: hit.get("_id")?.as_str()?.to_string(),
+                score: hit.get("_score").and_then(Value::as_f64),
+                source: hit.get("_source").cloned().unwrap_or(Value::Null),
+                fields: hit.get("fields").cloned(),
+            })
+        })
+        .collect();
+    ElasticsearchSearchResponse {
+        hits,
+        total,
+        took_ms,
+        aggregations: value.get("aggregations").cloned(),
+    }
+}
+
 impl ElasticsearchClient {
     pub fn connect(form: &ConnectionForm) -> Result<Self, String> {
         let timeout_ms = form
@@ -412,6 +464,33 @@ impl ElasticsearchClient {
         })
     }
 
+    async fn read_index_operation(
+        &self,
+        req: reqwest::RequestBuilder,
+        index: Option<String>,
+    ) -> Result<ElasticsearchIndexOperationResult, String> {
+        let response = req
+            .send()
+            .await
+            .map_err(|e| format!("[ELASTICSEARCH_ERROR] {e}"))?;
+        let status = response.status();
+        let status_code = status.as_u16();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| format!("[ELASTICSEARCH_ERROR] {e}"))?;
+        if !status.is_success() {
+            return Err(normalize_error(status, &body));
+        }
+        let value = serde_json::from_str::<Value>(&body).unwrap_or(Value::Null);
+        Ok(ElasticsearchIndexOperationResult {
+            index,
+            acknowledged: value.get("acknowledged").and_then(Value::as_bool),
+            shards_acknowledged: value.get("shards_acknowledged").and_then(Value::as_bool),
+            status: status_code,
+        })
+    }
+
     pub async fn test_connection(&self) -> Result<ElasticsearchConnectionInfo, String> {
         let value = self
             .read_json(self.request(reqwest::Method::GET, "/"))
@@ -480,6 +559,87 @@ impl ElasticsearchClient {
         .await
     }
 
+    pub async fn create_index(
+        &self,
+        index: String,
+        body: Option<Value>,
+    ) -> Result<ElasticsearchIndexOperationResult, String> {
+        let index = validate_index_name(&index)?;
+        let body = body.unwrap_or_else(|| serde_json::json!({}));
+        if !body.is_object() {
+            return Err("[VALIDATION_ERROR] index body must be a JSON object".to_string());
+        }
+        self.read_index_operation(
+            self.request(
+                reqwest::Method::PUT,
+                &format!("/{}", encode_path_segment(&index)),
+            )
+            .json(&body),
+            Some(index),
+        )
+        .await
+    }
+
+    pub async fn delete_index(
+        &self,
+        index: String,
+    ) -> Result<ElasticsearchIndexOperationResult, String> {
+        let index = validate_index_name(&index)?;
+        self.read_index_operation(
+            self.request(
+                reqwest::Method::DELETE,
+                &format!("/{}", encode_path_segment(&index)),
+            ),
+            Some(index),
+        )
+        .await
+    }
+
+    pub async fn refresh_index(
+        &self,
+        index: String,
+    ) -> Result<ElasticsearchIndexOperationResult, String> {
+        let index = validate_index_name(&index)?;
+        self.read_index_operation(
+            self.request(
+                reqwest::Method::POST,
+                &format!("/{}/_refresh", encode_path_segment(&index)),
+            ),
+            Some(index),
+        )
+        .await
+    }
+
+    pub async fn open_index(
+        &self,
+        index: String,
+    ) -> Result<ElasticsearchIndexOperationResult, String> {
+        let index = validate_index_name(&index)?;
+        self.read_index_operation(
+            self.request(
+                reqwest::Method::POST,
+                &format!("/{}/_open", encode_path_segment(&index)),
+            ),
+            Some(index),
+        )
+        .await
+    }
+
+    pub async fn close_index(
+        &self,
+        index: String,
+    ) -> Result<ElasticsearchIndexOperationResult, String> {
+        let index = validate_index_name(&index)?;
+        self.read_index_operation(
+            self.request(
+                reqwest::Method::POST,
+                &format!("/{}/_close", encode_path_segment(&index)),
+            ),
+            Some(index),
+        )
+        .await
+    }
+
     pub async fn search_documents(
         &self,
         index: String,
@@ -520,36 +680,10 @@ impl ElasticsearchClient {
                 .json(&body),
             )
             .await?;
-        let took_ms = value
-            .get("took")
-            .and_then(Value::as_i64)
-            .unwrap_or_else(|| started.elapsed().as_millis() as i64);
-        let total = match value.pointer("/hits/total") {
-            Some(Value::Number(n)) => n.as_i64().unwrap_or(0),
-            Some(Value::Object(obj)) => obj.get("value").and_then(Value::as_i64).unwrap_or(0),
-            _ => 0,
-        };
-        let hits = value
-            .pointer("/hits/hits")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter_map(|hit| {
-                Some(ElasticsearchSearchHit {
-                    index: hit.get("_index")?.as_str()?.to_string(),
-                    id: hit.get("_id")?.as_str()?.to_string(),
-                    score: hit.get("_score").and_then(Value::as_f64),
-                    source: hit.get("_source").cloned().unwrap_or(Value::Null),
-                    fields: hit.get("fields").cloned(),
-                })
-            })
-            .collect();
-        Ok(ElasticsearchSearchResponse {
-            hits,
-            total,
-            took_ms,
-        })
+        Ok(parse_search_response(
+            value,
+            started.elapsed().as_millis() as i64,
+        ))
     }
 
     pub async fn get_document(
@@ -697,7 +831,7 @@ impl ElasticsearchClient {
 mod tests {
     use super::{
         build_api_key, build_base_url, build_reqwest_client, clamp_search_size, normalize_error,
-        validate_raw_path,
+        parse_search_response, validate_index_name, validate_raw_path,
     };
     use crate::models::ConnectionForm;
     use base64::{engine::general_purpose, Engine as _};
@@ -814,6 +948,43 @@ mod tests {
         assert_eq!(
             validate_raw_path("_cluster/health").unwrap(),
             "/_cluster/health"
+        );
+    }
+
+    #[test]
+    fn validate_index_name_rejects_empty_values() {
+        assert!(validate_index_name("   ").is_err());
+        assert_eq!(validate_index_name(" products ").unwrap(), "products");
+    }
+
+    #[test]
+    fn parse_search_response_preserves_aggregations() {
+        let response = parse_search_response(
+            serde_json::json!({
+                "took": 4,
+                "hits": {
+                    "total": { "value": 1 },
+                    "hits": [{
+                        "_index": "products",
+                        "_id": "1",
+                        "_score": 1.0,
+                        "_source": { "category": "books" }
+                    }]
+                },
+                "aggregations": {
+                    "by_category": {
+                        "buckets": [{ "key": "books", "doc_count": 1 }]
+                    }
+                }
+            }),
+            99,
+        );
+        assert_eq!(response.took_ms, 4);
+        assert_eq!(response.total, 1);
+        assert_eq!(response.hits.len(), 1);
+        assert_eq!(
+            response.aggregations.unwrap()["by_category"]["buckets"][0]["key"],
+            "books"
         );
     }
 }

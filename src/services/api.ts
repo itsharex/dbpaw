@@ -196,6 +196,7 @@ export interface ElasticsearchSearchResponse {
   hits: ElasticsearchSearchHit[];
   total: number;
   tookMs: number;
+  aggregations?: any;
 }
 
 export interface ElasticsearchDocument {
@@ -210,6 +211,13 @@ export interface ElasticsearchMutationResult {
   index?: string | null;
   id?: string | null;
   result?: string | null;
+  status: number;
+}
+
+export interface ElasticsearchIndexOperationResult {
+  index?: string | null;
+  acknowledged?: boolean | null;
+  shardsAcknowledged?: boolean | null;
   status: number;
 }
 
@@ -866,6 +874,31 @@ export const api = {
       invoke<ElasticsearchIndexInfo[]>("elasticsearch_list_indices", { id }),
     getIndexMapping: (id: number, index: string) =>
       invoke<any>("elasticsearch_get_index_mapping", { id, index }),
+    createIndex: (params: { id: number; index: string; body?: any }) =>
+      invoke<ElasticsearchIndexOperationResult>(
+        "elasticsearch_create_index",
+        params,
+      ),
+    deleteIndex: (id: number, index: string) =>
+      invoke<ElasticsearchIndexOperationResult>("elasticsearch_delete_index", {
+        id,
+        index,
+      }),
+    refreshIndex: (id: number, index: string) =>
+      invoke<ElasticsearchIndexOperationResult>("elasticsearch_refresh_index", {
+        id,
+        index,
+      }),
+    openIndex: (id: number, index: string) =>
+      invoke<ElasticsearchIndexOperationResult>("elasticsearch_open_index", {
+        id,
+        index,
+      }),
+    closeIndex: (id: number, index: string) =>
+      invoke<ElasticsearchIndexOperationResult>("elasticsearch_close_index", {
+        id,
+        index,
+      }),
     searchDocuments: (params: {
       id: number;
       index: string;
