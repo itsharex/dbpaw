@@ -205,12 +205,20 @@ pub struct RedisStreamGroupInfo {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RedisBitmapBit {
+    pub offset: u64,
+    pub value: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RedisKeyExtra {
     pub subtype: Option<String>,
     pub stream_info: Option<RedisStreamInfo>,
     pub stream_groups: Option<Vec<RedisStreamGroupInfo>>,
     pub hll_count: Option<u64>,
     pub geo_count: Option<u64>,
+    pub bitmap_count: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -293,6 +301,7 @@ pub struct RedisKeyPatchPayload {
     pub list_rpop: Option<usize>,
     pub stream_add: Option<Vec<RedisStreamEntry>>,
     pub stream_del: Option<Vec<String>>,
+    pub bitmap_set: Option<Vec<RedisBitmapBit>>,
 }
 
 fn parse_database(database: Option<&str>) -> Result<i64, String> {
@@ -515,6 +524,7 @@ fn build_hll_extra(count: u64) -> RedisKeyExtra {
         stream_groups: None,
         hll_count: Some(count),
         geo_count: None,
+        bitmap_count: None,
     }
 }
 
@@ -525,6 +535,7 @@ fn build_geo_extra(total: u64) -> RedisKeyExtra {
         stream_groups: None,
         hll_count: None,
         geo_count: Some(total),
+        bitmap_count: None,
     }
 }
 
@@ -535,6 +546,7 @@ fn build_json_module_missing_extra() -> RedisKeyExtra {
         stream_groups: None,
         hll_count: None,
         geo_count: None,
+        bitmap_count: None,
     }
 }
 
@@ -548,6 +560,18 @@ fn build_stream_extra(
         stream_groups: Some(stream_groups),
         hll_count: None,
         geo_count: None,
+        bitmap_count: None,
+    }
+}
+
+fn build_bitmap_extra(count: u64) -> RedisKeyExtra {
+    RedisKeyExtra {
+        subtype: Some("bitmap".to_string()),
+        stream_info: None,
+        stream_groups: None,
+        hll_count: None,
+        geo_count: None,
+        bitmap_count: Some(count),
     }
 }
 
@@ -1186,6 +1210,19 @@ pub async fn get_key(conn: &mut RedisConnection, key: String) -> Result<RedisKey
                     (encoded, true)
                 }
             };
+
+            // Bitmap detection: if not HLL, check BITCOUNT.
+            // A non-empty string with BITCOUNT > 0 is likely a bitmap.
+            if extra.is_none() && !text.is_empty() {
+                let mut bitcount_cmd = redis::cmd("BITCOUNT");
+                bitcount_cmd.arg(&key);
+                if let Ok(count) = conn.query::<i64>(bitcount_cmd).await {
+                    if count > 0 {
+                        extra = Some(build_bitmap_extra(count as u64));
+                    }
+                }
+            }
+
             (RedisValue::String(text), None, 0, is_binary, extra)
         }
         "hash" => {
@@ -1660,6 +1697,13 @@ pub async fn patch_key(
             conn.query::<i64>(cmd).await?;
         }
     }
+    if let Some(bits) = payload.bitmap_set {
+        for bit in bits {
+            let mut cmd = redis::cmd("SETBIT");
+            cmd.arg(key).arg(bit.offset).arg(if bit.value { 1 } else { 0 });
+            conn.query::<i64>(cmd).await?;
+        }
+    }
 
     match payload.ttl_seconds {
         Some(ttl) if ttl > 0 => {
@@ -1730,6 +1774,258 @@ pub async fn set_ttl(
         success: true,
         affected: if changed { 1 } else { 0 },
     })
+}
+
+pub async fn bitmap_get_bit(
+    conn: &mut RedisConnection,
+    key: String,
+    offset: u64,
+) -> Result<bool, String> {
+    validate_key(&key)?;
+    let mut cmd = redis::cmd("GETBIT");
+    cmd.arg(&key).arg(offset);
+    let result: i64 = conn
+        .query(cmd)
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+    Ok(result != 0)
+}
+
+pub async fn bitmap_count(
+    conn: &mut RedisConnection,
+    key: String,
+    start: Option<i64>,
+    end: Option<i64>,
+) -> Result<u64, String> {
+    validate_key(&key)?;
+    let mut cmd = redis::cmd("BITCOUNT");
+    cmd.arg(&key);
+    if let (Some(s), Some(e)) = (start, end) {
+        cmd.arg(s).arg(e);
+    }
+    let count: i64 = conn
+        .query(cmd)
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+    Ok(count as u64)
+}
+
+pub async fn bitmap_pos(
+    conn: &mut RedisConnection,
+    key: String,
+    bit: bool,
+    start: Option<u64>,
+    end: Option<u64>,
+    count: Option<u64>,
+) -> Result<Vec<u64>, String> {
+    validate_key(&key)?;
+    let mut cmd = redis::cmd("BITPOS");
+    cmd.arg(&key).arg(if bit { 1 } else { 0 });
+    if let Some(s) = start {
+        cmd.arg(s);
+        if let Some(e) = end {
+            cmd.arg(e);
+        }
+    }
+    if let Some(c) = count {
+        cmd.arg("COUNT").arg(c);
+    }
+    let positions: Vec<i64> = conn
+        .query(cmd)
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+    Ok(positions.into_iter().map(|p| p as u64).collect())
+}
+
+pub async fn hll_pfadd(
+    conn: &mut RedisConnection,
+    key: String,
+    elements: Vec<String>,
+) -> Result<bool, String> {
+    validate_key(&key)?;
+    let mut cmd = redis::cmd("PFADD");
+    cmd.arg(&key);
+    for elem in &elements {
+        cmd.arg(elem);
+    }
+    let result: i64 = conn
+        .query(cmd)
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+    Ok(result != 0)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisGeoMember {
+    pub member: String,
+    pub longitude: f64,
+    pub latitude: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisGeoPosition {
+    pub longitude: f64,
+    pub latitude: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisGeoSearchResult {
+    pub member: String,
+    pub distance: Option<f64>,
+    pub hash: Option<u64>,
+    pub position: Option<RedisGeoPosition>,
+}
+
+pub async fn geo_add(
+    conn: &mut RedisConnection,
+    key: String,
+    members: Vec<RedisGeoMember>,
+) -> Result<i64, String> {
+    validate_key(&key)?;
+    let mut cmd = redis::cmd("GEOADD");
+    cmd.arg(&key);
+    for m in &members {
+        cmd.arg(m.longitude).arg(m.latitude).arg(&m.member);
+    }
+    let result: i64 = conn
+        .query(cmd)
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+    Ok(result)
+}
+
+pub async fn geo_pos(
+    conn: &mut RedisConnection,
+    key: String,
+    members: Vec<String>,
+) -> Result<Vec<Option<RedisGeoPosition>>, String> {
+    validate_key(&key)?;
+    let mut cmd = redis::cmd("GEOPOS");
+    cmd.arg(&key);
+    for m in &members {
+        cmd.arg(m);
+    }
+    let positions: Vec<Option<(f64, f64)>> = conn
+        .query(cmd)
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+    Ok(positions
+        .into_iter()
+        .map(|p| p.map(|(lon, lat)| RedisGeoPosition { longitude: lon, latitude: lat }))
+        .collect())
+}
+
+pub async fn geo_dist(
+    conn: &mut RedisConnection,
+    key: String,
+    member1: String,
+    member2: String,
+    unit: Option<String>,
+) -> Result<f64, String> {
+    validate_key(&key)?;
+    let mut cmd = redis::cmd("GEODIST");
+    cmd.arg(&key).arg(&member1).arg(&member2);
+    if let Some(u) = unit {
+        cmd.arg(u);
+    }
+    let result: f64 = conn
+        .query(cmd)
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+    Ok(result)
+}
+
+pub async fn geo_search(
+    conn: &mut RedisConnection,
+    key: String,
+    member: Option<String>,
+    longitude: Option<f64>,
+    latitude: Option<f64>,
+    radius: f64,
+    unit: String,
+    with_coord: bool,
+    with_dist: bool,
+    with_hash: bool,
+    count: Option<u64>,
+) -> Result<Vec<RedisGeoSearchResult>, String> {
+    validate_key(&key)?;
+    let mut cmd = redis::cmd("GEOSEARCH");
+    cmd.arg(&key);
+
+    if let Some(m) = member {
+        cmd.arg("FROMMEMBER").arg(m);
+    } else if let (Some(lon), Some(lat)) = (longitude, latitude) {
+        cmd.arg("FROMLONLAT").arg(lon).arg(lat);
+    } else {
+        return Err("[VALIDATION_ERROR] Either member or longitude+latitude is required".to_string());
+    }
+
+    cmd.arg("BYRADIUS").arg(radius).arg(&unit);
+
+    if with_coord || with_dist || with_hash {
+        cmd.arg("WITHCOORD").arg("WITHDIST").arg("WITHHASH");
+    }
+
+    if let Some(c) = count {
+        cmd.arg("COUNT").arg(c);
+    }
+
+    let results: Value = conn
+        .query(cmd)
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+
+    let arr = match results {
+        Value::Array(a) => a,
+        _ => return Ok(Vec::new()),
+    };
+
+    let mut output = Vec::new();
+    for item in arr {
+        if let Value::Array(inner) = item {
+            if inner.is_empty() {
+                continue;
+            }
+            let member_name = from_redis_value::<String>(&inner[0])
+                .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+            let mut result = RedisGeoSearchResult {
+                member: member_name,
+                distance: None,
+                hash: None,
+                position: None,
+            };
+            if inner.len() > 1 {
+                if let Ok(dist) = from_redis_value::<f64>(&inner[1]) {
+                    result.distance = Some(dist);
+                }
+            }
+            if inner.len() > 2 {
+                if let Ok(hash) = from_redis_value::<u64>(&inner[2]) {
+                    result.hash = Some(hash);
+                }
+            }
+            if inner.len() > 3 {
+                if let Value::Array(coord) = &inner[3] {
+                    if coord.len() >= 2 {
+                        if let (Ok(lon), Ok(lat)) = (
+                            from_redis_value::<f64>(&coord[0]),
+                            from_redis_value::<f64>(&coord[1]),
+                        ) {
+                            result.position = Some(RedisGeoPosition {
+                                longitude: lon,
+                                latitude: lat,
+                            });
+                        }
+                    }
+                }
+            }
+            output.push(result);
+        }
+    }
+    Ok(output)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

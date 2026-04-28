@@ -42,11 +42,11 @@
 
 | # | 功能 | 状态 | 优先级 | 备注 |
 |---|------|------|--------|------|
-| 2.1 | **Stream 类型查看** | ❌ 未开始 | 🔴 P0 | 当前返回 `[UNSUPPORTED]`，需专用视图 |
-| 2.2 | **RedisJSON 类型查看** | ❌ 未开始 | 🔴 P0 | 需 JSON 格式化展示与编辑 |
-| 2.3 | **Bitmap 信息展示** | ❌ 未开始 | 🟠 P1 | 至少展示类型、长度、内存占用 |
-| 2.4 | **Geo 信息展示** | ❌ 未开始 | 🟠 P1 | 同上 |
-| 2.5 | **HyperLogLog 信息展示** | ❌ 未开始 | 🟠 P1 | 同上 |
+| 2.1 | **Stream 类型查看** | ✅ 已完成 | 🔴 P0 | 条目列表、ID 范围、消费者组 |
+| 2.2 | **RedisJSON 类型查看** | ✅ 已完成 | 🔴 P0 | JSON 格式化展示与编辑 |
+| 2.3 | **Bitmap 专用视图** | ✅ 已完成 | 🟠 P1 | 网格可视化、SETBIT/GETBIT/BITCOUNT/BITPOS |
+| 2.4 | **Geo 专用视图** | ✅ 已完成 | 🟠 P1 | GEOPOS/GEODIST/GEOADD/GEOSEARCH |
+| 2.5 | **HyperLogLog 专用视图** | ✅ 已完成 | 🟠 P1 | PFCOUNT/PFADD、估算基数展示 |
 
 ### 🟠 P1 — 部署架构与连接模型
 
@@ -120,10 +120,12 @@
   ├─ 容器化测试环境 + CI 覆盖 ← 建议优先推进
   └─ Rename 强制覆盖选项 ✅
 
-第三阶段（功能扩展）— ❌ 未开始 ← 当前重点
-  ├─ Stream 基础查看（条目列表、ID 范围、消费者组）
-  ├─ RedisJSON 格式化展示与编辑
-  └─ Bitmap/Geo/HLL 基础信息展示
+第三阶段（功能扩展）— ✅ 全部完成
+  ├─ Stream 基础查看 ✅
+  ├─ RedisJSON 格式化展示与编辑 ✅
+  ├─ Bitmap 专用视图（网格可视化、SETBIT/GETBIT/BITCOUNT/BITPOS）✅
+  ├─ HyperLogLog 专用视图（PFCOUNT/PFADD、估算基数展示）✅
+  └─ Geo 专用视图（GEOPOS/GEODIST/GEOADD/GEOSEARCH）✅
 
 第四阶段（架构升级）— ❌ 未开始
   ├─ 显式连接模式（Sentinel 支持）

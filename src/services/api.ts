@@ -74,6 +74,29 @@ export type RedisValue =
   | { kind: "json"; value: string }
   | { kind: "none"; value?: null };
 
+export interface RedisBitmapBit {
+  offset: number;
+  value: boolean;
+}
+
+export interface RedisGeoMember {
+  member: string;
+  longitude: number;
+  latitude: number;
+}
+
+export interface RedisGeoPosition {
+  longitude: number;
+  latitude: number;
+}
+
+export interface RedisGeoSearchResult {
+  member: string;
+  distance?: number;
+  hash?: number;
+  position?: RedisGeoPosition;
+}
+
 export interface RedisKeyExtra {
   subtype?: string | null;
   streamInfo?: {
@@ -88,6 +111,7 @@ export interface RedisKeyExtra {
   streamGroups?: RedisStreamGroup[] | null;
   hllCount?: number | null;
   geoCount?: number | null;
+  bitmapCount?: number | null;
 }
 
 export interface RedisKeyValue {
@@ -159,6 +183,7 @@ export interface RedisKeyPatchPayload {
   listRpop?: number;
   streamAdd?: RedisStreamEntry[];
   streamDel?: string[];
+  bitmapSet?: RedisBitmapBit[];
 }
 
 export interface RedisRawResult {
@@ -886,6 +911,22 @@ export const api = {
       payload: RedisKeyPatchPayload,
     ) =>
       invoke<RedisMutationResult>("redis_patch_key", { id, database, payload }),
+    bitmapGetBit: (id: number, database: string | undefined, key: string, offset: number) =>
+      invoke<boolean>("redis_bitmap_get_bit", { id, database, key, offset }),
+    bitmapCount: (id: number, database: string | undefined, key: string, start?: number, end?: number) =>
+      invoke<number>("redis_bitmap_count", { id, database, key, start, end }),
+    bitmapPos: (id: number, database: string | undefined, key: string, bit: boolean, start?: number, end?: number, count?: number) =>
+      invoke<number[]>("redis_bitmap_pos", { id, database, key, bit, start, end, count }),
+    hllPfadd: (id: number, database: string | undefined, key: string, elements: string[]) =>
+      invoke<boolean>("redis_hll_pfadd", { id, database, key, elements }),
+    geoAdd: (id: number, database: string | undefined, key: string, members: RedisGeoMember[]) =>
+      invoke<number>("redis_geo_add", { id, database, key, members }),
+    geoPos: (id: number, database: string | undefined, key: string, members: string[]) =>
+      invoke<(RedisGeoPosition | null)[]>("redis_geo_pos", { id, database, key, members }),
+    geoDist: (id: number, database: string | undefined, key: string, member1: string, member2: string, unit?: string) =>
+      invoke<number>("redis_geo_dist", { id, database, key, member1, member2, unit }),
+    geoSearch: (id: number, database: string | undefined, key: string, params: { member?: string; longitude?: number; latitude?: number; radius: number; unit: string; withCoord?: boolean; withDist?: boolean; withHash?: boolean; count?: number }) =>
+      invoke<RedisGeoSearchResult[]>("redis_geo_search", { id, database, key, ...params }),
   },
   elasticsearch: {
     testConnection: (id: number) =>

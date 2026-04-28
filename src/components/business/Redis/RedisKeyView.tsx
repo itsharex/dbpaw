@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/services/api";
-import type { RedisKeyPatchPayload, RedisKeyValue, RedisValue } from "@/services/api";
+import type { RedisKeyPatchPayload, RedisKeyValue, RedisValue, RedisBitmapBit } from "@/services/api";
 import { toast } from "sonner";
 import { RedisStringViewer } from "./value-viewer/RedisStringViewer";
 import { RedisHashViewer } from "./value-viewer/RedisHashViewer";
@@ -30,6 +30,9 @@ import { RedisSetViewer } from "./value-viewer/RedisSetViewer";
 import { RedisZSetViewer } from "./value-viewer/RedisZSetViewer";
 import { RedisStreamViewer } from "./value-viewer/RedisStreamViewer";
 import { RedisJsonViewer } from "./value-viewer/RedisJsonViewer";
+import { RedisBitmapViewer } from "./value-viewer/RedisBitmapViewer";
+import { RedisHyperLogLogViewer } from "./value-viewer/RedisHyperLogLogViewer";
+import { RedisGeoViewer } from "./value-viewer/RedisGeoViewer";
 import {
   countRedisValueItems,
   isRedisValuePagePartial,
@@ -718,7 +721,41 @@ export function RedisKeyView({
         <div className="space-y-2">
           <Label>Value</Label>
 
-          {value.kind === "string" && (
+          {value.kind === "string" && record?.extra?.subtype === "bitmap" && (
+            <RedisBitmapViewer
+              value={value.value}
+              isBinary={record?.isBinary ?? false}
+              onChange={(v) => setValue({ kind: "string", value: v })}
+              onPatch={async (bits: RedisBitmapBit[]) => {
+                try {
+                  await api.redis.patchKey(connectionId, database, {
+                    key: redisKey,
+                    ttlSeconds: null,
+                    bitmapSet: bits,
+                  });
+                  toast.success("Bitmap updated");
+                  await load();
+                } catch (e) {
+                  toast.error("Failed to update bitmap", {
+                    description: e instanceof Error ? e.message : String(e),
+                  });
+                }
+              }}
+              extra={record?.extra}
+            />
+          )}
+          {value.kind === "string" && record?.extra?.subtype === "hyperloglog" && (
+            <RedisHyperLogLogViewer
+              value={value.value}
+              isBinary={record?.isBinary ?? false}
+              extra={record?.extra}
+              connectionId={connectionId}
+              database={database}
+              redisKey={redisKey}
+              onRefresh={() => void load()}
+            />
+          )}
+          {value.kind === "string" && record?.extra?.subtype !== "bitmap" && record?.extra?.subtype !== "hyperloglog" && (
             <RedisStringViewer
               value={value.value}
               onChange={(v) => setValue({ kind: "string", value: v })}
@@ -744,7 +781,18 @@ export function RedisKeyView({
               onChange={(v) => setValue({ kind: "set", value: v })}
             />
           )}
-          {value.kind === "zSet" && (
+          {value.kind === "zSet" && record?.extra?.subtype === "geo" && (
+            <RedisGeoViewer
+              value={value.value}
+              onChange={(v) => setValue({ kind: "zSet", value: v })}
+              extra={record?.extra}
+              connectionId={connectionId}
+              database={database}
+              redisKey={redisKey}
+              onRefresh={() => void load()}
+            />
+          )}
+          {value.kind === "zSet" && record?.extra?.subtype !== "geo" && (
             <RedisZSetViewer
               value={value.value}
               onChange={(v) => setValue({ kind: "zSet", value: v })}

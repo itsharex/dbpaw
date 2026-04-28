@@ -1,6 +1,7 @@
 use crate::datasources::redis::{
-    self, RedisDatabaseInfo, RedisKeyPatchPayload, RedisKeyValue, RedisMutationResult,
-    RedisRawResult, RedisScanResponse, RedisSetKeyPayload, RedisStreamEntry, RedisStreamView,
+    self, RedisDatabaseInfo, RedisGeoMember, RedisGeoPosition, RedisGeoSearchResult,
+    RedisKeyPatchPayload, RedisKeyValue, RedisMutationResult, RedisRawResult, RedisScanResponse,
+    RedisSetKeyPayload, RedisStreamEntry, RedisStreamView,
 };
 use crate::datasources::redis::{connect, RedisConnection};
 use crate::models::ConnectionForm;
@@ -383,6 +384,188 @@ pub async fn redis_execute_raw(
             evict(&state, id, &form, db).await;
             let mut conn = acquire(&state, id, &form, db).await?;
             redis::execute_raw(&mut conn, command).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_bitmap_get_bit(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    offset: u64,
+) -> Result<bool, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::bitmap_get_bit(&mut conn, key.clone(), offset).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::bitmap_get_bit(&mut conn, key, offset).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_bitmap_count(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    start: Option<i64>,
+    end: Option<i64>,
+) -> Result<u64, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::bitmap_count(&mut conn, key.clone(), start, end).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::bitmap_count(&mut conn, key, start, end).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_bitmap_pos(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    bit: bool,
+    start: Option<u64>,
+    end: Option<u64>,
+    count: Option<u64>,
+) -> Result<Vec<u64>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::bitmap_pos(&mut conn, key.clone(), bit, start, end, count).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::bitmap_pos(&mut conn, key, bit, start, end, count).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_hll_pfadd(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    elements: Vec<String>,
+) -> Result<bool, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::hll_pfadd(&mut conn, key.clone(), elements.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::hll_pfadd(&mut conn, key, elements).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_geo_add(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    members: Vec<RedisGeoMember>,
+) -> Result<i64, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::geo_add(&mut conn, key.clone(), members.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::geo_add(&mut conn, key, members).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_geo_pos(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    members: Vec<String>,
+) -> Result<Vec<Option<RedisGeoPosition>>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::geo_pos(&mut conn, key.clone(), members.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::geo_pos(&mut conn, key, members).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_geo_dist(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    member1: String,
+    member2: String,
+    unit: Option<String>,
+) -> Result<f64, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::geo_dist(&mut conn, key.clone(), member1.clone(), member2.clone(), unit.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::geo_dist(&mut conn, key, member1, member2, unit).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_geo_search(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    member: Option<String>,
+    longitude: Option<f64>,
+    latitude: Option<f64>,
+    radius: f64,
+    unit: String,
+    with_coord: bool,
+    with_dist: bool,
+    with_hash: bool,
+    count: Option<u64>,
+) -> Result<Vec<RedisGeoSearchResult>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::geo_search(&mut conn, key.clone(), member.clone(), longitude, latitude, radius, unit.clone(), with_coord, with_dist, with_hash, count).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::geo_search(&mut conn, key, member, longitude, latitude, radius, unit, with_coord, with_dist, with_hash, count).await
         }
         r => r,
     }
