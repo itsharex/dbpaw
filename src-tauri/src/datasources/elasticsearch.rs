@@ -15,6 +15,9 @@ pub struct ElasticsearchClient {
     client: reqwest::Client,
     base_url: String,
     auth: ElasticsearchAuth,
+    /// Held to keep the SSH tunnel alive for the lifetime of this client.
+    #[allow(dead_code)]
+    ssh_tunnel: Option<crate::ssh::SshTunnel>,
 }
 
 #[derive(Clone)]
@@ -322,11 +325,23 @@ impl ElasticsearchClient {
         if timeout_ms <= 0 {
             return Err("[VALIDATION_ERROR] connect timeout must be greater than 0".to_string());
         }
-        let client = build_reqwest_client(form, timeout_ms)?;
+
+        let mut effective_form = form.clone();
+        let ssh_tunnel = if let Some(true) = form.ssh_enabled {
+            let tunnel = crate::ssh::start_ssh_tunnel(form)?;
+            effective_form.host = Some("127.0.0.1".to_string());
+            effective_form.port = Some(tunnel.local_port as i64);
+            Some(tunnel)
+        } else {
+            None
+        };
+
+        let client = build_reqwest_client(&effective_form, timeout_ms)?;
         Ok(Self {
             client,
-            base_url: build_base_url(form)?,
-            auth: build_auth(form)?,
+            base_url: build_base_url(&effective_form)?,
+            auth: build_auth(&effective_form)?,
+            ssh_tunnel,
         })
     }
 

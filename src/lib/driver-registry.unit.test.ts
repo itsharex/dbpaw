@@ -195,6 +195,7 @@ describe("supportsSSLCA", () => {
     expect(supportsSSLCA("tidb")).toBe(true);
     expect(supportsSSLCA("starrocks")).toBe(true);
     expect(supportsSSLCA("doris")).toBe(true);
+    expect(supportsSSLCA("elasticsearch")).toBe(true);
   });
 
   test("returns false for drivers without SSL CA support", () => {
@@ -202,7 +203,6 @@ describe("supportsSSLCA", () => {
     expect(supportsSSLCA("duckdb")).toBe(false);
     expect(supportsSSLCA("clickhouse")).toBe(false);
     expect(supportsSSLCA("mssql")).toBe(false);
-    expect(supportsSSLCA("elasticsearch")).toBe(false);
   });
 });
 

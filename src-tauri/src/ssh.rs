@@ -20,11 +20,13 @@ fn default_target_port(driver: &str) -> i64 {
         "oracle" => 1521,
         "clickhouse" => 9000,
         "redis" => 6379,
+        "elasticsearch" => 9200,
         "sqlite" => 0,
         _ => 5432, // postgres and unknown drivers
     }
 }
 
+#[derive(Clone)]
 pub struct SshTunnel {
     pub local_port: u16,
     _guard: Arc<TunnelGuard>,
@@ -360,6 +362,7 @@ mod tests {
         assert_eq!(default_target_port("doris"), 9030);
         assert_eq!(default_target_port("clickhouse"), 9000);
         assert_eq!(default_target_port("redis"), 6379);
+        assert_eq!(default_target_port("elasticsearch"), 9200);
     }
 
     #[test]

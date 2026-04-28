@@ -10,6 +10,7 @@ import {
   siRedis,
   siApachedoris,
   siTidb,
+  siElasticsearch,
 } from "simple-icons";
 
 export type ImportDriverCapability =
@@ -240,7 +241,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSchemaBrowsing: false,
     supportsCreateDatabase: false,
     importCapability: "unsupported",
-    icon: () => <Server className="w-4 h-4" />,
+    icon: () => renderSimpleIcon(siElasticsearch),
   },
 ];
 
