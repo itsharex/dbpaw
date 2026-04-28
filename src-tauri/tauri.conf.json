@@ -25,7 +25,8 @@
         "height": 600,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "devtools": true
+        "devtools": true,
+        "shadow": false
       }
     ],
     "security": {
