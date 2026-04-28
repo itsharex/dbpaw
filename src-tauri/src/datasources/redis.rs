@@ -8,10 +8,11 @@ use redis::cluster_async::ClusterConnection;
 use redis::cluster_routing::{
     MultipleNodeRoutingInfo, ResponsePolicy, RoutingInfo, SingleNodeRoutingInfo,
 };
+use redis::sentinel::{Sentinel, SentinelNodeConnectionInfo};
 use redis::AsyncConnectionConfig;
 use redis::{
     from_redis_value, Cmd, ConnectionAddr, ConnectionInfo, FromRedisValue, ProtocolVersion,
-    RedisConnectionInfo, Value,
+    RedisConnectionInfo, TlsMode, Value,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -753,12 +754,63 @@ fn build_cluster_nodes(form: &ConnectionForm) -> Result<Vec<ConnectionInfo>, Str
     Ok(nodes)
 }
 
+fn build_sentinel_node_info(form: &ConnectionForm, db: i64) -> SentinelNodeConnectionInfo {
+    let tls_mode = if form.ssl.unwrap_or(false) {
+        Some(TlsMode::Secure)
+    } else {
+        None
+    };
+    let username = form
+        .username
+        .as_deref()
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
+    let password = form
+        .password
+        .as_deref()
+        .filter(|v| !v.is_empty())
+        .map(str::to_string);
+    SentinelNodeConnectionInfo {
+        tls_mode,
+        redis_connection_info: Some(RedisConnectionInfo {
+            db,
+            username,
+            password,
+            protocol: ProtocolVersion::RESP2,
+        }),
+    }
+}
+
 pub async fn connect(
     form: &ConnectionForm,
     database: Option<&str>,
 ) -> Result<RedisConnection, String> {
     if is_sentinel_form(form) {
-        return Err("[NOT_SUPPORTED] Redis Sentinel is not implemented yet".to_string());
+        let sentinel_nodes = form
+            .sentinels
+            .clone()
+            .ok_or("[VALIDATION_ERROR] Sentinel nodes required")?;
+        let service_name = form
+            .service_name
+            .clone()
+            .unwrap_or_else(|| "mymaster".to_string());
+        let db = selected_database(form, database)?;
+        let node_info = build_sentinel_node_info(form, db);
+
+        let mut sentinel = Sentinel::build(sentinel_nodes)
+            .map_err(|e| conn_failed_error(&e))?;
+
+        let client = sentinel
+            .async_master_for(&service_name, Some(&node_info))
+            .await
+            .map_err(|e| conn_failed_error(&e))?;
+
+        let config = AsyncConnectionConfig::new().set_connection_timeout(connect_timeout(form));
+        let conn = client
+            .get_multiplexed_async_connection_with_config(&config)
+            .await
+            .map_err(|e| conn_failed_error(&e))?;
+        return Ok(RedisConnection::Standalone(conn));
     }
 
     if is_cluster_form(form) {
@@ -810,9 +862,6 @@ pub fn list_databases(
     form: &ConnectionForm,
     db_count: i64,
 ) -> Result<Vec<RedisDatabaseInfo>, String> {
-    if is_sentinel_form(form) {
-        return Err("[NOT_SUPPORTED] Redis Sentinel is not implemented yet".to_string());
-    }
     if is_cluster_form(form) {
         build_cluster_nodes(form)?;
         return Ok(vec![RedisDatabaseInfo {
@@ -822,6 +871,7 @@ pub fn list_databases(
         }]);
     }
 
+    // Sentinel resolves to a master node, so database selection works like standalone.
     let selected = selected_database(form, None)?;
     let db_count = db_count.clamp(1, 256);
     Ok((0..db_count)

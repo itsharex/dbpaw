@@ -235,6 +235,8 @@ export const ja: Translations = {
         seedNodes: "シードノード",
         sentinels: "Sentinel ノード",
         connectTimeoutMs: "接続タイムアウト (ms)",
+        serviceName: "サービス名",
+        sentinelPassword: "Sentinel パスワード",
         authMode: "認証方式",
         apiKeyId: "API Key ID",
         apiKeySecret: "API Key",
@@ -257,6 +259,8 @@ export const ja: Translations = {
         sshKeyPath: "/path/to/private_key",
         seedNodes: "10.0.0.1:6379\n10.0.0.2:6379",
         sentinels: "10.0.0.10:26379\n10.0.0.11:26379",
+        serviceName: "mymaster",
+        sentinelPassword: "認証が必要な場合のみ入力",
         sqlitePath: "/path/to/db.sqlite",
         sqliteKey: "暗号化されていないデータベースは空欄のまま",
         duckdbPath: "/path/to/db.duckdb",
@@ -308,9 +312,6 @@ export const ja: Translations = {
         cluster: "クラスター",
         sentinel: "Sentinel",
       },
-      redisSentinelPendingTitle: "Sentinel 接続はまだ未実装です",
-      redisSentinelPendingDescription:
-        "Sentinel ノード構成は保存できますが、接続とブラウズはまだ実装されていません。",
       sslValidation: {
         caRequired: "CA 検証モードでは CA 証明書が必須です。",
       },

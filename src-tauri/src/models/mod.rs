@@ -26,6 +26,8 @@ pub struct Connection {
     pub seed_nodes: Option<Vec<String>>,
     pub sentinels: Option<Vec<String>>,
     pub connect_timeout_ms: Option<i64>,
+    pub service_name: Option<String>,
+    pub sentinel_password: Option<String>,
     pub auth_mode: Option<String>,
     pub api_key_id: Option<String>,
     pub api_key_secret: Option<String>,
@@ -275,6 +277,8 @@ pub struct ConnectionForm {
     pub seed_nodes: Option<Vec<String>>,
     pub sentinels: Option<Vec<String>>,
     pub connect_timeout_ms: Option<i64>,
+    pub service_name: Option<String>,
+    pub sentinel_password: Option<String>,
     pub auth_mode: Option<String>,
     pub api_key_id: Option<String>,
     pub api_key_secret: Option<String>,
@@ -292,6 +296,7 @@ impl fmt::Debug for ConnectionForm {
         let api_key_id = self.api_key_id.as_ref().map(|_| "<redacted>");
         let api_key_secret = self.api_key_secret.as_ref().map(|_| "<redacted>");
         let api_key_encoded = self.api_key_encoded.as_ref().map(|_| "<redacted>");
+        let sentinel_password = self.sentinel_password.as_ref().map(|_| "<redacted>");
         f.debug_struct("ConnectionForm")
             .field("driver", &self.driver)
             .field("name", &self.name)
@@ -315,6 +320,8 @@ impl fmt::Debug for ConnectionForm {
             .field("seed_nodes", &self.seed_nodes)
             .field("sentinels", &self.sentinels)
             .field("connect_timeout_ms", &self.connect_timeout_ms)
+            .field("service_name", &self.service_name)
+            .field("sentinel_password", &sentinel_password)
             .field("auth_mode", &self.auth_mode)
             .field("api_key_id", &api_key_id)
             .field("api_key_secret", &api_key_secret)

@@ -113,6 +113,8 @@ export const buildConnectionFormDefaults = (
   seedNodes: driver === "redis" ? [] : undefined,
   sentinels: driver === "redis" ? [] : undefined,
   connectTimeoutMs: driver === "redis" ? 5000 : undefined,
+  serviceName: driver === "redis" ? "" : undefined,
+  sentinelPassword: driver === "redis" ? "" : undefined,
   authMode: driver === "elasticsearch" ? "none" : undefined,
   apiKeyId: "",
   apiKeySecret: "",
@@ -122,7 +124,9 @@ export const buildConnectionFormDefaults = (
 });
 
 export const allowsHostWithPort = (driver: Driver) =>
-  isMysqlFamilyDriver(driver) || driver === "redis" || driver === "elasticsearch";
+  isMysqlFamilyDriver(driver) ||
+  driver === "redis" ||
+  driver === "elasticsearch";
 
 export const requiresPasswordOnCreate = (driver: Driver) =>
   !isMysqlFamilyDriver(driver) &&
@@ -185,16 +189,15 @@ export const normalizeStringList = (values: string[] | undefined) => {
   }
   const normalized = values
     .map((value) => value.trim())
-    .filter((value, index, items) => value.length > 0 && items.indexOf(value) === index);
+    .filter(
+      (value, index, items) =>
+        value.length > 0 && items.indexOf(value) === index,
+    );
   return normalized.length > 0 ? normalized : undefined;
 };
 
 export const normalizeRedisNodeListInput = (value: string | undefined) =>
-  normalizeStringList(
-    (value || "")
-      .split(/[\n,]/)
-      .map((item) => item.trim()),
-  );
+  normalizeStringList((value || "").split(/[\n,]/).map((item) => item.trim()));
 
 export const formatRedisNodeList = (values: string[] | undefined) =>
   values?.join("\n") ?? "";
@@ -238,14 +241,14 @@ export const normalizeConnectionFormInput = (
       : { host: normalizedHost, port: normalizedPort };
   const seedNodes =
     driver === "redis"
-      ? normalizeStringList(raw.seedNodes) ??
+      ? (normalizeStringList(raw.seedNodes) ??
         normalizeRedisNodeListInput(
           redisMode === "cluster"
             ? hostPortNormalized.host
             : hostPortNormalized.host && hostPortNormalized.port
               ? `${hostPortNormalized.host}:${hostPortNormalized.port}`
               : hostPortNormalized.host,
-        )
+        ))
       : undefined;
   const sentinels =
     driver === "redis" ? normalizeStringList(raw.sentinels) : undefined;
@@ -299,5 +302,13 @@ export const normalizeConnectionFormInput = (
         : undefined,
     sentinels,
     connectTimeoutMs: normalizedTimeout,
+    serviceName:
+      driver === "redis"
+        ? (normalizeTextValue(raw.serviceName) ?? "")
+        : undefined,
+    sentinelPassword:
+      driver === "redis"
+        ? normalizeTextValue(raw.sentinelPassword, false)
+        : undefined,
   };
 };

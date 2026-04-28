@@ -237,6 +237,21 @@ impl LocalDb {
             .map_err(|e| format!("[MIGRATION_013_ERROR] {e}"))?;
         }
 
+        let has_service_name_column: bool =
+            sqlx::query_scalar("SELECT COUNT(*) > 0 FROM pragma_table_info('connections') WHERE name = 'service_name'")
+                .fetch_one(&pool)
+                .await
+                .map_err(|e| format!("[MIGRATION_014_CHECK_ERROR] {e}"))?;
+
+        if !has_service_name_column {
+            sqlx::query(include_str!(
+                "../../migrations/014_add_sentinel_fields.sql"
+            ))
+            .execute(&pool)
+            .await
+            .map_err(|e| format!("[MIGRATION_014_ERROR] {e}"))?;
+        }
+
         Ok(Self {
             pool,
             ai_master_key,
@@ -342,8 +357,8 @@ impl LocalDb {
         }
 
         let id = sqlx::query_scalar::<_, i64>(
-            "INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, ssl_mode, ssl_ca_cert, file_path, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path, mode, seed_nodes, sentinels, connect_timeout_ms, auth_mode, api_key_id, api_key_secret, api_key_encoded, cloud_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
+            "INSERT INTO connections (uuid, type, name, host, port, database, username, password, ssl, ssl_mode, ssl_ca_cert, file_path, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path, mode, seed_nodes, sentinels, connect_timeout_ms, service_name, sentinel_password, auth_mode, api_key_id, api_key_secret, api_key_encoded, cloud_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
         )
         .bind(&uuid)
         .bind(&form.driver)
@@ -367,6 +382,8 @@ impl LocalDb {
         .bind(encode_string_list(form.seed_nodes))
         .bind(encode_string_list(form.sentinels))
         .bind(form.connect_timeout_ms)
+        .bind(form.service_name)
+        .bind(form.sentinel_password)
         .bind(form.auth_mode)
         .bind(form.api_key_id)
         .bind(form.api_key_secret)
@@ -385,7 +402,7 @@ impl LocalDb {
         form: ConnectionForm,
     ) -> Result<Connection, String> {
         sqlx::query(
-            "UPDATE connections SET name = COALESCE(NULLIF(?, ''), name), type = ?, host = ?, port = ?, database = ?, username = ?, password = COALESCE(NULLIF(?, ''), password), ssl = ?, ssl_mode = ?, ssl_ca_cert = ?, file_path = ?, ssh_enabled = ?, ssh_host = ?, ssh_port = ?, ssh_username = ?, ssh_password = ?, ssh_key_path = ?, mode = ?, seed_nodes = ?, sentinels = ?, connect_timeout_ms = ?, auth_mode = ?, api_key_id = ?, api_key_secret = COALESCE(NULLIF(?, ''), api_key_secret), api_key_encoded = COALESCE(NULLIF(?, ''), api_key_encoded), cloud_id = ?, updated_at = datetime('now') WHERE id = ?"
+            "UPDATE connections SET name = COALESCE(NULLIF(?, ''), name), type = ?, host = ?, port = ?, database = ?, username = ?, password = COALESCE(NULLIF(?, ''), password), ssl = ?, ssl_mode = ?, ssl_ca_cert = ?, file_path = ?, ssh_enabled = ?, ssh_host = ?, ssh_port = ?, ssh_username = ?, ssh_password = ?, ssh_key_path = ?, mode = ?, seed_nodes = ?, sentinels = ?, connect_timeout_ms = ?, service_name = ?, sentinel_password = COALESCE(NULLIF(?, ''), sentinel_password), auth_mode = ?, api_key_id = ?, api_key_secret = COALESCE(NULLIF(?, ''), api_key_secret), api_key_encoded = COALESCE(NULLIF(?, ''), api_key_encoded), cloud_id = ?, updated_at = datetime('now') WHERE id = ?"
         )
         .bind(form.name)
         .bind(&form.driver)
@@ -408,6 +425,8 @@ impl LocalDb {
         .bind(encode_string_list(form.seed_nodes))
         .bind(encode_string_list(form.sentinels))
         .bind(form.connect_timeout_ms)
+        .bind(form.service_name)
+        .bind(form.sentinel_password)
         .bind(form.auth_mode)
         .bind(form.api_key_id)
         .bind(form.api_key_secret)
@@ -435,7 +454,7 @@ impl LocalDb {
             r#"SELECT
                 id, uuid, name, type as db_type, host, port, database, username, ssl, ssl_mode, ssl_ca_cert, file_path,
                 ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path,
-                mode, seed_nodes, sentinels, connect_timeout_ms,
+                mode, seed_nodes, sentinels, connect_timeout_ms, service_name, NULL as sentinel_password,
                 auth_mode, api_key_id, NULL as api_key_secret, NULL as api_key_encoded, cloud_id,
                 created_at, updated_at
                FROM connections
@@ -469,6 +488,8 @@ impl LocalDb {
                 seed_nodes: decode_string_list(row.try_get("seed_nodes").ok()),
                 sentinels: decode_string_list(row.try_get("sentinels").ok()),
                 connect_timeout_ms: row.try_get("connect_timeout_ms").ok(),
+                service_name: row.try_get("service_name").ok(),
+                sentinel_password: row.try_get("sentinel_password").ok(),
                 auth_mode: row.try_get("auth_mode").ok(),
                 api_key_id: row.try_get("api_key_id").ok(),
                 api_key_secret: row.try_get("api_key_secret").ok(),
@@ -485,7 +506,7 @@ impl LocalDb {
             r#"SELECT
                 id, uuid, name, type as db_type, host, port, database, username, ssl, ssl_mode, ssl_ca_cert, file_path,
                 ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path,
-                mode, seed_nodes, sentinels, connect_timeout_ms,
+                mode, seed_nodes, sentinels, connect_timeout_ms, service_name, NULL as sentinel_password,
                 auth_mode, api_key_id, NULL as api_key_secret, NULL as api_key_encoded, cloud_id,
                 created_at, updated_at
                FROM connections
@@ -519,6 +540,8 @@ impl LocalDb {
             seed_nodes: decode_string_list(row.try_get("seed_nodes").ok()),
             sentinels: decode_string_list(row.try_get("sentinels").ok()),
             connect_timeout_ms: row.try_get("connect_timeout_ms").ok(),
+            service_name: row.try_get("service_name").ok(),
+            sentinel_password: row.try_get("sentinel_password").ok(),
             auth_mode: row.try_get("auth_mode").ok(),
             api_key_id: row.try_get("api_key_id").ok(),
             api_key_secret: row.try_get("api_key_secret").ok(),
@@ -531,7 +554,7 @@ impl LocalDb {
 
     pub async fn get_connection_form_by_id(&self, id: i64) -> Result<ConnectionForm, String> {
         let row = sqlx::query(
-            "SELECT type as db_type, name, host, port, database, username, password, ssl, ssl_mode, ssl_ca_cert, file_path, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path, mode, seed_nodes, sentinels, connect_timeout_ms, auth_mode, api_key_id, api_key_secret, api_key_encoded, cloud_id FROM connections WHERE id = ?"
+            "SELECT type as db_type, name, host, port, database, username, password, ssl, ssl_mode, ssl_ca_cert, file_path, ssh_enabled, ssh_host, ssh_port, ssh_username, ssh_password, ssh_key_path, mode, seed_nodes, sentinels, connect_timeout_ms, service_name, sentinel_password, auth_mode, api_key_id, api_key_secret, api_key_encoded, cloud_id FROM connections WHERE id = ?"
         )
         .bind(id)
         .fetch_one(&self.pool)
@@ -562,6 +585,8 @@ impl LocalDb {
             seed_nodes: decode_string_list(row.try_get("seed_nodes").ok()),
             sentinels: decode_string_list(row.try_get("sentinels").ok()),
             connect_timeout_ms: row.try_get("connect_timeout_ms").ok(),
+            service_name: row.try_get("service_name").ok(),
+            sentinel_password: row.try_get("sentinel_password").ok(),
             auth_mode: row.try_get("auth_mode").ok(),
             api_key_id: row.try_get("api_key_id").ok(),
             api_key_secret: row.try_get("api_key_secret").ok(),
@@ -1081,6 +1106,7 @@ mod tests {
             include_str!("../../migrations/011_add_ssl_fields.sql"),
             include_str!("../../migrations/012_add_redis_connection_options.sql"),
             include_str!("../../migrations/013_add_elasticsearch_connection_options.sql"),
+            include_str!("../../migrations/014_add_sentinel_fields.sql"),
         ] {
             sqlx::query(migration)
                 .execute(&pool)

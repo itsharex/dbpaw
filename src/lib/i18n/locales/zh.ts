@@ -229,6 +229,8 @@ export const zh: Translations = {
         seedNodes: "Seed Nodes",
         sentinels: "Sentinels",
         connectTimeoutMs: "连接超时（毫秒）",
+        serviceName: "服务名称",
+        sentinelPassword: "Sentinel 密码",
         authMode: "认证方式",
         apiKeyId: "API Key ID",
         apiKeySecret: "API Key",
@@ -251,6 +253,8 @@ export const zh: Translations = {
         sshKeyPath: "/path/to/private_key",
         seedNodes: "10.0.0.1:6379\n10.0.0.2:6379",
         sentinels: "10.0.0.10:26379\n10.0.0.11:26379",
+        serviceName: "mymaster",
+        sentinelPassword: "Sentinel 认证时选填",
         sqlitePath: "/path/to/db.sqlite",
         sqliteKey: "未加密数据库请留空",
         duckdbPath: "/path/to/db.duckdb",
@@ -299,9 +303,6 @@ export const zh: Translations = {
         cluster: "集群",
         sentinel: "哨兵",
       },
-      redisSentinelPendingTitle: "Sentinel 连接暂未打通",
-      redisSentinelPendingDescription:
-        "当前可以保存 Sentinel 节点配置，但尚未实现实际连接和浏览能力。",
       sslValidation: {
         caRequired: "SSL 模式为校验 CA 时必须填写 CA 证书。",
       },

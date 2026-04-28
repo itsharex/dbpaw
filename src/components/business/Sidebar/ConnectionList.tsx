@@ -168,6 +168,8 @@ interface Connection {
   seedNodes?: string[];
   sentinels?: string[];
   connectTimeoutMs?: number;
+  serviceName?: string;
+  sentinelPassword?: string;
   authMode?: "none" | "basic" | "api_key";
   apiKeyId?: string;
   apiKeySecret?: string;
@@ -403,6 +405,8 @@ const buildFormFromConnection = (
     | "seedNodes"
     | "sentinels"
     | "connectTimeoutMs"
+    | "serviceName"
+    | "sentinelPassword"
     | "authMode"
     | "apiKeyId"
     | "apiKeySecret"
@@ -433,6 +437,8 @@ const buildFormFromConnection = (
     seedNodes: connection.seedNodes || [],
     sentinels: connection.sentinels || [],
     connectTimeoutMs: connection.connectTimeoutMs,
+    serviceName: connection.serviceName || "",
+    sentinelPassword: "",
     authMode: connection.authMode || "none",
     apiKeyId: connection.apiKeyId || "",
     apiKeySecret: "",
@@ -466,6 +472,8 @@ const mapSavedConnection = (
   seedNodes: c.seedNodes || [],
   sentinels: c.sentinels || [],
   connectTimeoutMs: c.connectTimeoutMs || undefined,
+  serviceName: c.serviceName || undefined,
+  sentinelPassword: c.sentinelPassword || "",
   authMode: c.authMode || "none",
   apiKeyId: c.apiKeyId || "",
   apiKeySecret: c.apiKeySecret || "",

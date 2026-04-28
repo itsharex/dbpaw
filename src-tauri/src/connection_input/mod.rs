@@ -135,6 +135,9 @@ fn normalize_redis_options(form: &mut ConnectionForm) -> Result<(), String> {
                         .to_string(),
                 );
             }
+            if form.service_name.is_none() {
+                form.service_name = Some("mymaster".to_string());
+            }
         }
         _ => {}
     }
@@ -165,6 +168,8 @@ pub fn normalize_connection_form(mut form: ConnectionForm) -> Result<ConnectionF
     form.api_key_secret = trim_preserve_empty(form.api_key_secret);
     form.api_key_encoded = trim_preserve_empty(form.api_key_encoded);
     form.cloud_id = trim_to_option(form.cloud_id);
+    form.service_name = trim_to_option(form.service_name);
+    form.sentinel_password = trim_preserve_empty(form.sentinel_password);
 
     validate_port_range("port", form.port)?;
     validate_port_range("ssh port", form.ssh_port)?;

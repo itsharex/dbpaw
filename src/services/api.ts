@@ -308,6 +308,8 @@ export interface ConnectionForm {
   seedNodes?: string[];
   sentinels?: string[];
   connectTimeoutMs?: number;
+  serviceName?: string;
+  sentinelPassword?: string;
   authMode?: "none" | "basic" | "api_key";
   apiKeyId?: string;
   apiKeySecret?: string;
@@ -338,6 +340,8 @@ export interface SavedConnection {
   seedNodes?: string[] | null;
   sentinels?: string[] | null;
   connectTimeoutMs?: number | null;
+  serviceName?: string | null;
+  sentinelPassword?: string | null;
   authMode?: "none" | "basic" | "api_key" | null;
   apiKeyId?: string | null;
   apiKeySecret?: string | null;

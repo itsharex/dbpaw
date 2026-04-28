@@ -233,6 +233,8 @@ export const en = {
         seedNodes: "Seed Nodes",
         sentinels: "Sentinels",
         connectTimeoutMs: "Connect Timeout (ms)",
+        serviceName: "Service Name",
+        sentinelPassword: "Sentinel Password",
         authMode: "Authentication",
         apiKeyId: "API Key ID",
         apiKeySecret: "API Key",
@@ -255,6 +257,8 @@ export const en = {
         sshKeyPath: "/path/to/private_key",
         seedNodes: "10.0.0.1:6379\n10.0.0.2:6379",
         sentinels: "10.0.0.10:26379\n10.0.0.11:26379",
+        serviceName: "mymaster",
+        sentinelPassword: "Optional if sentinel requires auth",
         sqlitePath: "/path/to/db.sqlite",
         sqliteKey: "Leave empty for unencrypted databases",
         duckdbPath: "/path/to/db.duckdb",
@@ -306,9 +310,6 @@ export const en = {
         cluster: "Cluster",
         sentinel: "Sentinel",
       },
-      redisSentinelPendingTitle: "Sentinel support is not wired yet",
-      redisSentinelPendingDescription:
-        "Sentinel nodes can be saved now, but connection and browsing are not implemented yet.",
       sslValidation: {
         caRequired: "CA certificate is required in verify CA mode.",
       },

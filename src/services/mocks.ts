@@ -1274,6 +1274,8 @@ export async function mockCreateConnection(form: ConnectionForm): Promise<any> {
     seedNodes: form.seedNodes ?? null,
     sentinels: form.sentinels ?? null,
     connectTimeoutMs: form.connectTimeoutMs ?? null,
+    serviceName: form.serviceName ?? null,
+    sentinelPassword: form.sentinelPassword ?? null,
     authMode: form.authMode ?? null,
     apiKeyId: form.apiKeyId ?? null,
     apiKeySecret: form.apiKeySecret ?? null,
@@ -1337,6 +1339,11 @@ export async function mockUpdateConnection(
     sentinels: form.sentinels ?? existing.sentinels ?? null,
     connectTimeoutMs:
       form.connectTimeoutMs ?? existing.connectTimeoutMs ?? null,
+    serviceName: form.serviceName ?? existing.serviceName ?? null,
+    sentinelPassword:
+      form.sentinelPassword !== undefined && form.sentinelPassword !== ""
+        ? form.sentinelPassword
+        : (existing.sentinelPassword ?? null),
     authMode: form.authMode ?? existing.authMode ?? null,
     apiKeyId: form.apiKeyId ?? existing.apiKeyId ?? null,
     apiKeySecret: nextApiKeySecret,

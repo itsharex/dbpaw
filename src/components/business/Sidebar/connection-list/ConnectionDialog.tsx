@@ -223,12 +223,12 @@ export function ConnectionDialog({
                                   ...current,
                                   mode: value,
                                   host:
-                                    value === "standalone"
-                                      ? current.host
-                                      : "",
+                                    value === "standalone" ? current.host : "",
                                   port:
                                     value === "standalone"
-                                      ? current.port || getDefaultPort("redis") || undefined
+                                      ? current.port ||
+                                        getDefaultPort("redis") ||
+                                        undefined
                                       : undefined,
                                 }))
                               }
@@ -355,14 +355,47 @@ export function ConnectionDialog({
                                 }
                               />
                             </div>
-                            <Alert>
-                              <AlertTitle>
-                                {t("connection.dialog.redisSentinelPendingTitle")}
-                              </AlertTitle>
-                              <AlertDescription>
-                                {t("connection.dialog.redisSentinelPendingDescription")}
-                              </AlertDescription>
-                            </Alert>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="grid gap-2">
+                                <Label htmlFor="serviceName">
+                                  {t("connection.dialog.fields.serviceName")}
+                                </Label>
+                                <Input
+                                  id="serviceName"
+                                  placeholder={t(
+                                    "connection.dialog.placeholders.serviceName",
+                                  )}
+                                  value={form.serviceName || ""}
+                                  onChange={(e) =>
+                                    setForm((current) => ({
+                                      ...current,
+                                      serviceName: e.target.value,
+                                    }))
+                                  }
+                                />
+                              </div>
+                              <div className="grid gap-2">
+                                <Label htmlFor="sentinelPassword">
+                                  {t(
+                                    "connection.dialog.fields.sentinelPassword",
+                                  )}
+                                </Label>
+                                <Input
+                                  id="sentinelPassword"
+                                  type="password"
+                                  placeholder={t(
+                                    "connection.dialog.placeholders.sentinelPassword",
+                                  )}
+                                  value={form.sentinelPassword || ""}
+                                  onChange={(e) =>
+                                    setForm((current) => ({
+                                      ...current,
+                                      sentinelPassword: e.target.value,
+                                    }))
+                                  }
+                                />
+                              </div>
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -391,54 +424,51 @@ export function ConnectionDialog({
                       </div>
                     ) : null}
 
-                    {(formCapabilities.showHost ||
-                      formCapabilities.showPort) &&
+                    {(formCapabilities.showHost || formCapabilities.showPort) &&
                       !hasElasticCloudId && (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {formCapabilities.showHost ? (
-                          <div className="grid gap-2">
-                            <Label htmlFor="host">
-                              {t("connection.dialog.fields.host")}{" "}
-                              <span className="text-red-600">*</span>
-                            </Label>
-                            <Input
-                              id="host"
-                              placeholder={
-                                undefined
-                              }
-                              value={form.host || ""}
-                              onChange={(e) =>
-                                setForm((current) => ({
-                                  ...current,
-                                  host: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                        ) : null}
-                        {formCapabilities.showPort ? (
-                          <div className="grid gap-2">
-                            <Label htmlFor="port">
-                              {t("connection.dialog.fields.port")}{" "}
-                              <span className="text-red-600">*</span>
-                            </Label>
-                            <Input
-                              id="port"
-                              placeholder={String(
-                                getDefaultPort(form.driver) ?? "",
-                              )}
-                              value={String(form.port || "")}
-                              onChange={(e) =>
-                                setForm((current) => ({
-                                  ...current,
-                                  port: Number(e.target.value) || undefined,
-                                }))
-                              }
-                            />
-                          </div>
-                        ) : null}
-                      </div>
-                    )}
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {formCapabilities.showHost ? (
+                            <div className="grid gap-2">
+                              <Label htmlFor="host">
+                                {t("connection.dialog.fields.host")}{" "}
+                                <span className="text-red-600">*</span>
+                              </Label>
+                              <Input
+                                id="host"
+                                placeholder={undefined}
+                                value={form.host || ""}
+                                onChange={(e) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    host: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                          ) : null}
+                          {formCapabilities.showPort ? (
+                            <div className="grid gap-2">
+                              <Label htmlFor="port">
+                                {t("connection.dialog.fields.port")}{" "}
+                                <span className="text-red-600">*</span>
+                              </Label>
+                              <Input
+                                id="port"
+                                placeholder={String(
+                                  getDefaultPort(form.driver) ?? "",
+                                )}
+                                value={String(form.port || "")}
+                                onChange={(e) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    port: Number(e.target.value) || undefined,
+                                  }))
+                                }
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
 
                     {isElasticsearch ? (
                       <div className="space-y-3 rounded-md border bg-muted/20 p-3">
@@ -589,58 +619,58 @@ export function ConnectionDialog({
                     {(formCapabilities.showUsername ||
                       formCapabilities.showPassword) &&
                       !isElasticsearch && (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {formCapabilities.showUsername ? (
-                          <div className="grid gap-2">
-                            <Label htmlFor="username">
-                              {t("connection.dialog.fields.username")}{" "}
-                              {isUsernameRequired ? (
-                                <span className="text-red-600">*</span>
-                              ) : null}
-                            </Label>
-                            <Input
-                              id="username"
-                              value={form.username || ""}
-                              onChange={(e) =>
-                                setForm((current) => ({
-                                  ...current,
-                                  username: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                        ) : null}
-                        {formCapabilities.showPassword ? (
-                          <div className="grid gap-2">
-                            <Label htmlFor="password">
-                              {t("connection.dialog.fields.password")}{" "}
-                              {dialogMode === "create" &&
-                              isPasswordRequiredOnCreate ? (
-                                <span className="text-red-600">*</span>
-                              ) : null}
-                            </Label>
-                            <Input
-                              id="password"
-                              type="password"
-                              placeholder={
-                                dialogMode === "edit"
-                                  ? t(
-                                      "connection.dialog.placeholders.keepPassword",
-                                    )
-                                  : undefined
-                              }
-                              value={form.password || ""}
-                              onChange={(e) =>
-                                setForm((current) => ({
-                                  ...current,
-                                  password: e.target.value,
-                                }))
-                              }
-                            />
-                          </div>
-                        ) : null}
-                      </div>
-                    )}
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {formCapabilities.showUsername ? (
+                            <div className="grid gap-2">
+                              <Label htmlFor="username">
+                                {t("connection.dialog.fields.username")}{" "}
+                                {isUsernameRequired ? (
+                                  <span className="text-red-600">*</span>
+                                ) : null}
+                              </Label>
+                              <Input
+                                id="username"
+                                value={form.username || ""}
+                                onChange={(e) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    username: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                          ) : null}
+                          {formCapabilities.showPassword ? (
+                            <div className="grid gap-2">
+                              <Label htmlFor="password">
+                                {t("connection.dialog.fields.password")}{" "}
+                                {dialogMode === "create" &&
+                                isPasswordRequiredOnCreate ? (
+                                  <span className="text-red-600">*</span>
+                                ) : null}
+                              </Label>
+                              <Input
+                                id="password"
+                                type="password"
+                                placeholder={
+                                  dialogMode === "edit"
+                                    ? t(
+                                        "connection.dialog.placeholders.keepPassword",
+                                      )
+                                    : undefined
+                                }
+                                value={form.password || ""}
+                                onChange={(e) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    password: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
 
                     {(formCapabilities.showDatabase ||
                       formCapabilities.showSchema) && (
