@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Clock, Hash, Loader2, RefreshCw, Save, Trash2 } from "lucide-react";
+import { Clock, Hash, Loader2, MemoryStick, RefreshCw, Save, Trash2, Box } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -117,6 +117,14 @@ function formatTtl(ttl: number): string {
   if (h > 0) return `${h}h ${m}m ${s}s`;
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
 
 function mergeValues(base: RedisValue, next: RedisValue): RedisValue {
@@ -650,6 +658,18 @@ export function RedisKeyView({
               <span className="flex items-center gap-1.5">
                 <Hash className="w-3.5 h-3.5" />
                 {valueTotalLen.toLocaleString()} total
+              </span>
+            )}
+            {record.objectEncoding && (
+              <span className="flex items-center gap-1.5">
+                <Box className="w-3.5 h-3.5" />
+                Enc: {record.objectEncoding}
+              </span>
+            )}
+            {record.memoryUsage != null && record.memoryUsage > 0 && (
+              <span className="flex items-center gap-1.5">
+                <MemoryStick className="w-3.5 h-3.5" />
+                Mem: {formatBytes(record.memoryUsage)}
               </span>
             )}
             <span className="text-muted-foreground/60">{database}</span>

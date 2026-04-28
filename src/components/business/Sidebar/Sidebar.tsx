@@ -44,6 +44,12 @@ interface SidebarProps {
     connectionId: number,
     driver: string,
   ) => void;
+  onOpenRedisServerInfo?: (
+    connection: string,
+    database: string,
+    connectionId: number,
+    driver: string,
+  ) => void;
   onOpenElasticsearchIndex?: (
     connection: string,
     index: string,
@@ -109,6 +115,7 @@ export function Sidebar({
   onRedisKeySelect,
   onOpenRedisConsole,
   onOpenRedisBrowser,
+  onOpenRedisServerInfo,
   onOpenElasticsearchIndex,
   onConnect,
   onCreateQuery,
@@ -140,6 +147,7 @@ export function Sidebar({
     onRedisKeySelect,
     onOpenRedisConsole,
     onOpenRedisBrowser,
+    onOpenRedisServerInfo,
     onOpenElasticsearchIndex,
     onConnect,
     onCreateQuery,

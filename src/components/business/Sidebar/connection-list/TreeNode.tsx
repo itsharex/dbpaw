@@ -5,7 +5,7 @@ export interface TreeNodeProps {
   level: number;
   children: ReactNode;
   icon: ReactNode;
-  label: string;
+  label: ReactNode;
   isSelected?: boolean;
   isExpanded?: boolean;
   onToggle?: () => void;

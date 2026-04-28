@@ -148,6 +148,23 @@ pub struct RedisDatabaseInfo {
     pub index: i64,
     pub name: String,
     pub selected: bool,
+    pub key_count: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisServerInfo {
+    pub sections: HashMap<String, HashMap<String, String>>,
+    pub dbsize: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisSlowlogEntry {
+    pub id: u64,
+    pub timestamp: i64,
+    pub duration_ms: u64,
+    pub command: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,6 +275,8 @@ pub struct RedisKeyValue {
     pub value_offset: u64,
     pub is_binary: bool,
     pub extra: Option<RedisKeyExtra>,
+    pub object_encoding: Option<String>,
+    pub memory_usage: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -894,6 +913,7 @@ pub fn list_databases(
             index: 0,
             name: "db0".to_string(),
             selected: true,
+            key_count: None,
         }]);
     }
 
@@ -905,8 +925,110 @@ pub fn list_databases(
             index,
             name: format!("db{index}"),
             selected: index == selected,
+            key_count: None,
         })
         .collect())
+}
+
+pub async fn server_info(conn: &mut RedisConnection) -> Result<RedisServerInfo, String> {
+    let info_str: String = conn
+        .query(redis::cmd("INFO"))
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+
+    let mut sections: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut current_section = String::new();
+
+    for line in info_str.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            if let Some(name) = line.strip_prefix("# ") {
+                current_section = name.to_string();
+            }
+            continue;
+        }
+        if let Some((key, value)) = line.split_once(':') {
+            sections
+                .entry(current_section.clone())
+                .or_default()
+                .insert(key.to_string(), value.to_string());
+        }
+    }
+
+    let dbsize: u64 = conn
+        .query(redis::cmd("DBSIZE"))
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+
+    Ok(RedisServerInfo { sections, dbsize })
+}
+
+pub async fn server_config(conn: &mut RedisConnection) -> Result<HashMap<String, String>, String> {
+    let mut cmd = redis::cmd("CONFIG");
+    cmd.arg("GET").arg("*");
+    let values: Vec<String> = conn
+        .query(cmd)
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+
+    let mut config = HashMap::new();
+    let mut iter = values.into_iter();
+    while let Some(key) = iter.next() {
+        if let Some(value) = iter.next() {
+            config.insert(key, value);
+        }
+    }
+    Ok(config)
+}
+
+pub async fn slowlog_get(
+    conn: &mut RedisConnection,
+    count: i64,
+) -> Result<Vec<RedisSlowlogEntry>, String> {
+    let mut cmd = redis::cmd("SLOWLOG");
+    cmd.arg("GET").arg(count.max(1));
+    let raw: Vec<Vec<Value>> = conn
+        .query(cmd)
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+
+    let mut entries = Vec::new();
+    for item in raw {
+        if item.len() < 4 {
+            continue;
+        }
+        let id = match &item[0] {
+            Value::Int(v) => *v as u64,
+            _ => continue,
+        };
+        let timestamp = match &item[1] {
+            Value::Int(v) => *v,
+            _ => continue,
+        };
+        let duration_ms = match &item[2] {
+            Value::Int(v) => *v as u64,
+            _ => continue,
+        };
+        let command = match &item[3] {
+            Value::Array(parts) => parts
+                .iter()
+                .filter_map(|p| match p {
+                    Value::BulkString(b) => String::from_utf8(b.clone()).ok(),
+                    Value::SimpleString(s) => Some(s.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+            _ => format!("{:?}", item[3]),
+        };
+        entries.push(RedisSlowlogEntry {
+            id,
+            timestamp,
+            duration_ms,
+            command,
+        });
+    }
+    Ok(entries)
 }
 
 fn encode_cluster_scan_state(cursors: &HashMap<String, u64>) -> Result<String, String> {
@@ -1362,6 +1484,18 @@ pub async fn get_key(conn: &mut RedisConnection, key: String) -> Result<RedisKey
         }
     };
 
+    let object_encoding = {
+        let mut cmd = redis::cmd("OBJECT");
+        cmd.arg("ENCODING").arg(&key);
+        conn.query::<String>(cmd).await.ok()
+    };
+
+    let memory_usage = {
+        let mut cmd = redis::cmd("MEMORY");
+        cmd.arg("USAGE").arg(&key);
+        conn.query::<i64>(cmd).await.ok().map(|v| v.max(0) as u64)
+    };
+
     Ok(RedisKeyValue {
         key,
         key_type,
@@ -1371,6 +1505,8 @@ pub async fn get_key(conn: &mut RedisConnection, key: String) -> Result<RedisKey
         value_offset,
         is_binary,
         extra,
+        object_encoding,
+        memory_usage,
     })
 }
 
@@ -1481,6 +1617,18 @@ pub async fn get_key_page(
         }
     };
 
+    let object_encoding = {
+        let mut cmd = redis::cmd("OBJECT");
+        cmd.arg("ENCODING").arg(&key);
+        conn.query::<String>(cmd).await.ok()
+    };
+
+    let memory_usage = {
+        let mut cmd = redis::cmd("MEMORY");
+        cmd.arg("USAGE").arg(&key);
+        conn.query::<i64>(cmd).await.ok().map(|v| v.max(0) as u64)
+    };
+
     Ok(RedisKeyValue {
         key,
         key_type,
@@ -1490,6 +1638,8 @@ pub async fn get_key_page(
         value_offset,
         is_binary: false,
         extra,
+        object_encoding,
+        memory_usage,
     })
 }
 

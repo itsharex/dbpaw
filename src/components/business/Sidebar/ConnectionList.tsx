@@ -29,6 +29,7 @@ import {
   Terminal,
   LayoutDashboard,
   FileSearch,
+  Server,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -141,6 +142,7 @@ interface DatabaseInfo {
   redisCursor?: string;
   redisIsPartial?: boolean;
   redisRequiresPattern?: boolean;
+  redisKeyCount?: number;
 }
 
 type DatabaseExportFormat = "sql_dml" | "sql_ddl" | "sql_full";
@@ -513,6 +515,12 @@ interface ConnectionListProps {
     connectionId: number,
     driver: string,
   ) => void;
+  onOpenRedisServerInfo?: (
+    connection: string,
+    database: string,
+    connectionId: number,
+    driver: string,
+  ) => void;
   onOpenElasticsearchIndex?: (
     connection: string,
     index: string,
@@ -595,6 +603,7 @@ export function ConnectionList({
   onRedisKeySelect,
   onOpenRedisConsole,
   onOpenRedisBrowser,
+  onOpenRedisServerInfo,
   onOpenElasticsearchIndex,
   onConnect,
   onCreateQuery,
@@ -1167,7 +1176,26 @@ export function ConnectionList({
     try {
       const current = connections.find((conn) => conn.id === connectionId);
       if (!current) return false;
-      const dbNames = await getDatasourceTreeAdapter(current).listDatabases();
+
+      // For Redis, fetch full database info including key counts
+      let databases: DatabaseInfo[];
+      if (current.type === "redis") {
+        const redisDbs = await api.redis.listDatabases(Number(current.id));
+        databases = redisDbs.map((db) => ({
+          name: db.name,
+          schemas: [],
+          tables: [],
+          redisKeyCount: db.keyCount,
+        }));
+      } else {
+        const dbNames = await getDatasourceTreeAdapter(current).listDatabases();
+        databases = dbNames.map((name) => ({
+          name,
+          schemas: [],
+          tables: [],
+        }));
+      }
+
       setConnections((prev) =>
         prev.map((conn) => {
           if (conn.id !== connectionId) return conn;
@@ -1176,11 +1204,7 @@ export function ConnectionList({
             isConnected: true,
             connectState: "success",
             connectError: undefined,
-            databases: dbNames.map((name) => ({
-              name,
-              schemas: [],
-              tables: [],
-            })),
+            databases,
           };
         }),
       );
@@ -1544,6 +1568,21 @@ export function ConnectionList({
             >
               <Terminal className="h-4 w-4" />
               Open console
+            </button>
+            <button
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+              onClick={() => {
+                onOpenRedisServerInfo?.(
+                  connection.name,
+                  databaseName,
+                  Number(connection.id),
+                  connection.type,
+                );
+                setContextMenu((prev) => ({ ...prev, visible: false }));
+              }}
+            >
+              <Server className="h-4 w-4" />
+              Server Info
             </button>
           </>
         ),
@@ -3119,17 +3158,25 @@ export function ConnectionList({
               <TreeNode
                 key={dbKey}
                 level={level}
-                icon={<Database className="w-4 h-4" />}
+                icon={<Database className="w-4 w-4" />}
                 label={
-                  (connection.type === "sqlite" ||
-                    connection.type === "duckdb") &&
-                  database.name === "main"
-                    ? t(
-                        connection.type === "duckdb"
-                          ? "connection.duckdbMainLabel"
-                          : "connection.sqliteMainLabel",
-                      )
-                    : database.name
+                  <>
+                    {(connection.type === "sqlite" ||
+                      connection.type === "duckdb") &&
+                    database.name === "main"
+                      ? t(
+                          connection.type === "duckdb"
+                            ? "connection.duckdbMainLabel"
+                            : "connection.sqliteMainLabel",
+                        )
+                      : database.name}
+                    {connection.type === "redis" &&
+                      database.redisKeyCount != null && (
+                        <span className="ml-1.5 text-[10px] text-muted-foreground font-normal">
+                          · {database.redisKeyCount.toLocaleString()}
+                        </span>
+                      )}
+                  </>
                 }
                 isExpanded={
                   datasourceAdapter.isDatabaseExpandable

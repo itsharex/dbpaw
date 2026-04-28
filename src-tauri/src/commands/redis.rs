@@ -1,11 +1,12 @@
 use crate::datasources::redis::{
     self, RedisDatabaseInfo, RedisGeoMember, RedisGeoPosition, RedisGeoSearchResult,
     RedisKeyPatchPayload, RedisKeyValue, RedisMutationResult, RedisRawResult, RedisScanResponse,
-    RedisSetKeyPayload, RedisStreamEntry, RedisStreamView,
+    RedisServerInfo, RedisSetKeyPayload, RedisSlowlogEntry, RedisStreamEntry, RedisStreamView,
 };
 use crate::datasources::redis::{connect, RedisConnection};
 use crate::models::ConnectionForm;
 use crate::state::AppState;
+use std::collections::HashMap;
 use tauri::State;
 
 async fn connection_form(state: &State<'_, AppState>, id: i64) -> Result<ConnectionForm, String> {
@@ -125,7 +126,36 @@ pub async fn redis_list_databases(
         }
     };
 
-    redis::list_databases(&form, db_count)
+    let mut dbs = redis::list_databases(&form, db_count)?;
+
+    if conn.is_cluster() {
+        if let Some(db) = dbs.first_mut() {
+            let count: u64 = conn
+                .query(::redis::cmd("DBSIZE"))
+                .await
+                .unwrap_or(0);
+            db.key_count = Some(count);
+        }
+    } else {
+        for db in &mut dbs {
+            let mut select_cmd = ::redis::cmd("SELECT");
+            select_cmd.arg(db.index);
+            let _ = conn.query::<()>(select_cmd).await;
+            let count: u64 = conn
+                .query(::redis::cmd("DBSIZE"))
+                .await
+                .unwrap_or(0);
+            db.key_count = Some(count);
+        }
+        // Restore to the originally selected database
+        if let Some(selected) = dbs.iter().find(|d| d.selected) {
+            let mut select_cmd = ::redis::cmd("SELECT");
+            select_cmd.arg(selected.index);
+            let _ = conn.query::<()>(select_cmd).await;
+        }
+    }
+
+    Ok(dbs)
 }
 
 #[tauri::command]
@@ -566,6 +596,65 @@ pub async fn redis_geo_search(
             evict(&state, id, &form, db).await;
             let mut conn = acquire(&state, id, &form, db).await?;
             redis::geo_search(&mut conn, key, member, longitude, latitude, radius, unit, with_coord, with_dist, with_hash, count).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_server_info(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+) -> Result<RedisServerInfo, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::server_info(&mut conn).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::server_info(&mut conn).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_server_config(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+) -> Result<HashMap<String, String>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::server_config(&mut conn).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::server_config(&mut conn).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_slowlog_get(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    count: Option<i64>,
+) -> Result<Vec<RedisSlowlogEntry>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    let n = count.unwrap_or(50);
+    match redis::slowlog_get(&mut conn, n).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::slowlog_get(&mut conn, n).await
         }
         r => r,
     }

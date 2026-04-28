@@ -48,6 +48,19 @@ export interface RedisDatabaseInfo {
   index: number;
   name: string;
   selected: boolean;
+  keyCount?: number;
+}
+
+export interface RedisServerInfo {
+  sections: Record<string, Record<string, string>>;
+  dbsize: number;
+}
+
+export interface RedisSlowlogEntry {
+  id: number;
+  timestamp: number;
+  durationMs: number;
+  command: string;
 }
 
 export interface RedisKeyInfo {
@@ -123,6 +136,8 @@ export interface RedisKeyValue {
   valueOffset: number;
   isBinary?: boolean;
   extra?: RedisKeyExtra | null;
+  objectEncoding?: string | null;
+  memoryUsage?: number | null;
 }
 
 export interface RedisSetKeyPayload {
@@ -929,6 +944,12 @@ export const api = {
       invoke<number>("redis_geo_dist", { id, database, key, member1, member2, unit }),
     geoSearch: (id: number, database: string | undefined, key: string, params: { member?: string; longitude?: number; latitude?: number; radius: number; unit: string; withCoord?: boolean; withDist?: boolean; withHash?: boolean; count?: number }) =>
       invoke<RedisGeoSearchResult[]>("redis_geo_search", { id, database, key, ...params }),
+    serverInfo: (id: number, database: string | undefined) =>
+      invoke<RedisServerInfo>("redis_server_info", { id, database }),
+    serverConfig: (id: number, database: string | undefined) =>
+      invoke<Record<string, string>>("redis_server_config", { id, database }),
+    slowlogGet: (id: number, database: string | undefined, count?: number) =>
+      invoke<RedisSlowlogEntry[]>("redis_slowlog_get", { id, database, count }),
   },
   elasticsearch: {
     testConnection: (id: number) =>

@@ -27,6 +27,7 @@ import {
   FileSearch,
   KeyRound,
   LayoutDashboard,
+  Server,
   Table,
   X,
   Settings,
@@ -96,6 +97,7 @@ interface TabItem {
     | "redis-key"
     | "redis-console"
     | "redis-browser"
+    | "redis-server-info"
     | "elasticsearch-index";
   title: string;
   connection?: string;
@@ -199,6 +201,13 @@ const RedisConsole = lazy(async () => {
 const RedisBrowserView = lazy(async () => {
   const mod = await import("@/components/business/Redis/RedisBrowserView");
   return { default: mod.RedisBrowserView };
+});
+
+const RedisServerInfoView = lazy(async () => {
+  const mod = await import(
+    "@/components/business/Redis/RedisServerInfoView"
+  );
+  return { default: mod.RedisServerInfoView };
 });
 
 const ElasticsearchIndexView = lazy(async () => {
@@ -971,6 +980,33 @@ export default function App() {
         id: tabId,
         type: "redis-browser",
         title: `Browser · ${database}`,
+        connection,
+        database,
+        connectionId,
+        driver,
+      },
+    ]);
+    setActiveTab(tabId);
+  };
+
+  const handleOpenRedisServerInfo = (
+    connection: string,
+    database: string,
+    connectionId: number,
+    driver: string,
+  ) => {
+    const tabId = `redis-server-info-${connectionId}-${database}`;
+    const existingTab = tabs.find((t) => t.id === tabId);
+    if (existingTab) {
+      setActiveTab(tabId);
+      return;
+    }
+    setTabs((prev) => [
+      ...prev,
+      {
+        id: tabId,
+        type: "redis-server-info",
+        title: `Server Info · ${database}`,
         connection,
         database,
         connectionId,
@@ -1815,6 +1851,7 @@ export default function App() {
               onRedisKeySelect={handleRedisKeySelect}
               onOpenRedisConsole={handleOpenRedisConsole}
               onOpenRedisBrowser={handleOpenRedisBrowser}
+              onOpenRedisServerInfo={handleOpenRedisServerInfo}
               onOpenElasticsearchIndex={handleOpenElasticsearchIndex}
               onConnect={() => {}}
               onCreateQuery={handleCreateQuery}
@@ -1889,6 +1926,8 @@ export default function App() {
                                           <KeyRound className="w-4 h-4 text-accent" />
                                         ) : tab.type === "redis-browser" ? (
                                           <LayoutDashboard className="w-4 h-4 text-accent" />
+                                        ) : tab.type === "redis-server-info" ? (
+                                          <Server className="w-4 h-4 text-accent" />
                                         ) : tab.type ===
                                           "elasticsearch-index" ? (
                                           <FileSearch className="w-4 h-4 text-accent" />
@@ -2164,6 +2203,19 @@ export default function App() {
                                   tab.driver!,
                                 )
                               }
+                            />
+                          </Suspense>
+                        ) : tab.type === "redis-server-info" &&
+                          tab.connectionId !== undefined &&
+                          tab.database ? (
+                          <Suspense
+                            fallback={
+                              <LazyPanelFallback label="Loading Server Info..." />
+                            }
+                          >
+                            <RedisServerInfoView
+                              connectionId={tab.connectionId}
+                              database={tab.database}
                             />
                           </Suspense>
                         ) : tab.type === "elasticsearch-index" &&
