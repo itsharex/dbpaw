@@ -75,6 +75,41 @@ export const validateConnectionFormInput = (
     return issues;
   }
 
+  if (form.driver === "elasticsearch") {
+    if (!form.host && !form.cloudId) {
+      issues.push({
+        key: "connection.dialog.inputValidation.elasticsearchEndpointRequired",
+      });
+    }
+    if (!form.cloudId && !isPortInRange(form.port)) {
+      issues.push({ key: "connection.dialog.inputValidation.portRange" });
+    }
+    if (form.authMode === "basic" && !form.username) {
+      issues.push({ key: "connection.dialog.inputValidation.usernameRequired" });
+    }
+    if (mode === "create" && form.authMode === "api_key") {
+      const hasEncoded = !!(form.apiKeyEncoded || "").trim();
+      const hasIdSecret =
+        !!(form.apiKeyId || "").trim() && !!(form.apiKeySecret || "").trim();
+      if (!hasEncoded && !hasIdSecret) {
+        issues.push({
+          key: "connection.dialog.inputValidation.elasticsearchApiKeyRequired",
+        });
+      }
+    }
+    if (hasWhitespace(form.host)) {
+      issues.push({ key: "connection.dialog.inputValidation.hostWhitespace" });
+    }
+    if (
+      form.ssl &&
+      form.sslMode === "verify_ca" &&
+      !(form.sslCaCert || "").trim()
+    ) {
+      issues.push({ key: "connection.dialog.sslValidation.caRequired" });
+    }
+    return issues;
+  }
+
   if (!form.host) {
     issues.push({ key: "connection.dialog.inputValidation.hostRequired" });
   }

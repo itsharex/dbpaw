@@ -138,6 +138,9 @@ case "${it_db}" in
     fi
     run_integration_test "redis_integration"
     ;;
+  elasticsearch)
+    run_integration_test "elasticsearch_integration"
+    ;;
   all)
     run_integration_test "mysql_integration"
     run_integration_test "mysql_command_integration"
@@ -162,9 +165,10 @@ case "${it_db}" in
     run_integration_test "oracle_integration"
     run_integration_test "oracle_command_integration"
     run_integration_test "redis_integration"
+    run_integration_test "elasticsearch_integration"
     ;;
   *)
-    echo "[error] Invalid IT_DB='${it_db}'. Expected one of: mysql|starrocks|doris|mariadb|postgres|clickhouse|mssql|duckdb|sqlite|oracle|redis|all"
+    echo "[error] Invalid IT_DB='${it_db}'. Expected one of: mysql|starrocks|doris|mariadb|postgres|clickhouse|mssql|duckdb|sqlite|oracle|redis|elasticsearch|all"
     exit 1
     ;;
 esac

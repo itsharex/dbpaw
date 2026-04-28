@@ -2,6 +2,7 @@ use crate::db::local::LocalDb;
 use crate::state::AppState;
 use std::sync::Arc;
 use tauri::{Emitter, Manager};
+use tauri_plugin_window_state::{AppHandleExt, StateFlags, WindowExt};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -39,6 +40,11 @@ pub fn run() {
         .manage(AppState::new())
         .setup(|app| {
             let handle = app.handle().clone();
+
+            // Explicitly restore window state on Windows as a workaround for upstream timing issues
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.restore_state(StateFlags::all());
+            }
 
             #[cfg(target_os = "macos")]
             {
@@ -141,8 +147,10 @@ pub fn run() {
             commands::connection::update_connection,
             commands::connection::delete_connection,
             commands::metadata::list_tables,
+            commands::metadata::list_routines,
             commands::metadata::get_table_structure,
             commands::metadata::get_table_ddl,
+            commands::metadata::get_routine_ddl,
             commands::metadata::get_table_metadata,
             commands::metadata::get_schema_overview,
             commands::query::execute_query,
@@ -190,12 +198,22 @@ pub fn run() {
             commands::redis::redis_get_stream_view,
             commands::redis::redis_execute_raw,
             commands::redis::redis_patch_key,
+            commands::elasticsearch::elasticsearch_test_connection,
+            commands::elasticsearch::elasticsearch_test_connection_ephemeral,
+            commands::elasticsearch::elasticsearch_list_indices,
+            commands::elasticsearch::elasticsearch_get_index_mapping,
+            commands::elasticsearch::elasticsearch_search_documents,
+            commands::elasticsearch::elasticsearch_get_document,
+            commands::elasticsearch::elasticsearch_upsert_document,
+            commands::elasticsearch::elasticsearch_delete_document,
+            commands::elasticsearch::elasticsearch_execute_raw,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
     app.run(|app_handle, event| match event {
         tauri::RunEvent::Exit => {
+            let _ = app_handle.save_window_state(StateFlags::all());
             let state = app_handle.state::<AppState>();
             tauri::async_runtime::block_on(async {
                 state.pool_manager.close_all().await;

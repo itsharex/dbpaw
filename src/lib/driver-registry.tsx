@@ -30,6 +30,7 @@ const DRIVER_IDS = [
   "mssql",
   "oracle",
   "redis",
+  "elasticsearch",
 ] as const;
 
 export type Driver = (typeof DRIVER_IDS)[number];
@@ -227,6 +228,19 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsCreateDatabase: false,
     importCapability: "unsupported",
     icon: () => renderSimpleIcon(siRedis),
+  },
+  {
+    id: "elasticsearch",
+    label: "Elasticsearch",
+    kind: "search",
+    defaultPort: 9200,
+    isFileBased: false,
+    isMysqlFamily: false,
+    supportsSSLCA: true,
+    supportsSchemaBrowsing: false,
+    supportsCreateDatabase: false,
+    importCapability: "unsupported",
+    icon: () => <Server className="w-4 h-4" />,
   },
 ];
 

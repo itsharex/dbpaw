@@ -109,6 +109,8 @@ export function ConnectionDialog({
   const isUsernameRequired = requiresUsername(form.driver);
   const isCreateTypeStep = dialogMode === "create" && createStep === "type";
   const isRedis = form.driver === "redis";
+  const isElasticsearch = form.driver === "elasticsearch";
+  const hasElasticCloudId = isElasticsearch && !!(form.cloudId || "").trim();
   const redisMode = getRedisConnectionMode(form);
 
   return (
@@ -366,8 +368,32 @@ export function ConnectionDialog({
                       </div>
                     ) : null}
 
+                    {isElasticsearch ? (
+                      <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+                        <div className="grid gap-2">
+                          <Label htmlFor="cloudId">
+                            {t("connection.dialog.fields.cloudId")}
+                          </Label>
+                          <Input
+                            id="cloudId"
+                            placeholder={t(
+                              "connection.dialog.placeholders.cloudId",
+                            )}
+                            value={form.cloudId || ""}
+                            onChange={(e) =>
+                              setForm((current) => ({
+                                ...current,
+                                cloudId: e.target.value,
+                              }))
+                            }
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+
                     {(formCapabilities.showHost ||
-                      formCapabilities.showPort) && (
+                      formCapabilities.showPort) &&
+                      !hasElasticCloudId && (
                       <div className="grid gap-2 sm:grid-cols-2">
                         {formCapabilities.showHost ? (
                           <div className="grid gap-2">
@@ -414,8 +440,155 @@ export function ConnectionDialog({
                       </div>
                     )}
 
+                    {isElasticsearch ? (
+                      <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+                        <div className="grid gap-2">
+                          <Label htmlFor="authMode">
+                            {t("connection.dialog.fields.authMode")}
+                          </Label>
+                          <Select
+                            value={form.authMode || "none"}
+                            onValueChange={(
+                              value: "none" | "basic" | "api_key",
+                            ) =>
+                              setForm((current) => ({
+                                ...current,
+                                authMode: value,
+                              }))
+                            }
+                          >
+                            <SelectTrigger id="authMode">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">
+                                {t("connection.dialog.authMode.none")}
+                              </SelectItem>
+                              <SelectItem value="basic">
+                                {t("connection.dialog.authMode.basic")}
+                              </SelectItem>
+                              <SelectItem value="api_key">
+                                {t("connection.dialog.authMode.apiKey")}
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        {form.authMode === "basic" ? (
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <div className="grid gap-2">
+                              <Label htmlFor="username">
+                                {t("connection.dialog.fields.username")}{" "}
+                                <span className="text-red-600">*</span>
+                              </Label>
+                              <Input
+                                id="username"
+                                value={form.username || ""}
+                                onChange={(e) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    username: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="password">
+                                {t("connection.dialog.fields.password")}
+                              </Label>
+                              <Input
+                                id="password"
+                                type="password"
+                                placeholder={
+                                  dialogMode === "edit"
+                                    ? t(
+                                        "connection.dialog.placeholders.keepPassword",
+                                      )
+                                    : undefined
+                                }
+                                value={form.password || ""}
+                                onChange={(e) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    password: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                          </div>
+                        ) : null}
+                        {form.authMode === "api_key" ? (
+                          <div className="space-y-3">
+                            <div className="grid gap-2">
+                              <Label htmlFor="apiKeyEncoded">
+                                {t("connection.dialog.fields.apiKeyEncoded")}
+                              </Label>
+                              <Input
+                                id="apiKeyEncoded"
+                                type="password"
+                                placeholder={
+                                  dialogMode === "edit"
+                                    ? t(
+                                        "connection.dialog.placeholders.keepApiKey",
+                                      )
+                                    : undefined
+                                }
+                                value={form.apiKeyEncoded || ""}
+                                onChange={(e) =>
+                                  setForm((current) => ({
+                                    ...current,
+                                    apiKeyEncoded: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="grid gap-2">
+                                <Label htmlFor="apiKeyId">
+                                  {t("connection.dialog.fields.apiKeyId")}
+                                </Label>
+                                <Input
+                                  id="apiKeyId"
+                                  value={form.apiKeyId || ""}
+                                  onChange={(e) =>
+                                    setForm((current) => ({
+                                      ...current,
+                                      apiKeyId: e.target.value,
+                                    }))
+                                  }
+                                />
+                              </div>
+                              <div className="grid gap-2">
+                                <Label htmlFor="apiKeySecret">
+                                  {t("connection.dialog.fields.apiKeySecret")}
+                                </Label>
+                                <Input
+                                  id="apiKeySecret"
+                                  type="password"
+                                  placeholder={
+                                    dialogMode === "edit"
+                                      ? t(
+                                          "connection.dialog.placeholders.keepApiKey",
+                                        )
+                                      : undefined
+                                  }
+                                  value={form.apiKeySecret || ""}
+                                  onChange={(e) =>
+                                    setForm((current) => ({
+                                      ...current,
+                                      apiKeySecret: e.target.value,
+                                    }))
+                                  }
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+
                     {(formCapabilities.showUsername ||
-                      formCapabilities.showPassword) && (
+                      formCapabilities.showPassword) &&
+                      !isElasticsearch && (
                       <div className="grid gap-2 sm:grid-cols-2">
                         {formCapabilities.showUsername ? (
                           <div className="grid gap-2">
@@ -509,7 +682,7 @@ export function ConnectionDialog({
                       </div>
                     )}
 
-                    {formCapabilities.showSsl ? (
+                    {formCapabilities.showSsl && !hasElasticCloudId ? (
                       <>
                         <div className="flex items-center space-x-2">
                           <Checkbox

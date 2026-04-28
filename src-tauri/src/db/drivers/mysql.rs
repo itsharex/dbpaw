@@ -1065,9 +1065,8 @@ impl DatabaseDriver for MysqlDriver {
                 }
             });
             if self.supports_special_type_metadata() {
-                let notes = Some(
-                    "Memory usage is not exposed by the current metadata driver.".to_string(),
-                );
+                let notes =
+                    Some("Memory usage is not exposed by the current metadata driver.".to_string());
                 if let Some(summary) = build_mysql_special_type_summary(&name, &raw_type, notes) {
                     special_type_summaries.push(summary);
                 }
@@ -1856,7 +1855,10 @@ mod tests {
 
     #[test]
     fn test_mysql_declared_length_extracts_parenthesized_values() {
-        assert_eq!(mysql_declared_length("VARCHAR(255)"), Some("255".to_string()));
+        assert_eq!(
+            mysql_declared_length("VARCHAR(255)"),
+            Some("255".to_string())
+        );
         assert_eq!(
             mysql_declared_length("DECIMAL(18, 2)"),
             Some("18, 2".to_string())

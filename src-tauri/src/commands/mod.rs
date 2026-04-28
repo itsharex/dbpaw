@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod config;
 pub mod connection;
+pub mod elasticsearch;
 pub mod metadata;
 pub mod query;
 pub mod redis;

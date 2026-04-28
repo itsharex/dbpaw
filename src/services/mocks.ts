@@ -919,6 +919,47 @@ export async function mockGetTableDDL(
   return mockDDL;
 }
 
+export async function mockListRoutines(
+  _id: number,
+  _database?: string,
+  _schema?: string,
+): Promise<{ schema: string; name: string; type: "procedure" | "function" }[]> {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const routines: {
+    schema: string;
+    name: string;
+    type: "procedure" | "function";
+  }[] = [
+    { schema: "dbo", name: "sync_user_stats", type: "procedure" },
+    { schema: "dbo", name: "format_user_name", type: "function" },
+  ];
+  return routines.filter((routine) => !_schema || routine.schema === _schema);
+}
+
+export async function mockGetRoutineDDL(
+  _id: number,
+  _database: string | undefined,
+  schema: string,
+  name: string,
+  routineType: "procedure" | "function",
+): Promise<string> {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  if (routineType === "procedure") {
+    return `CREATE PROCEDURE [${schema}].[${name}]
+AS
+BEGIN
+    SELECT 1 AS ok;
+END;`;
+  }
+
+  return `CREATE FUNCTION [${schema}].[${name}]()
+RETURNS INT
+AS
+BEGIN
+    RETURN 1;
+END;`;
+}
+
 /**
  * Mock get table metadata
  */
@@ -1233,6 +1274,11 @@ export async function mockCreateConnection(form: ConnectionForm): Promise<any> {
     seedNodes: form.seedNodes ?? null,
     sentinels: form.sentinels ?? null,
     connectTimeoutMs: form.connectTimeoutMs ?? null,
+    authMode: form.authMode ?? null,
+    apiKeyId: form.apiKeyId ?? null,
+    apiKeySecret: form.apiKeySecret ?? null,
+    apiKeyEncoded: form.apiKeyEncoded ?? null,
+    cloudId: form.cloudId ?? null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -1260,6 +1306,14 @@ export async function mockUpdateConnection(
     form.password !== undefined && form.password !== ""
       ? form.password
       : existing.password;
+  const nextApiKeySecret =
+    form.apiKeySecret !== undefined && form.apiKeySecret !== ""
+      ? form.apiKeySecret
+      : existing.apiKeySecret;
+  const nextApiKeyEncoded =
+    form.apiKeyEncoded !== undefined && form.apiKeyEncoded !== ""
+      ? form.apiKeyEncoded
+      : existing.apiKeyEncoded;
 
   const updatedConnection = {
     ...existing,
@@ -1283,6 +1337,11 @@ export async function mockUpdateConnection(
     sentinels: form.sentinels ?? existing.sentinels ?? null,
     connectTimeoutMs:
       form.connectTimeoutMs ?? existing.connectTimeoutMs ?? null,
+    authMode: form.authMode ?? existing.authMode ?? null,
+    apiKeyId: form.apiKeyId ?? existing.apiKeyId ?? null,
+    apiKeySecret: nextApiKeySecret,
+    apiKeyEncoded: nextApiKeyEncoded,
+    cloudId: form.cloudId ?? existing.cloudId ?? null,
     updatedAt: new Date().toISOString(),
   };
 
@@ -1489,6 +1548,13 @@ export async function invokeMock<T>(cmd: string, args?: any): Promise<T> {
     case "list_tables":
       return mockListTables(args.id, args.database, args.schema) as Promise<T>;
 
+    case "list_routines":
+      return mockListRoutines(
+        args.id,
+        args.database,
+        args.schema,
+      ) as Promise<T>;
+
     case "get_table_structure":
       return mockGetTableStructure(
         args.id,
@@ -1502,6 +1568,15 @@ export async function invokeMock<T>(cmd: string, args?: any): Promise<T> {
         args.database,
         args.schema,
         args.table,
+      ) as Promise<T>;
+
+    case "get_routine_ddl":
+      return mockGetRoutineDDL(
+        args.id,
+        args.database,
+        args.schema,
+        args.name,
+        args.routineType,
       ) as Promise<T>;
 
     case "get_table_metadata":

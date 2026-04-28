@@ -77,7 +77,12 @@ fn normalize_redis_options(form: &mut ConnectionForm) -> Result<(), String> {
     if let Some(host) = form.host.clone() {
         let detected_mode = if form.mode.is_some() {
             form.mode.clone()
-        } else if host.split(',').filter(|part| !part.trim().is_empty()).count() > 1 {
+        } else if host
+            .split(',')
+            .filter(|part| !part.trim().is_empty())
+            .count()
+            > 1
+        {
             Some("cluster".to_string())
         } else {
             Some("standalone".to_string())
@@ -106,16 +111,29 @@ fn normalize_redis_options(form: &mut ConnectionForm) -> Result<(), String> {
                     ));
                 }
             }
-            if form.seed_nodes.as_ref().map(|nodes| nodes.len()).unwrap_or(0) < 2 {
+            if form
+                .seed_nodes
+                .as_ref()
+                .map(|nodes| nodes.len())
+                .unwrap_or(0)
+                < 2
+            {
                 return Err(
-                    "[VALIDATION_ERROR] Redis cluster requires at least two seed nodes"
-                        .to_string(),
+                    "[VALIDATION_ERROR] Redis cluster requires at least two seed nodes".to_string(),
                 );
             }
         }
         Some("sentinel") => {
-            if form.sentinels.as_ref().map(|nodes| nodes.is_empty()).unwrap_or(true) {
-                return Err("[VALIDATION_ERROR] Redis sentinel requires at least one sentinel node".to_string());
+            if form
+                .sentinels
+                .as_ref()
+                .map(|nodes| nodes.is_empty())
+                .unwrap_or(true)
+            {
+                return Err(
+                    "[VALIDATION_ERROR] Redis sentinel requires at least one sentinel node"
+                        .to_string(),
+                );
             }
         }
         _ => {}
@@ -140,13 +158,20 @@ pub fn normalize_connection_form(mut form: ConnectionForm) -> Result<ConnectionF
     form.mode = trim_to_option(form.mode);
     form.seed_nodes = trim_string_list(form.seed_nodes);
     form.sentinels = trim_string_list(form.sentinels);
+    form.auth_mode = trim_to_option(form.auth_mode)
+        .map(|value| value.to_ascii_lowercase())
+        .filter(|value| matches!(value.as_str(), "none" | "basic" | "api_key"));
+    form.api_key_id = trim_to_option(form.api_key_id);
+    form.api_key_secret = trim_preserve_empty(form.api_key_secret);
+    form.api_key_encoded = trim_preserve_empty(form.api_key_encoded);
+    form.cloud_id = trim_to_option(form.cloud_id);
 
     validate_port_range("port", form.port)?;
     validate_port_range("ssh port", form.ssh_port)?;
 
     let driver = form.driver.to_ascii_lowercase();
     form.driver = driver.clone();
-    if crate::db::drivers::is_mysql_family_driver(&driver) {
+    if crate::db::drivers::is_mysql_family_driver(&driver) || driver == "elasticsearch" {
         if let Some(host) = form.host.clone() {
             let (normalized_host, normalized_port) = parse_host_embedded_port(&host, form.port);
             form.host = Some(normalized_host);
@@ -159,8 +184,7 @@ pub fn normalize_connection_form(mut form: ConnectionForm) -> Result<ConnectionF
             let should_parse_host =
                 form.mode.as_deref().unwrap_or("standalone") == "standalone" && !host.contains(',');
             if should_parse_host {
-                let (normalized_host, normalized_port) =
-                    parse_host_embedded_port(&host, form.port);
+                let (normalized_host, normalized_port) = parse_host_embedded_port(&host, form.port);
                 form.host = Some(normalized_host);
                 form.port = normalized_port.or(form.port);
             }
@@ -175,6 +199,10 @@ pub fn normalize_connection_form(mut form: ConnectionForm) -> Result<ConnectionF
     } else if driver == "redis" {
         if form.mode.as_deref() == Some("standalone") && form.host.is_none() {
             return Err("[VALIDATION_ERROR] host cannot be empty".to_string());
+        }
+    } else if driver == "elasticsearch" {
+        if form.host.is_none() && form.cloud_id.is_none() {
+            return Err("[VALIDATION_ERROR] host or cloudId cannot be empty".to_string());
         }
     } else if form.host.is_none() {
         return Err("[VALIDATION_ERROR] host cannot be empty".to_string());

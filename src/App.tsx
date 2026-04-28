@@ -20,8 +20,18 @@ import { SaveQueryDialog } from "@/components/business/Editor/SaveQueryDialog";
 import { TableView } from "@/components/business/DataGrid/TableView";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { TableMetadataView } from "@/components/business/Metadata/TableMetadataView";
+import { RoutineMetadataView } from "@/components/business/Metadata/RoutineMetadataView";
 import { SqlExecutionLogsDropdown } from "@/components/business/SqlLogs/SqlExecutionLogsDialog";
-import { FileCode, KeyRound, LayoutDashboard, Table, X, Settings, Sparkles } from "lucide-react";
+import {
+  FileCode,
+  FileSearch,
+  KeyRound,
+  LayoutDashboard,
+  Table,
+  X,
+  Settings,
+  Sparkles,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isMysqlFamilyDriver, isKeyValueDriver } from "@/lib/driver-registry";
 import {
@@ -40,7 +50,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { api, isTauri, SchemaOverview, SavedQuery } from "@/services/api";
+import {
+  api,
+  isTauri,
+  type RoutineType,
+  SchemaOverview,
+  SavedQuery,
+} from "@/services/api";
 import { toast } from "sonner";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -74,17 +90,22 @@ interface TabItem {
     | "editor"
     | "table"
     | "ddl"
+    | "routine"
     | "create-table"
     | "alter-table"
     | "redis-key"
     | "redis-console"
-    | "redis-browser";
+    | "redis-browser"
+    | "elasticsearch-index";
   title: string;
   connection?: string;
   database?: string;
   schema?: string;
   tableName?: string;
+  routineName?: string;
+  routineType?: RoutineType;
   redisKey?: string;
+  elasticsearchIndex?: string;
   data?: any[];
   columns?: string[];
   total?: number;
@@ -178,6 +199,12 @@ const RedisConsole = lazy(async () => {
 const RedisBrowserView = lazy(async () => {
   const mod = await import("@/components/business/Redis/RedisBrowserView");
   return { default: mod.RedisBrowserView };
+});
+
+const ElasticsearchIndexView = lazy(async () => {
+  const mod =
+    await import("@/components/business/Elasticsearch/ElasticsearchIndexView");
+  return { default: mod.ElasticsearchIndexView };
 });
 
 function LazyPanelFallback({
@@ -275,7 +302,9 @@ export default function App() {
   const schemaOverviewRequestKeysRef = useRef<Map<string, string>>(new Map());
   const sidebarRevealRequestIdRef = useRef(0);
   const redisRefreshIdRef = useRef(0);
-  const [redisRefreshRequest, setRedisRefreshRequest] = useState<RedisRefreshRequest | undefined>(undefined);
+  const [redisRefreshRequest, setRedisRefreshRequest] = useState<
+    RedisRefreshRequest | undefined
+  >(undefined);
 
   const revealSidebarForTab = useCallback(
     (tabId: string, sourceTabs = tabs) => {
@@ -441,7 +470,15 @@ export default function App() {
     driver: string,
   ) => {
     if (isKeyValueDriver(driver as any)) {
-      toast.info("Redis connections don't support SQL queries. Use the Redis key view to browse and edit keys.");
+      toast.info(
+        "Redis connections don't support SQL queries. Use the Redis key view to browse and edit keys.",
+      );
+      return;
+    }
+    if (driver === "elasticsearch") {
+      toast.info(
+        "Elasticsearch connections don't support SQL queries. Open an index to search documents.",
+      );
       return;
     }
     const normalizedDatabaseName = databaseName.trim();
@@ -943,8 +980,39 @@ export default function App() {
     setActiveTab(tabId);
   };
 
+  const handleOpenElasticsearchIndex = (
+    connection: string,
+    index: string,
+    connectionId: number,
+    driver: string,
+  ) => {
+    const tabId = `elasticsearch-${connectionId}-${index}`;
+    const existingTab = tabs.find((t) => t.id === tabId);
+    if (existingTab) {
+      setActiveTab(tabId);
+      return;
+    }
+    setTabs((prev) => [
+      ...prev,
+      {
+        id: tabId,
+        type: "elasticsearch-index",
+        title: index,
+        connection,
+        connectionId,
+        driver,
+        elasticsearchIndex: index,
+      },
+    ]);
+    setActiveTab(tabId);
+  };
+
   const notifyRedisRefresh = (connectionId: number, database: string) => {
-    setRedisRefreshRequest({ id: ++redisRefreshIdRef.current, connectionId, database });
+    setRedisRefreshRequest({
+      id: ++redisRefreshIdRef.current,
+      connectionId,
+      database,
+    });
   };
 
   const handleExportTableFromTree = async (
@@ -1031,6 +1099,38 @@ export default function App() {
       database: ctx.database,
       schema: ctx.schema,
       tableName: ctx.table,
+    };
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTab(tabId);
+  };
+
+  const handleRoutineSelect = (
+    connection: string,
+    database: string,
+    schema: string,
+    name: string,
+    routineType: RoutineType,
+    connectionId: number,
+    driver: string,
+  ) => {
+    const tabId = `routine-${connectionId}-${database}-${schema}-${routineType}-${name}`;
+    const existingTab = tabs.find((t) => t.id === tabId);
+    if (existingTab) {
+      setActiveTab(tabId);
+      return;
+    }
+
+    const newTab: TabItem = {
+      id: tabId,
+      type: "routine",
+      title: name,
+      connection,
+      database,
+      schema,
+      routineName: name,
+      routineType,
+      connectionId,
+      driver,
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTab(tabId);
@@ -1715,8 +1815,10 @@ export default function App() {
               onRedisKeySelect={handleRedisKeySelect}
               onOpenRedisConsole={handleOpenRedisConsole}
               onOpenRedisBrowser={handleOpenRedisBrowser}
+              onOpenElasticsearchIndex={handleOpenElasticsearchIndex}
               onConnect={() => {}}
               onCreateQuery={handleCreateQuery}
+              onRoutineSelect={handleRoutineSelect}
               onExportTable={handleExportTableFromTree}
               onExportDatabase={handleExportDatabaseFromTree}
               onCreateTable={handleCreateTable}
@@ -1787,6 +1889,9 @@ export default function App() {
                                           <KeyRound className="w-4 h-4 text-accent" />
                                         ) : tab.type === "redis-browser" ? (
                                           <LayoutDashboard className="w-4 h-4 text-accent" />
+                                        ) : tab.type ===
+                                          "elasticsearch-index" ? (
+                                          <FileSearch className="w-4 h-4 text-accent" />
                                         ) : (
                                           <FileCode className="w-4 h-4 text-accent" />
                                         )}
@@ -1968,16 +2073,29 @@ export default function App() {
                                       tab.driver === "clickhouse"
                                         ? tab.database
                                         : tab.driver === "mssql"
-                                          ? "dbo"
+                                          ? tab.schema || "dbo"
                                           : tab.driver === "duckdb"
                                             ? "main"
-                                            : "public",
+                                            : tab.schema || "public",
                                     table: tab.tableName,
                                     driver: tab.driver,
                                   }
                                 : undefined
                             }
                             showColumnComments={showColumnComments}
+                          />
+                        ) : tab.type === "routine" &&
+                          tab.connectionId !== undefined &&
+                          tab.database &&
+                          tab.schema &&
+                          tab.routineName &&
+                          tab.routineType ? (
+                          <RoutineMetadataView
+                            connectionId={tab.connectionId}
+                            database={tab.database}
+                            schema={tab.schema}
+                            name={tab.routineName}
+                            routineType={tab.routineType}
                           />
                         ) : tab.type === "redis-key" &&
                           tab.connectionId !== undefined &&
@@ -2000,11 +2118,17 @@ export default function App() {
                                       : item,
                                   ),
                                 );
-                                notifyRedisRefresh(tab.connectionId!, tab.database!);
+                                notifyRedisRefresh(
+                                  tab.connectionId!,
+                                  tab.database!,
+                                );
                               }}
                               onDeleted={() => {
                                 handleCloseTab(tab.id);
-                                notifyRedisRefresh(tab.connectionId!, tab.database!);
+                                notifyRedisRefresh(
+                                  tab.connectionId!,
+                                  tab.database!,
+                                );
                               }}
                             />
                           </Suspense>
@@ -2040,6 +2164,19 @@ export default function App() {
                                   tab.driver!,
                                 )
                               }
+                            />
+                          </Suspense>
+                        ) : tab.type === "elasticsearch-index" &&
+                          tab.connectionId !== undefined &&
+                          tab.elasticsearchIndex ? (
+                          <Suspense
+                            fallback={
+                              <LazyPanelFallback label="Loading Elasticsearch index..." />
+                            }
+                          >
+                            <ElasticsearchIndexView
+                              connectionId={tab.connectionId}
+                              index={tab.elasticsearchIndex}
                             />
                           </Suspense>
                         ) : tab.type === "create-table" &&

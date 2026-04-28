@@ -203,6 +203,12 @@ export const ja: Translations = {
     tree: {
       database: "データベース",
       queries: "クエリ",
+      tables: "テーブル",
+      noTables: "テーブルなし",
+      procedures: "プロシージャ",
+      functions: "関数",
+      noProcedures: "ストアドプロシージャなし",
+      noFunctions: "関数なし",
     },
     dialog: {
       editTitle: "データベース接続を編集",
@@ -229,6 +235,11 @@ export const ja: Translations = {
         seedNodes: "シードノード",
         sentinels: "Sentinel ノード",
         connectTimeoutMs: "接続タイムアウト (ms)",
+        authMode: "認証方式",
+        apiKeyId: "API Key ID",
+        apiKeySecret: "API Key",
+        apiKeyEncoded: "エンコード済み API Key",
+        cloudId: "Elastic Cloud ID",
         sqliteFilePath: "SQLite ファイルパス",
         sqliteKey: "暗号化キー（SQLCipher）",
         duckdbFilePath: "DuckDB ファイルパス",
@@ -236,6 +247,8 @@ export const ja: Translations = {
       placeholders: {
         selectDatabaseType: "データベースタイプを選択",
         keepPassword: "空欄で現在のパスワードを保持",
+        keepApiKey: "空欄で現在の API Key を保持",
+        cloudId: "deployment:base64-cloud-id",
         sslCaCert: "CA 証明書の PEM 内容を貼り付け",
         sshHost: "ssh.example.com",
         sshPort: "22",
@@ -285,6 +298,11 @@ export const ja: Translations = {
         require: "暗号化のみ（CA 検証なし）",
         verifyCa: "サーバー証明書を検証（CA）",
       },
+      authMode: {
+        none: "なし",
+        basic: "ユーザー名 / パスワード",
+        apiKey: "API Key",
+      },
       redisMode: {
         standalone: "スタンドアロン",
         cluster: "クラスター",
@@ -327,6 +345,10 @@ export const ja: Translations = {
         hostWhitespace: "ホストには空白文字を含められません。",
         hostPortNotAllowed:
           "このデータベースタイプではホスト欄に host:port は使えません。ポート欄に入力してください。",
+        elasticsearchEndpointRequired:
+          "ホストまたは Elastic Cloud ID を入力してください。",
+        elasticsearchApiKeyRequired:
+          "エンコード済み API Key、または API Key ID と API Key の両方を入力してください。",
         redisSeedNodesRequired:
           "Redis クラスターモードでは少なくとも 2 つのシードノードが必要です。",
         redisSentinelsRequired:
@@ -610,6 +632,21 @@ export const ja: Translations = {
       title: "CREATE TABLE SQL",
       loading: "DDL を読み込み中...",
       empty: "DDL はありません",
+    },
+  },
+  routineMetadata: {
+    title: "Routine 定義",
+    loading: "定義を読み込み中...",
+    empty: "定義はありません",
+    type: {
+      procedure: "プロシージャ",
+      function: "関数",
+    },
+    copy: {
+      copy: "コピー",
+      copied: "コピーしました",
+      copiedShort: "コピー済み",
+      failed: "コピーに失敗しました",
     },
   },
   createTable: {

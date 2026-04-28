@@ -165,6 +165,61 @@ export interface RedisRawResult {
   output: string;
 }
 
+export interface ElasticsearchConnectionInfo {
+  clusterName?: string | null;
+  clusterUuid?: string | null;
+  version?: string | null;
+  tagline?: string | null;
+}
+
+export interface ElasticsearchIndexInfo {
+  name: string;
+  health?: string | null;
+  status?: string | null;
+  uuid?: string | null;
+  primaryShards?: string | null;
+  replicaShards?: string | null;
+  docsCount?: number | null;
+  storeSize?: string | null;
+  isSystem: boolean;
+}
+
+export interface ElasticsearchSearchHit {
+  index: string;
+  id: string;
+  score?: number | null;
+  source: any;
+  fields?: any;
+}
+
+export interface ElasticsearchSearchResponse {
+  hits: ElasticsearchSearchHit[];
+  total: number;
+  tookMs: number;
+}
+
+export interface ElasticsearchDocument {
+  index: string;
+  id: string;
+  found: boolean;
+  source?: any;
+  fields?: any;
+}
+
+export interface ElasticsearchMutationResult {
+  index?: string | null;
+  id?: string | null;
+  result?: string | null;
+  status: number;
+}
+
+export interface ElasticsearchRawResponse {
+  status: number;
+  body: string;
+  json?: any;
+  tookMs: number;
+}
+
 export type SqlExecutionSource =
   | "sql_editor"
   | "table_view_save"
@@ -227,6 +282,11 @@ export interface ConnectionForm {
   seedNodes?: string[];
   sentinels?: string[];
   connectTimeoutMs?: number;
+  authMode?: "none" | "basic" | "api_key";
+  apiKeyId?: string;
+  apiKeySecret?: string;
+  apiKeyEncoded?: string;
+  cloudId?: string;
 }
 
 export interface SavedConnection {
@@ -252,6 +312,11 @@ export interface SavedConnection {
   seedNodes?: string[] | null;
   sentinels?: string[] | null;
   connectTimeoutMs?: number | null;
+  authMode?: "none" | "basic" | "api_key" | null;
+  apiKeyId?: string | null;
+  apiKeySecret?: string | null;
+  apiKeyEncoded?: string | null;
+  cloudId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -331,6 +396,14 @@ export interface TableMetadata {
   foreignKeys: ForeignKeyInfo[];
   clickhouseExtra?: ClickHouseTableExtra | null;
   specialTypeSummaries: SpecialTypeSummary[];
+}
+
+export type RoutineType = "procedure" | "function";
+
+export interface RoutineInfo {
+  schema: string;
+  name: string;
+  type: RoutineType;
 }
 
 export interface TableSchema {
@@ -526,6 +599,12 @@ export const api = {
         database,
         schema,
       }),
+    listRoutines: (id: number, database?: string, schema?: string) =>
+      invoke<RoutineInfo[]>("list_routines", {
+        id,
+        database,
+        schema,
+      }),
     getTableStructure: (id: number, schema: string, table: string) =>
       invoke<{ columns: { name: string; type: string; nullable: boolean }[] }>(
         "get_table_structure",
@@ -537,6 +616,20 @@ export const api = {
       schema: string,
       table: string,
     ) => invoke<string>("get_table_ddl", { id, database, schema, table }),
+    getRoutineDDL: (
+      id: number,
+      database: string | undefined,
+      schema: string,
+      name: string,
+      routineType: RoutineType,
+    ) =>
+      invoke<string>("get_routine_ddl", {
+        id,
+        database,
+        schema,
+        name,
+        routineType,
+      }),
     getTableMetadata: (
       id: number,
       database: string | undefined,
@@ -763,6 +856,61 @@ export const api = {
       payload: RedisKeyPatchPayload,
     ) =>
       invoke<RedisMutationResult>("redis_patch_key", { id, database, payload }),
+  },
+  elasticsearch: {
+    testConnection: (id: number) =>
+      invoke<ElasticsearchConnectionInfo>("elasticsearch_test_connection", {
+        id,
+      }),
+    listIndices: (id: number) =>
+      invoke<ElasticsearchIndexInfo[]>("elasticsearch_list_indices", { id }),
+    getIndexMapping: (id: number, index: string) =>
+      invoke<any>("elasticsearch_get_index_mapping", { id, index }),
+    searchDocuments: (params: {
+      id: number;
+      index: string;
+      query?: string;
+      dsl?: string;
+      from: number;
+      size: number;
+    }) =>
+      invoke<ElasticsearchSearchResponse>(
+        "elasticsearch_search_documents",
+        params,
+      ),
+    getDocument: (id: number, index: string, documentId: string) =>
+      invoke<ElasticsearchDocument>("elasticsearch_get_document", {
+        id,
+        index,
+        documentId,
+      }),
+    upsertDocument: (params: {
+      id: number;
+      index: string;
+      documentId?: string;
+      source: any;
+      refresh?: boolean;
+    }) =>
+      invoke<ElasticsearchMutationResult>(
+        "elasticsearch_upsert_document",
+        params,
+      ),
+    deleteDocument: (params: {
+      id: number;
+      index: string;
+      documentId: string;
+      refresh?: boolean;
+    }) =>
+      invoke<ElasticsearchMutationResult>(
+        "elasticsearch_delete_document",
+        params,
+      ),
+    executeRaw: (params: {
+      id: number;
+      method: string;
+      path: string;
+      body?: string;
+    }) => invoke<ElasticsearchRawResponse>("elasticsearch_execute_raw", params),
   },
   queries: {
     list: () => invoke<SavedQuery[]>("get_saved_queries"),

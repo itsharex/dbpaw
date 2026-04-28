@@ -201,6 +201,12 @@ export const en = {
     tree: {
       database: "Database",
       queries: "Queries",
+      tables: "Tables",
+      noTables: "No tables",
+      procedures: "Procedures",
+      functions: "Functions",
+      noProcedures: "No stored procedures",
+      noFunctions: "No functions",
     },
     dialog: {
       editTitle: "Edit Database Connection",
@@ -227,6 +233,11 @@ export const en = {
         seedNodes: "Seed Nodes",
         sentinels: "Sentinels",
         connectTimeoutMs: "Connect Timeout (ms)",
+        authMode: "Authentication",
+        apiKeyId: "API Key ID",
+        apiKeySecret: "API Key",
+        apiKeyEncoded: "Encoded API Key",
+        cloudId: "Elastic Cloud ID",
         sqliteFilePath: "SQLite File Path",
         sqliteKey: "Encryption Key (SQLCipher)",
         duckdbFilePath: "DuckDB File Path",
@@ -234,6 +245,8 @@ export const en = {
       placeholders: {
         selectDatabaseType: "Select database type",
         keepPassword: "Leave empty to keep current password",
+        keepApiKey: "Leave empty to keep current API key",
+        cloudId: "deployment:base64-cloud-id",
         sslCaCert: "Paste CA certificate PEM content",
         sshHost: "ssh.example.com",
         sshPort: "22",
@@ -283,6 +296,11 @@ export const en = {
         require: "Encrypt only (skip CA verification)",
         verifyCa: "Verify server certificate (CA)",
       },
+      authMode: {
+        none: "None",
+        basic: "Username / Password",
+        apiKey: "API Key",
+      },
       redisMode: {
         standalone: "Standalone",
         cluster: "Cluster",
@@ -325,6 +343,9 @@ export const en = {
         hostWhitespace: "Host cannot contain whitespace characters.",
         hostPortNotAllowed:
           "This database type does not support host:port in host field. Please set port in the port field.",
+        elasticsearchEndpointRequired: "Host or Elastic Cloud ID is required.",
+        elasticsearchApiKeyRequired:
+          "Provide an encoded API key or both API Key ID and API Key.",
         redisSeedNodesRequired:
           "Redis cluster mode requires at least two seed nodes.",
         redisSentinelsRequired:
@@ -603,6 +624,21 @@ export const en = {
       title: "Create Table SQL",
       loading: "Loading DDL...",
       empty: "No DDL available",
+    },
+  },
+  routineMetadata: {
+    title: "Routine Definition",
+    loading: "Loading definition...",
+    empty: "No definition available",
+    type: {
+      procedure: "Procedure",
+      function: "Function",
+    },
+    copy: {
+      copy: "Copy",
+      copied: "Copied",
+      copiedShort: "Copied",
+      failed: "Copy failed",
     },
   },
   createTable: {

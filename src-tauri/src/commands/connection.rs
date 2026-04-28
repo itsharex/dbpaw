@@ -411,6 +411,9 @@ pub async fn test_connection_ephemeral(
     if form.driver == "redis" {
         let mut conn = crate::datasources::redis::connect(&form, None).await?;
         crate::datasources::redis::ping(&mut conn).await?;
+    } else if form.driver == "elasticsearch" {
+        let client = crate::datasources::elasticsearch::ElasticsearchClient::connect(&form)?;
+        client.test_connection().await?;
     } else {
         let driver = crate::db::drivers::connect(&form).await?;
         driver.test_connection().await.map_err(|e| e.to_string())?;
@@ -649,11 +652,7 @@ pub async fn delete_connection_direct(state: &AppState, id: i64) -> Result<(), S
     };
     if let Some(db) = local_db {
         state.pool_manager.remove_by_prefix(&id.to_string()).await;
-        state
-            .redis_cache
-            .lock()
-            .await
-            .remove_by_connection_id(id);
+        state.redis_cache.lock().await.remove_by_connection_id(id);
         db.delete_connection(id).await
     } else {
         Err("Local DB not initialized".to_string())

@@ -26,6 +26,11 @@ pub struct Connection {
     pub seed_nodes: Option<Vec<String>>,
     pub sentinels: Option<Vec<String>>,
     pub connect_timeout_ms: Option<i64>,
+    pub auth_mode: Option<String>,
+    pub api_key_id: Option<String>,
+    pub api_key_secret: Option<String>,
+    pub api_key_encoded: Option<String>,
+    pub cloud_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -131,6 +136,14 @@ pub struct AiMessage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableInfo {
+    pub schema: String,
+    pub name: String,
+    pub r#type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutineInfo {
     pub schema: String,
     pub name: String,
     pub r#type: String,
@@ -262,6 +275,11 @@ pub struct ConnectionForm {
     pub seed_nodes: Option<Vec<String>>,
     pub sentinels: Option<Vec<String>>,
     pub connect_timeout_ms: Option<i64>,
+    pub auth_mode: Option<String>,
+    pub api_key_id: Option<String>,
+    pub api_key_secret: Option<String>,
+    pub api_key_encoded: Option<String>,
+    pub cloud_id: Option<String>,
 }
 
 impl fmt::Debug for ConnectionForm {
@@ -271,6 +289,9 @@ impl fmt::Debug for ConnectionForm {
         let ssl_ca_cert = self.ssl_ca_cert.as_ref().map(|_| "<redacted>");
         let ssh_username = self.ssh_username.as_ref().map(|_| "<redacted>");
         let ssh_password = self.ssh_password.as_ref().map(|_| "<redacted>");
+        let api_key_id = self.api_key_id.as_ref().map(|_| "<redacted>");
+        let api_key_secret = self.api_key_secret.as_ref().map(|_| "<redacted>");
+        let api_key_encoded = self.api_key_encoded.as_ref().map(|_| "<redacted>");
         f.debug_struct("ConnectionForm")
             .field("driver", &self.driver)
             .field("name", &self.name)
@@ -294,6 +315,11 @@ impl fmt::Debug for ConnectionForm {
             .field("seed_nodes", &self.seed_nodes)
             .field("sentinels", &self.sentinels)
             .field("connect_timeout_ms", &self.connect_timeout_ms)
+            .field("auth_mode", &self.auth_mode)
+            .field("api_key_id", &api_key_id)
+            .field("api_key_secret", &api_key_secret)
+            .field("api_key_encoded", &api_key_encoded)
+            .field("cloud_id", &self.cloud_id)
             .finish()
     }
 }
@@ -344,18 +370,24 @@ mod tests {
             driver: "mysql".to_string(),
             host: Some("127.0.0.1".to_string()),
             username: Some("root".to_string()),
-            password: Some("secret".to_string()),
+            password: Some("db-password-value".to_string()),
             ssl_ca_cert: Some("cert-data".to_string()),
             ssh_username: Some("jump".to_string()),
             ssh_password: Some("jump-secret".to_string()),
+            api_key_id: Some("api-key-id".to_string()),
+            api_key_secret: Some("api-key-secret".to_string()),
+            api_key_encoded: Some("encoded-api-key".to_string()),
             ..Default::default()
         };
 
         let printed = format!("{form:?}");
         assert!(!printed.contains("root"));
-        assert!(!printed.contains("secret"));
+        assert!(!printed.contains("db-password-value"));
         assert!(!printed.contains("cert-data"));
         assert!(!printed.contains("jump-secret"));
+        assert!(!printed.contains("api-key-id"));
+        assert!(!printed.contains("api-key-secret"));
+        assert!(!printed.contains("encoded-api-key"));
         assert!(printed.contains("<redacted>"));
     }
 }

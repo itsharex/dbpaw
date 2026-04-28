@@ -119,10 +119,7 @@ pub async fn redis_list_databases(
         let mut cmd = ::redis::cmd("CONFIG");
         cmd.arg("GET").arg("databases");
         match conn.query::<Vec<String>>(cmd).await {
-            Ok(values) if values.len() >= 2 => values[1]
-                .parse::<i64>()
-                .unwrap_or(16)
-                .clamp(1, 256),
+            Ok(values) if values.len() >= 2 => values[1].parse::<i64>().unwrap_or(16).clamp(1, 256),
             _ => 16,
         }
     };

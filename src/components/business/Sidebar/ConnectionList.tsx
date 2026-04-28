@@ -28,6 +28,7 @@ import {
   Upload,
   Terminal,
   LayoutDashboard,
+  FileSearch,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,6 +72,7 @@ import type {
   CreateDatabasePayload,
   Driver,
   RedisConnectionMode,
+  RoutineType,
   SavedQuery,
   SavedConnection,
 } from "@/services/api";
@@ -111,9 +113,17 @@ interface TableInfo {
   columns: Column[];
 }
 
+interface RoutineInfo {
+  name: string;
+  schema: string;
+  type: RoutineType;
+}
+
 interface SchemaInfo {
   name: string;
   tables: TableInfo[];
+  procedures: RoutineInfo[];
+  functions: RoutineInfo[];
 }
 
 interface DatabaseInfo {
@@ -150,10 +160,59 @@ interface Connection {
   seedNodes?: string[];
   sentinels?: string[];
   connectTimeoutMs?: number;
+  authMode?: "none" | "basic" | "api_key";
+  apiKeyId?: string;
+  apiKeySecret?: string;
+  apiKeyEncoded?: string;
+  cloudId?: string;
   databases: DatabaseInfo[];
   isConnected: boolean;
   connectState: "idle" | "connecting" | "success" | "error";
   connectError?: string;
+}
+
+function groupSqlObjectsBySchema(
+  tables: TableInfo[],
+  routines: RoutineInfo[],
+): SchemaInfo[] {
+  const groupedTables = tables.reduce<Record<string, TableInfo[]>>(
+    (acc, table) => {
+      const schemaName = (table.schema || "").trim() || "public";
+      const current = acc[schemaName] || [];
+      current.push(table);
+      acc[schemaName] = current;
+      return acc;
+    },
+    {},
+  );
+  const groupedRoutines = routines.reduce<Record<string, RoutineInfo[]>>(
+    (acc, routine) => {
+      const schemaName = (routine.schema || "").trim() || "dbo";
+      const current = acc[schemaName] || [];
+      current.push(routine);
+      acc[schemaName] = current;
+      return acc;
+    },
+    {},
+  );
+  const schemaNames = Array.from(
+    new Set([...Object.keys(groupedTables), ...Object.keys(groupedRoutines)]),
+  ).sort((a, b) => a.localeCompare(b));
+
+  return schemaNames.map((name) => {
+    const schemaTables = groupedTables[name] || [];
+    const schemaRoutines = groupedRoutines[name] || [];
+    return {
+      name,
+      tables: [...schemaTables].sort((a, b) => a.name.localeCompare(b.name)),
+      procedures: schemaRoutines
+        .filter((routine) => routine.type === "procedure")
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      functions: schemaRoutines
+        .filter((routine) => routine.type === "function")
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  });
 }
 
 interface CreateDatabaseForm {
@@ -336,6 +395,11 @@ const buildFormFromConnection = (
     | "seedNodes"
     | "sentinels"
     | "connectTimeoutMs"
+    | "authMode"
+    | "apiKeyId"
+    | "apiKeySecret"
+    | "apiKeyEncoded"
+    | "cloudId"
   >,
   overrides: Partial<ConnectionForm> = {},
 ): ConnectionForm =>
@@ -361,10 +425,18 @@ const buildFormFromConnection = (
     seedNodes: connection.seedNodes || [],
     sentinels: connection.sentinels || [],
     connectTimeoutMs: connection.connectTimeoutMs,
+    authMode: connection.authMode || "none",
+    apiKeyId: connection.apiKeyId || "",
+    apiKeySecret: "",
+    apiKeyEncoded: "",
+    cloudId: connection.cloudId || "",
     ...overrides,
   });
 
-const mapSavedConnection = (c: SavedConnection, fallbackName: string): Connection => ({
+const mapSavedConnection = (
+  c: SavedConnection,
+  fallbackName: string,
+): Connection => ({
   id: String(c.id),
   name: c.name || fallbackName,
   type: (c.dbType as Driver) || "postgres",
@@ -386,6 +458,11 @@ const mapSavedConnection = (c: SavedConnection, fallbackName: string): Connectio
   seedNodes: c.seedNodes || [],
   sentinels: c.sentinels || [],
   connectTimeoutMs: c.connectTimeoutMs || undefined,
+  authMode: c.authMode || "none",
+  apiKeyId: c.apiKeyId || "",
+  apiKeySecret: c.apiKeySecret || "",
+  apiKeyEncoded: c.apiKeyEncoded || "",
+  cloudId: c.cloudId || "",
   isConnected: false,
   connectState: "idle",
   connectError: undefined,
@@ -420,10 +497,25 @@ interface ConnectionListProps {
     connectionId: number,
     driver: string,
   ) => void;
+  onOpenElasticsearchIndex?: (
+    connection: string,
+    index: string,
+    connectionId: number,
+    driver: string,
+  ) => void;
   onConnect?: (form: ConnectionForm) => void;
   onCreateQuery?: (
     connectionId: number,
     databaseName: string,
+    driver: string,
+  ) => void;
+  onRoutineSelect?: (
+    connection: string,
+    database: string,
+    schema: string,
+    name: string,
+    routineType: RoutineType,
+    connectionId: number,
     driver: string,
   ) => void;
   onExportTable?: (
@@ -487,8 +579,10 @@ export function ConnectionList({
   onRedisKeySelect,
   onOpenRedisConsole,
   onOpenRedisBrowser,
+  onOpenElasticsearchIndex,
   onConnect,
   onCreateQuery,
+  onRoutineSelect,
   onExportTable,
   onExportDatabase,
   onCreateTable,
@@ -524,6 +618,12 @@ export function ConnectionList({
     new Set(),
   );
   const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(
+    new Set(),
+  );
+  const [expandedRoutineGroups, setExpandedRoutineGroups] = useState<
+    Set<string>
+  >(new Set());
+  const [expandedTableGroups, setExpandedTableGroups] = useState<Set<string>>(
     new Set(),
   );
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
@@ -626,6 +726,13 @@ export function ConnectionList({
     supportsSchemaBrowsing(driver);
   const getSchemaNodeKey = (databaseKey: string, schema: string) =>
     `${databaseKey}::${schema}`;
+  const getRoutineGroupNodeKey = (
+    databaseKey: string,
+    schema: string,
+    routineType: RoutineType,
+  ) => `${databaseKey}::${schema}::${routineType}`;
+  const getTableGroupNodeKey = (databaseKey: string, schema: string) =>
+    `${databaseKey}::${schema}::tables`;
   const getTableNodeKey = (
     connectionId: string,
     databaseName: string,
@@ -710,8 +817,23 @@ export function ConnectionList({
                 const filteredTables = schema.tables.filter((t) =>
                   t.name.toLowerCase().includes(lowerTerm),
                 );
-                if (filteredTables.length > 0) {
-                  return { ...schema, tables: filteredTables };
+                const filteredProcedures = schema.procedures.filter((routine) =>
+                  routine.name.toLowerCase().includes(lowerTerm),
+                );
+                const filteredFunctions = schema.functions.filter((routine) =>
+                  routine.name.toLowerCase().includes(lowerTerm),
+                );
+                if (
+                  filteredTables.length > 0 ||
+                  filteredProcedures.length > 0 ||
+                  filteredFunctions.length > 0
+                ) {
+                  return {
+                    ...schema,
+                    tables: filteredTables,
+                    procedures: filteredProcedures,
+                    functions: filteredFunctions,
+                  };
                 }
                 return null;
               })
@@ -774,6 +896,42 @@ export function ConnectionList({
             const databaseKey = `${conn.id}-${db.name}`;
             db.schemas.forEach((schema) => {
               next.add(getSchemaNodeKey(databaseKey, schema.name));
+            });
+          });
+        });
+        return next;
+      });
+      setExpandedRoutineGroups((prev) => {
+        const next = new Set(prev);
+        filteredConnections.forEach((conn) => {
+          conn.databases.forEach((db) => {
+            const databaseKey = `${conn.id}-${db.name}`;
+            db.schemas.forEach((schema) => {
+              if (schema.procedures.length > 0) {
+                next.add(
+                  getRoutineGroupNodeKey(databaseKey, schema.name, "procedure"),
+                );
+              }
+              if (schema.functions.length > 0) {
+                next.add(
+                  getRoutineGroupNodeKey(databaseKey, schema.name, "function"),
+                );
+              }
+            });
+          });
+        });
+        return next;
+      });
+      setExpandedTableGroups((prev) => {
+        const next = new Set(prev);
+        filteredConnections.forEach((conn) => {
+          if (conn.type !== "mssql") return;
+          conn.databases.forEach((db) => {
+            const databaseKey = `${conn.id}-${db.name}`;
+            db.schemas.forEach((schema) => {
+              if (schema.tables.length > 0) {
+                next.add(getTableGroupNodeKey(databaseKey, schema.name));
+              }
             });
           });
         });
@@ -902,7 +1060,9 @@ export function ConnectionList({
   const fetchConnections = async () => {
     try {
       const conns = await api.connections.list();
-      setConnections(conns.map((c) => mapSavedConnection(c, t("common.unknown"))));
+      setConnections(
+        conns.map((c) => mapSavedConnection(c, t("common.unknown"))),
+      );
       setExpandedConnections(new Set());
       setExpandedDatabases(new Set());
       setExpandedDatabaseGroups(new Set());
@@ -1202,6 +1362,31 @@ export function ConnectionList({
     }));
   };
 
+  const fetchSqlRoutinesAsRoutineInfo = async (
+    connectionId: string,
+    databaseName: string,
+    driver: Driver,
+  ): Promise<RoutineInfo[]> => {
+    if (driver !== "mssql") return [];
+    try {
+      const routines = await api.metadata.listRoutines(
+        Number(connectionId),
+        databaseName,
+      );
+      return routines.map((routine) => ({
+        name: routine.name,
+        schema: routine.schema,
+        type: routine.type,
+      }));
+    } catch (e) {
+      console.warn(
+        "listRoutines failed",
+        e instanceof Error ? e.message : String(e),
+      );
+      return [];
+    }
+  };
+
   const getDatasourceTreeAdapter = (
     connection: Connection,
   ): DatasourceTreeAdapter => {
@@ -1342,10 +1527,48 @@ export function ConnectionList({
       };
     }
 
+    if (connection.type === "elasticsearch") {
+      return {
+        supportsSchemaNode: false,
+        isDatabaseExpandable: true,
+        listDatabases: async () => ["Indices"],
+        loadDatabaseChildren: async () => {
+          const indices = await api.elasticsearch.listIndices(
+            Number(connection.id),
+          );
+          return indices
+            .filter(
+              (index) => !index.isSystem || searchTerm.trim().startsWith("."),
+            )
+            .map((index) => ({
+              name: index.name,
+              schema: "Indices",
+              columns: [],
+            }));
+        },
+        shouldSkipTableColumns: true,
+        getItemIcon: () => <FileSearch className="w-4 h-4" />,
+        onItemActivate: (_database, table) => {
+          onOpenElasticsearchIndex?.(
+            connection.name,
+            table.name,
+            Number(connection.id),
+            connection.type,
+          );
+        },
+        getDatabaseRowActions: () => undefined,
+        onDatabaseDoubleClick: undefined,
+        renderDatabaseFooter: () => null,
+        renderTableContextMenu: () => null,
+        renderDatabaseContextMenu: () => null,
+      };
+    }
+
     return {
       supportsSchemaNode: supportsSchemaNodeForDriver(connection.type),
       isDatabaseExpandable: true,
-      listDatabases: () => api.metadata.listDatabasesById(Number(connection.id)),
+      listDatabases: () =>
+        api.metadata.listDatabasesById(Number(connection.id)),
       loadDatabaseChildren: (databaseName: string) =>
         fetchSqlTablesAsTableInfo(connection.id, databaseName),
       shouldSkipTableColumns: false,
@@ -1373,9 +1596,7 @@ export function ConnectionList({
             {t("connection.menu.newQuery")}
           </ContextMenuItem>
           <ContextMenuItem
-            onClick={() =>
-              handleTableExportDialog(connection, database, table)
-            }
+            onClick={() => handleTableExportDialog(connection, database, table)}
           >
             <Download className="mr-2 h-4 w-4" />
             {t("connection.menu.exportTable")}
@@ -1418,7 +1639,14 @@ export function ConnectionList({
         await datasourceAdapter.loadDatabaseChildren(databaseName);
         return [];
       }
-      const nextTables = await datasourceAdapter.loadDatabaseChildren(databaseName);
+      const [nextTables, nextRoutines] = await Promise.all([
+        datasourceAdapter.loadDatabaseChildren(databaseName),
+        fetchSqlRoutinesAsRoutineInfo(
+          connectionId,
+          databaseName,
+          targetConnection.type,
+        ),
+      ]);
       setConnections((prev) =>
         prev.map((conn) => {
           if (conn.id !== connectionId) return conn;
@@ -1442,27 +1670,9 @@ export function ConnectionList({
                   tables: nextTables,
                 };
               }
-              const grouped = nextTables.reduce<Record<string, TableInfo[]>>(
-                (acc, table) => {
-                  const schemaName = (table.schema || "").trim() || "public";
-                  const current = acc[schemaName] || [];
-                  current.push(table);
-                  acc[schemaName] = current;
-                  return acc;
-                },
-                {},
-              );
-              const schemas = Object.entries(grouped)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([name, schemaTables]) => ({
-                  name,
-                  tables: [...schemaTables].sort((a, b) =>
-                    a.name.localeCompare(b.name),
-                  ),
-                }));
               return {
                 ...db,
-                schemas,
+                schemas: groupSqlObjectsBySchema(nextTables, nextRoutines),
                 tables: [],
               };
             }),
@@ -1663,6 +1873,18 @@ export function ConnectionList({
       );
       return next;
     });
+    setExpandedRoutineGroups((prev) => {
+      const next = new Set(
+        [...prev].filter((key) => !key.startsWith(schemaKeyPrefix)),
+      );
+      return next;
+    });
+    setExpandedTableGroups((prev) => {
+      const next = new Set(
+        [...prev].filter((key) => !key.startsWith(schemaKeyPrefix)),
+      );
+      return next;
+    });
     setExpandedTables((prev) => {
       const next = new Set(
         [...prev].filter((key) => !key.startsWith(tableKeyPrefix)),
@@ -1742,6 +1964,31 @@ export function ConnectionList({
       return next;
     });
   };
+
+  const toggleRoutineGroup = (groupKey: string) => {
+    setExpandedRoutineGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) {
+        next.delete(groupKey);
+      } else {
+        next.add(groupKey);
+      }
+      return next;
+    });
+  };
+
+  const toggleTableGroup = (groupKey: string) => {
+    setExpandedTableGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) {
+        next.delete(groupKey);
+      } else {
+        next.add(groupKey);
+      }
+      return next;
+    });
+  };
+
   const fetchAndSetTableColumns = async (
     connectionId: string,
     databaseName: string,
@@ -1848,6 +2095,22 @@ export function ConnectionList({
     table: TableInfo,
   ) => {
     getDatasourceTreeAdapter(connection).onItemActivate(database, table);
+  };
+
+  const handleRoutineClick = (
+    connection: Connection,
+    database: DatabaseInfo,
+    routine: RoutineInfo,
+  ) => {
+    onRoutineSelect?.(
+      connection.name,
+      database.name,
+      routine.schema,
+      routine.name,
+      routine.type,
+      Number(connection.id),
+      connection.type,
+    );
   };
 
   const handleCreateRedisKey = (
@@ -2497,10 +2760,7 @@ export function ConnectionList({
           ) => {
             const dbKey = `${connection.id}-${database.name}`;
             const supportsSchemaNode = datasourceAdapter.supportsSchemaNode;
-            const renderTableNode = (
-              table: TableInfo,
-              tableLevel: number,
-            ) => {
+            const renderTableNode = (table: TableInfo, tableLevel: number) => {
               const tableKey = getTableNodeKey(
                 connection.id,
                 database.name,
@@ -2531,11 +2791,7 @@ export function ConnectionList({
                           );
                         }}
                         onDoubleClick={() => {
-                          handleTableClick(
-                            connection,
-                            database,
-                            table,
-                          );
+                          handleTableClick(connection, database, table);
                         }}
                         statusIndicator={
                           loadingTableKeys.has(tableKey)
@@ -2549,11 +2805,7 @@ export function ConnectionList({
                               size="sm"
                               className="h-6 w-6 p-0"
                               onClick={() =>
-                                handleTableClick(
-                                  connection,
-                                  database,
-                                  table,
-                                )
+                                handleTableClick(connection, database, table)
                               }
                             >
                               <Play className="w-3 h-3" />
@@ -2593,6 +2845,86 @@ export function ConnectionList({
               );
             };
 
+            const renderRoutineNode = (
+              routine: RoutineInfo,
+              routineLevel: number,
+            ) => {
+              const routineKey = `${connection.id}-${database.name}-${routine.schema}-${routine.type}-${routine.name}`;
+              return (
+                <TreeNode
+                  key={routineKey}
+                  level={routineLevel}
+                  icon={<FileCode className="w-4 h-4" />}
+                  label={routine.name}
+                  hideToggle
+                  onDoubleClick={() =>
+                    handleRoutineClick(connection, database, routine)
+                  }
+                  actions={
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0"
+                        onClick={() =>
+                          handleRoutineClick(connection, database, routine)
+                        }
+                      >
+                        <FileCode className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  }
+                >
+                  {null}
+                </TreeNode>
+              );
+            };
+
+            const renderRoutineGroup = (
+              schemaNode: SchemaInfo,
+              routineType: RoutineType,
+              groupLevel: number,
+            ) => {
+              const routines =
+                routineType === "procedure"
+                  ? schemaNode.procedures
+                  : schemaNode.functions;
+              const groupKey = getRoutineGroupNodeKey(
+                dbKey,
+                schemaNode.name,
+                routineType,
+              );
+              return (
+                <TreeNode
+                  key={groupKey}
+                  level={groupLevel}
+                  icon={<FolderOpen className="w-4 h-4" />}
+                  label={
+                    routineType === "procedure"
+                      ? t("connection.tree.procedures")
+                      : t("connection.tree.functions")
+                  }
+                  isExpanded={expandedRoutineGroups.has(groupKey)}
+                  onToggle={() => toggleRoutineGroup(groupKey)}
+                >
+                  {routines.length === 0 ? (
+                    <div
+                      className="px-2 py-1 text-xs text-muted-foreground"
+                      style={{ paddingLeft: `${(groupLevel + 1) * 12 + 8}px` }}
+                    >
+                      {routineType === "procedure"
+                        ? t("connection.tree.noProcedures")
+                        : t("connection.tree.noFunctions")}
+                    </div>
+                  ) : (
+                    routines.map((routine) =>
+                      renderRoutineNode(routine, groupLevel + 1),
+                    )
+                  )}
+                </TreeNode>
+              );
+            };
+
             return (
               <TreeNode
                 key={dbKey}
@@ -2618,9 +2950,7 @@ export function ConnectionList({
                 toggleOnRowClick={datasourceAdapter.isDatabaseExpandable}
                 hideToggle={!datasourceAdapter.isDatabaseExpandable}
                 statusIndicator={
-                  loadingDatabaseKeys.has(dbKey)
-                    ? loadingSpinner
-                    : undefined
+                  loadingDatabaseKeys.has(dbKey) ? loadingSpinner : undefined
                 }
                 actions={datasourceAdapter.getDatabaseRowActions(database)}
                 onDoubleClick={
@@ -2643,10 +2973,7 @@ export function ConnectionList({
               >
                 {supportsSchemaNode ? (
                   database.schemas.map((schemaNode) => {
-                    const schemaKey = getSchemaNodeKey(
-                      dbKey,
-                      schemaNode.name,
-                    );
+                    const schemaKey = getSchemaNodeKey(dbKey, schemaNode.name);
                     return (
                       <TreeNode
                         key={schemaKey}
@@ -2669,8 +2996,58 @@ export function ConnectionList({
                           });
                         }}
                       >
-                        {schemaNode.tables.map((table) =>
-                          renderTableNode(table, level + 2),
+                        {connection.type === "mssql" ? (
+                          <>
+                            {(() => {
+                              const tableGroupKey = getTableGroupNodeKey(
+                                dbKey,
+                                schemaNode.name,
+                              );
+                              return (
+                                <TreeNode
+                                  key={tableGroupKey}
+                                  level={level + 2}
+                                  icon={<FolderOpen className="w-4 h-4" />}
+                                  label={t("connection.tree.tables")}
+                                  isExpanded={expandedTableGroups.has(
+                                    tableGroupKey,
+                                  )}
+                                  onToggle={() =>
+                                    toggleTableGroup(tableGroupKey)
+                                  }
+                                >
+                                  {schemaNode.tables.length === 0 ? (
+                                    <div
+                                      className="px-2 py-1 text-xs text-muted-foreground"
+                                      style={{
+                                        paddingLeft: `${(level + 3) * 12 + 8}px`,
+                                      }}
+                                    >
+                                      {t("connection.tree.noTables")}
+                                    </div>
+                                  ) : (
+                                    schemaNode.tables.map((table) =>
+                                      renderTableNode(table, level + 3),
+                                    )
+                                  )}
+                                </TreeNode>
+                              );
+                            })()}
+                            {renderRoutineGroup(
+                              schemaNode,
+                              "procedure",
+                              level + 2,
+                            )}
+                            {renderRoutineGroup(
+                              schemaNode,
+                              "function",
+                              level + 2,
+                            )}
+                          </>
+                        ) : (
+                          schemaNode.tables.map((table) =>
+                            renderTableNode(table, level + 2),
+                          )
                         )}
                       </TreeNode>
                     );
@@ -2773,10 +3150,14 @@ export function ConnectionList({
                       forceShowToggle={visibleDatabases.length > 0}
                       canToggle={visibleDatabases.length > 0}
                     >
-                      {visibleDatabases.map((database) => renderDatabaseTreeNode(database, 2))}
+                      {visibleDatabases.map((database) =>
+                        renderDatabaseTreeNode(database, 2),
+                      )}
                     </TreeNode>
                   ) : (
-                    visibleDatabases.map((database) => renderDatabaseTreeNode(database, 1))
+                    visibleDatabases.map((database) =>
+                      renderDatabaseTreeNode(database, 1),
+                    )
                   )
                 ) : null}
               </>

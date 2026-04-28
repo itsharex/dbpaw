@@ -95,6 +95,69 @@ describe("validateConnectionFormInput: required fields", () => {
     );
   });
 
+  test("allows elasticsearch cloud id without host or port", () => {
+    expect(
+      validateConnectionFormInput(
+        {
+          driver: "elasticsearch",
+          cloudId: "deployment:abc",
+          authMode: "none",
+        } as any,
+        "create",
+      ),
+    ).toEqual([]);
+  });
+
+  test("requires elasticsearch host or cloud id", () => {
+    const issues = validateConnectionFormInput(
+      {
+        driver: "elasticsearch",
+        host: "",
+        port: 9200,
+        authMode: "none",
+      } as any,
+      "create",
+    );
+    expect(issues.map((i) => i.key)).toContain(
+      "connection.dialog.inputValidation.elasticsearchEndpointRequired",
+    );
+  });
+
+  test("requires elasticsearch api key values in api key mode", () => {
+    const issues = validateConnectionFormInput(
+      {
+        driver: "elasticsearch",
+        host: "127.0.0.1",
+        port: 9200,
+        authMode: "api_key",
+        apiKeyId: "id",
+        apiKeySecret: "",
+        apiKeyEncoded: "",
+      } as any,
+      "create",
+    );
+    expect(issues.map((i) => i.key)).toContain(
+      "connection.dialog.inputValidation.elasticsearchApiKeyRequired",
+    );
+  });
+
+  test("allows blank elasticsearch api key values in edit mode", () => {
+    expect(
+      validateConnectionFormInput(
+        {
+          driver: "elasticsearch",
+          host: "127.0.0.1",
+          port: 9200,
+          authMode: "api_key",
+          apiKeyId: "",
+          apiKeySecret: "",
+          apiKeyEncoded: "",
+        } as any,
+        "edit",
+      ),
+    ).toEqual([]);
+  });
+
   test("does not require password in edit mode", () => {
     const keys = validateConnectionFormInput(
       { ...baseForm, password: "" } as any,

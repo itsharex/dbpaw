@@ -6,8 +6,8 @@ use self::oracle::OracleDriver;
 use self::postgres::PostgresDriver;
 use self::sqlite::SqliteDriver;
 use crate::models::{
-    ConnectionForm, QueryResult, SchemaOverview, TableDataResponse, TableInfo, TableMetadata,
-    TableStructure,
+    ConnectionForm, QueryResult, RoutineInfo, SchemaOverview, TableDataResponse, TableInfo,
+    TableMetadata, TableStructure,
 };
 use async_trait::async_trait;
 
@@ -87,6 +87,19 @@ pub trait DatabaseDriver: Send + Sync {
     async fn test_connection(&self) -> Result<(), String>;
     async fn list_databases(&self) -> Result<Vec<String>, String>;
     async fn list_tables(&self, schema: Option<String>) -> Result<Vec<TableInfo>, String>;
+    async fn list_routines(&self, schema: Option<String>) -> Result<Vec<RoutineInfo>, String> {
+        let _ = schema;
+        Ok(vec![])
+    }
+    async fn get_routine_ddl(
+        &self,
+        schema: String,
+        name: String,
+        routine_type: String,
+    ) -> Result<String, String> {
+        let _ = (schema, name, routine_type);
+        Err("[UNSUPPORTED] Routines are not supported for this driver".to_string())
+    }
     async fn get_table_structure(
         &self,
         schema: String,

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConnectionList, type RedisRefreshRequest } from "./ConnectionList";
 import { SavedQueriesList } from "./SavedQueriesList";
-import { ConnectionForm, SavedQuery } from "@/services/api";
+import { ConnectionForm, type RoutineType, SavedQuery } from "@/services/api";
 import { useTranslation } from "react-i18next";
 
 interface ActiveTableTarget {
@@ -44,10 +44,25 @@ interface SidebarProps {
     connectionId: number,
     driver: string,
   ) => void;
+  onOpenElasticsearchIndex?: (
+    connection: string,
+    index: string,
+    connectionId: number,
+    driver: string,
+  ) => void;
   onConnect?: (form: ConnectionForm) => void;
   onCreateQuery?: (
     connectionId: number,
     databaseName: string,
+    driver: string,
+  ) => void;
+  onRoutineSelect?: (
+    connection: string,
+    database: string,
+    schema: string,
+    name: string,
+    routineType: RoutineType,
+    connectionId: number,
     driver: string,
   ) => void;
   onExportTable?: (
@@ -94,8 +109,10 @@ export function Sidebar({
   onRedisKeySelect,
   onOpenRedisConsole,
   onOpenRedisBrowser,
+  onOpenElasticsearchIndex,
   onConnect,
   onCreateQuery,
+  onRoutineSelect,
   onExportTable,
   onExportDatabase,
   onCreateTable,
@@ -123,8 +140,10 @@ export function Sidebar({
     onRedisKeySelect,
     onOpenRedisConsole,
     onOpenRedisBrowser,
+    onOpenElasticsearchIndex,
     onConnect,
     onCreateQuery,
+    onRoutineSelect,
     onExportTable,
     onExportDatabase,
     onCreateTable,

@@ -341,6 +341,100 @@ async fn test_mssql_table_structure_and_schema_overview() {
 
 #[tokio::test]
 #[ignore]
+async fn test_mssql_routines_can_be_listed_and_ddl_loaded() {
+    let form = shared_mssql_form();
+    let driver: MssqlDriver = connect_with_retry(|| MssqlDriver::connect(&form)).await;
+
+    let procedure_name = "dbpaw_mssql_routine_probe_p";
+    let function_name = "dbpaw_mssql_routine_probe_f";
+    let procedure_qualified = format!("[dbo].[{}]", procedure_name);
+    let function_qualified = format!("[dbo].[{}]", function_name);
+
+    let _ = driver
+        .execute_query(format!(
+            "IF OBJECT_ID(N'dbo.{}', N'P') IS NOT NULL DROP PROCEDURE {};",
+            procedure_name, procedure_qualified
+        ))
+        .await;
+    let _ = driver
+        .execute_query(format!(
+            "IF OBJECT_ID(N'dbo.{}', N'FN') IS NOT NULL DROP FUNCTION {};",
+            function_name, function_qualified
+        ))
+        .await;
+
+    driver
+        .execute_query(format!(
+            "EXEC(N'CREATE PROCEDURE {} AS BEGIN SELECT 1 AS routine_probe; END')",
+            procedure_qualified
+        ))
+        .await
+        .expect("create procedure failed");
+    driver
+        .execute_query(format!(
+            "EXEC(N'CREATE FUNCTION {}() RETURNS INT AS BEGIN RETURN 42; END')",
+            function_qualified
+        ))
+        .await
+        .expect("create function failed");
+
+    let routines = driver
+        .list_routines(Some("dbo".to_string()))
+        .await
+        .expect("list_routines failed");
+    assert!(
+        routines
+            .iter()
+            .any(|r| r.schema == "dbo" && r.name == procedure_name && r.r#type == "procedure"),
+        "list_routines should include created procedure"
+    );
+    assert!(
+        routines
+            .iter()
+            .any(|r| r.schema == "dbo" && r.name == function_name && r.r#type == "function"),
+        "list_routines should include created function"
+    );
+
+    let procedure_ddl = driver
+        .get_routine_ddl(
+            "dbo".to_string(),
+            procedure_name.to_string(),
+            "procedure".to_string(),
+        )
+        .await
+        .expect("get procedure ddl failed");
+    assert!(
+        procedure_ddl
+            .to_ascii_lowercase()
+            .contains("create procedure"),
+        "procedure ddl should contain CREATE PROCEDURE"
+    );
+
+    let function_ddl = driver
+        .get_routine_ddl(
+            "dbo".to_string(),
+            function_name.to_string(),
+            "function".to_string(),
+        )
+        .await
+        .expect("get function ddl failed");
+    assert!(
+        function_ddl
+            .to_ascii_lowercase()
+            .contains("create function"),
+        "function ddl should contain CREATE FUNCTION"
+    );
+
+    let cleanup = format!(
+        "IF OBJECT_ID(N'dbo.{procedure_name}', N'P') IS NOT NULL DROP PROCEDURE {procedure_qualified}; \
+         IF OBJECT_ID(N'dbo.{function_name}', N'FN') IS NOT NULL DROP FUNCTION {function_qualified};"
+    );
+    let _ = driver.execute_query(cleanup).await;
+    driver.close().await;
+}
+
+#[tokio::test]
+#[ignore]
 async fn test_mssql_metadata_includes_indexes_and_foreign_keys() {
     let form = shared_mssql_form();
     let driver: MssqlDriver = connect_with_retry(|| MssqlDriver::connect(&form)).await;

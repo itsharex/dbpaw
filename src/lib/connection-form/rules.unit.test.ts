@@ -13,6 +13,7 @@ import {
   normalizeTextValue,
   parseHostEmbeddedPort,
   requiresPasswordOnCreate,
+  requiresUsername,
 } from "./rules";
 
 describe("isMysqlFamilyDriver", () => {
@@ -42,16 +43,26 @@ describe("isFileBasedDriver", () => {
 });
 
 describe("allowsHostWithPort / requiresPasswordOnCreate", () => {
-  test("only mysql family allows host:port notation", () => {
+  test("mysql family, redis, and elasticsearch allow host:port notation", () => {
     expect(allowsHostWithPort("mysql")).toBe(true);
     expect(allowsHostWithPort("starrocks")).toBe(true);
+    expect(allowsHostWithPort("redis")).toBe(true);
+    expect(allowsHostWithPort("elasticsearch")).toBe(true);
     expect(allowsHostWithPort("postgres")).toBe(false);
   });
 
-  test("non-mysql drivers require password on create", () => {
+  test("postgres requires password on create while optional-auth drivers do not", () => {
     expect(requiresPasswordOnCreate("postgres")).toBe(true);
     expect(requiresPasswordOnCreate("mysql")).toBe(false);
     expect(requiresPasswordOnCreate("starrocks")).toBe(false);
+    expect(requiresPasswordOnCreate("redis")).toBe(false);
+    expect(requiresPasswordOnCreate("elasticsearch")).toBe(false);
+  });
+
+  test("redis and elasticsearch do not require usernames", () => {
+    expect(requiresUsername("postgres")).toBe(true);
+    expect(requiresUsername("redis")).toBe(false);
+    expect(requiresUsername("elasticsearch")).toBe(false);
   });
 });
 
@@ -81,6 +92,21 @@ describe("getConnectionFormCapabilities", () => {
       showSchema: false,
       showSsl: false,
       showSsh: false,
+      showFilePath: false,
+      showSqliteKey: false,
+    });
+  });
+
+  test("returns elasticsearch-specific capabilities", () => {
+    expect(getConnectionFormCapabilities("elasticsearch")).toEqual({
+      showHost: true,
+      showPort: true,
+      showUsername: true,
+      showPassword: true,
+      showDatabase: false,
+      showSchema: false,
+      showSsl: true,
+      showSsh: true,
       showFilePath: false,
       showSqliteKey: false,
     });
@@ -118,6 +144,15 @@ describe("buildConnectionFormDefaults", () => {
     expect(form.mode).toBe("standalone");
     expect(form.seedNodes).toEqual([]);
     expect(form.connectTimeoutMs).toBe(5000);
+  });
+
+  test("sets elasticsearch authentication defaults", () => {
+    const form = buildConnectionFormDefaults("elasticsearch");
+    expect(form.authMode).toBe("none");
+    expect(form.apiKeyId).toBe("");
+    expect(form.apiKeySecret).toBe("");
+    expect(form.apiKeyEncoded).toBe("");
+    expect(form.cloudId).toBe("");
   });
 });
 
@@ -255,6 +290,26 @@ describe("normalizeConnectionFormInput", () => {
     expect(normalized.password).toBe("");
     expect(normalized.sslCaCert).toBe("");
     expect(normalized.sshPassword).toBe("");
+  });
+
+  test("normalizes elasticsearch api key and cloud id fields", () => {
+    const normalized = normalizeConnectionFormInput({
+      driver: "elasticsearch",
+      host: " es.local:9201 ",
+      authMode: "api_key",
+      apiKeyId: " id ",
+      apiKeySecret: " secret ",
+      apiKeyEncoded: " ",
+      cloudId: " deployment:abc ",
+    } as any);
+
+    expect(normalized.host).toBe("es.local");
+    expect(normalized.port).toBe(9201);
+    expect(normalized.authMode).toBe("api_key");
+    expect(normalized.apiKeyId).toBe("id");
+    expect(normalized.apiKeySecret).toBe("secret");
+    expect(normalized.apiKeyEncoded).toBe("");
+    expect(normalized.cloudId).toBe("deployment:abc");
   });
 
   test("normalizes structured redis cluster options", () => {

@@ -266,7 +266,19 @@ describe("api command mapping", () => {
   const commands: [string, () => Promise<any>][] = [
     ["list_sql_execution_logs", () => api.sqlLogs.list()],
     ["list_tables", () => api.metadata.listTables(1)],
+    ["list_routines", () => api.metadata.listRoutines(1, "db")],
     ["get_table_ddl", () => api.metadata.getTableDDL(1, "db", "public", "t")],
+    [
+      "get_routine_ddl",
+      () =>
+        api.metadata.getRoutineDDL(
+          1,
+          "db",
+          "dbo",
+          "sync_user_stats",
+          "procedure",
+        ),
+    ],
     [
       "get_table_metadata",
       () => api.metadata.getTableMetadata(1, "db", "public", "t"),

@@ -389,9 +389,7 @@ async fn set_ttl_and_persist() {
     let got = redis::get_key(&mut conn, key.clone()).await.unwrap();
     assert!(got.ttl > 0, "expected positive TTL after EXPIRE");
 
-    redis::set_ttl(&mut conn, key.clone(), None)
-        .await
-        .unwrap();
+    redis::set_ttl(&mut conn, key.clone(), None).await.unwrap();
     let got2 = redis::get_key(&mut conn, key.clone()).await.unwrap();
     assert_eq!(got2.ttl, -1, "expected -1 (no expiry) after PERSIST");
 
@@ -426,16 +424,27 @@ async fn cluster_scan_is_partial() {
     let resp = redis::scan_keys(&mut conn, None, Some(format!("{prefix}:*")), Some(10))
         .await
         .unwrap();
-    assert!(resp.is_partial, "cluster scan with many keys should set is_partial");
-    assert!(!resp.cursor.is_empty(), "cluster scan cursor should not be empty");
+    assert!(
+        resp.is_partial,
+        "cluster scan with many keys should set is_partial"
+    );
+    assert!(
+        !resp.cursor.is_empty(),
+        "cluster scan cursor should not be empty"
+    );
 
     // Continue scanning until all nodes are exhausted
     let mut cursor = resp.cursor;
     let mut rounds = 0;
     loop {
-        let r = redis::scan_keys(&mut conn, Some(cursor.clone()), Some(format!("{prefix}:*")), Some(10))
-            .await
-            .unwrap();
+        let r = redis::scan_keys(
+            &mut conn,
+            Some(cursor.clone()),
+            Some(format!("{prefix}:*")),
+            Some(10),
+        )
+        .await
+        .unwrap();
         cursor = r.cursor;
         rounds += 1;
         if !r.is_partial {
@@ -618,10 +627,7 @@ async fn crud_stream_range_pagination() {
     let range = redis::get_stream_range(&mut conn, key.clone(), last_id, 200)
         .await
         .unwrap();
-    assert!(
-        !range.is_empty(),
-        "expected non-empty stream range page"
-    );
+    assert!(!range.is_empty(), "expected non-empty stream range page");
 
     cleanup(&form, &key).await;
 }
@@ -659,7 +665,11 @@ async fn stream_view_supports_range_and_groups() {
 
     let create_group = {
         let mut cmd = ::redis::cmd("XGROUP");
-        cmd.arg("CREATE").arg(&key).arg("workers").arg("0").arg("MKSTREAM");
+        cmd.arg("CREATE")
+            .arg(&key)
+            .arg("workers")
+            .arg("0")
+            .arg("MKSTREAM");
         conn.query::<String>(cmd).await.unwrap()
     };
     assert_eq!(create_group, "OK");
@@ -679,7 +689,10 @@ async fn stream_view_supports_range_and_groups() {
         view.entries[1].fields.get("idx").map(String::as_str),
         Some("3")
     );
-    assert!(view.next_start_id.is_some(), "expected another page within range");
+    assert!(
+        view.next_start_id.is_some(),
+        "expected another page within range"
+    );
     assert_eq!(view.groups.len(), 1);
     assert_eq!(view.groups[0].name, "workers");
     assert_eq!(view.groups[0].consumers, 0);

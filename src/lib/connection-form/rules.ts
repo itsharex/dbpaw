@@ -57,6 +57,21 @@ export const getConnectionFormCapabilities = (
     };
   }
 
+  if (driver === "elasticsearch") {
+    return {
+      showHost: true,
+      showPort: true,
+      showUsername: true,
+      showPassword: true,
+      showDatabase: false,
+      showSchema: false,
+      showSsl: true,
+      showSsh: true,
+      showFilePath: false,
+      showSqliteKey: false,
+    };
+  }
+
   return {
     showHost: true,
     showPort: true,
@@ -98,16 +113,24 @@ export const buildConnectionFormDefaults = (
   seedNodes: driver === "redis" ? [] : undefined,
   sentinels: driver === "redis" ? [] : undefined,
   connectTimeoutMs: driver === "redis" ? 5000 : undefined,
+  authMode: driver === "elasticsearch" ? "none" : undefined,
+  apiKeyId: "",
+  apiKeySecret: "",
+  apiKeyEncoded: "",
+  cloudId: "",
   ...overrides,
 });
 
 export const allowsHostWithPort = (driver: Driver) =>
-  isMysqlFamilyDriver(driver) || driver === "redis";
+  isMysqlFamilyDriver(driver) || driver === "redis" || driver === "elasticsearch";
 
 export const requiresPasswordOnCreate = (driver: Driver) =>
-  !isMysqlFamilyDriver(driver) && driver !== "redis";
+  !isMysqlFamilyDriver(driver) &&
+  driver !== "redis" &&
+  driver !== "elasticsearch";
 
-export const requiresUsername = (driver: Driver) => driver !== "redis";
+export const requiresUsername = (driver: Driver) =>
+  driver !== "redis" && driver !== "elasticsearch";
 
 export const normalizePortNumber = (value: number | undefined) => {
   if (value === undefined || value === null || !Number.isFinite(value)) {
@@ -248,6 +271,16 @@ export const normalizeConnectionFormInput = (
     username: normalizeTextValue(raw.username),
     password: normalizeTextValue(raw.password, false),
     sslCaCert: normalizeTextValue(raw.sslCaCert, false),
+    authMode:
+      driver === "elasticsearch"
+        ? raw.authMode === "basic" || raw.authMode === "api_key"
+          ? raw.authMode
+          : "none"
+        : undefined,
+    apiKeyId: normalizeTextValue(raw.apiKeyId),
+    apiKeySecret: normalizeTextValue(raw.apiKeySecret, false),
+    apiKeyEncoded: normalizeTextValue(raw.apiKeyEncoded, false),
+    cloudId: normalizeTextValue(raw.cloudId),
     filePath: normalizeTextValue(raw.filePath),
     sshHost: normalizeTextValue(raw.sshHost),
     sshPort: normalizePortNumber(raw.sshPort),

@@ -15,7 +15,7 @@ import {
 // ─── Registry completeness ────────────────────────────────────────────────────
 
 describe("DRIVER_REGISTRY", () => {
-  test("contains all 12 supported drivers", () => {
+  test("contains all 13 supported drivers", () => {
     const ids = DRIVER_REGISTRY.map((d) => d.id);
     expect(ids).toContain("postgres");
     expect(ids).toContain("mysql");
@@ -29,7 +29,8 @@ describe("DRIVER_REGISTRY", () => {
     expect(ids).toContain("mssql");
     expect(ids).toContain("oracle");
     expect(ids).toContain("redis");
-    expect(DRIVER_REGISTRY).toHaveLength(12);
+    expect(ids).toContain("elasticsearch");
+    expect(DRIVER_REGISTRY).toHaveLength(13);
   });
 
   test("has no duplicate IDs", () => {
@@ -107,6 +108,7 @@ describe("getDriverConfig", () => {
     expect(getDriverConfig("mssql").label).toBe("SQL Server");
     expect(getDriverConfig("clickhouse").label).toBe("ClickHouse");
     expect(getDriverConfig("duckdb").label).toBe("DuckDB");
+    expect(getDriverConfig("elasticsearch").label).toBe("Elasticsearch");
   });
 });
 
@@ -122,6 +124,7 @@ describe("getDefaultPort", () => {
     expect(getDefaultPort("doris")).toBe(9030);
     expect(getDefaultPort("clickhouse")).toBe(8123);
     expect(getDefaultPort("mssql")).toBe(1433);
+    expect(getDefaultPort("elasticsearch")).toBe(9200);
   });
 
   test("returns null for file-based drivers", () => {
@@ -148,6 +151,7 @@ describe("isFileBasedDriver", () => {
       "doris",
       "clickhouse",
       "mssql",
+      "elasticsearch",
     ];
     for (const d of networkDrivers) {
       expect(isFileBasedDriver(d)).toBe(false);
@@ -173,6 +177,7 @@ describe("isMysqlFamilyDriver", () => {
       "duckdb",
       "clickhouse",
       "mssql",
+      "elasticsearch",
     ];
     for (const d of others) {
       expect(isMysqlFamilyDriver(d)).toBe(false);
@@ -197,6 +202,7 @@ describe("supportsSSLCA", () => {
     expect(supportsSSLCA("duckdb")).toBe(false);
     expect(supportsSSLCA("clickhouse")).toBe(false);
     expect(supportsSSLCA("mssql")).toBe(false);
+    expect(supportsSSLCA("elasticsearch")).toBe(false);
   });
 });
 
@@ -217,6 +223,7 @@ describe("supportsCreateDatabase", () => {
   test("returns false for file-based drivers", () => {
     expect(supportsCreateDatabase("sqlite")).toBe(false);
     expect(supportsCreateDatabase("duckdb")).toBe(false);
+    expect(supportsCreateDatabase("elasticsearch")).toBe(false);
   });
 });
 

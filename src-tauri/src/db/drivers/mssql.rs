@@ -1,7 +1,8 @@
 use super::DatabaseDriver;
 use crate::models::{
     ColumnInfo, ColumnSchema, ConnectionForm, ForeignKeyInfo, IndexInfo, QueryColumn, QueryResult,
-    SchemaOverview, TableDataResponse, TableInfo, TableMetadata, TableSchema, TableStructure,
+    RoutineInfo, SchemaOverview, TableDataResponse, TableInfo, TableMetadata, TableSchema,
+    TableStructure,
 };
 use async_trait::async_trait;
 use bb8::{Pool, RunError};
@@ -69,6 +70,19 @@ fn build_config(form: &ConnectionForm) -> Result<MssqlConfig, String> {
 
 fn escape_literal(value: &str) -> String {
     value.replace('\'', "''")
+}
+
+fn routine_type_sql_filter(routine_type: &str) -> Result<&'static str, String> {
+    if routine_type.eq_ignore_ascii_case("procedure") {
+        Ok("('P')")
+    } else if routine_type.eq_ignore_ascii_case("function") {
+        Ok("('FN','IF','TF','FS','FT')")
+    } else {
+        Err(format!(
+            "[VALIDATION_ERROR] Unsupported routine type '{}'",
+            routine_type
+        ))
+    }
 }
 
 fn map_pool_error(err: RunError<String>) -> String {
@@ -443,7 +457,7 @@ fn normalize_mssql_row_json(
 mod tests {
     use super::{
         is_high_precision_mssql_data_type, is_high_precision_mssql_query_type, quote_ident,
-        MssqlDriver,
+        routine_type_sql_filter, MssqlDriver,
     };
     use std::collections::HashSet;
 
@@ -481,6 +495,17 @@ mod tests {
         assert!(is_high_precision_mssql_query_type("Numericn"));
         assert!(is_high_precision_mssql_query_type("Money"));
         assert!(!is_high_precision_mssql_query_type("Int4"));
+    }
+
+    #[test]
+    fn test_routine_type_sql_filter_maps_supported_types() {
+        assert_eq!(routine_type_sql_filter("procedure").unwrap(), "('P')");
+        assert_eq!(routine_type_sql_filter("PROCEDURE").unwrap(), "('P')");
+        assert_eq!(
+            routine_type_sql_filter("function").unwrap(),
+            "('FN','IF','TF','FS','FT')"
+        );
+        assert!(routine_type_sql_filter("trigger").is_err());
     }
 
     #[test]
@@ -559,6 +584,70 @@ impl DatabaseDriver for MssqlDriver {
                 r#type: Self::parse_string(&row, 2),
             })
             .collect())
+    }
+
+    async fn list_routines(&self, schema: Option<String>) -> Result<Vec<RoutineInfo>, String> {
+        let schema_filter = schema
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| format!("AND s.name = '{}'", escape_literal(s.trim())));
+
+        let sql = format!(
+            "SELECT s.name AS schema_name, o.name AS routine_name, \
+                    CASE WHEN o.type = 'P' THEN 'procedure' ELSE 'function' END AS routine_type \
+             FROM sys.objects o \
+             JOIN sys.schemas s ON s.schema_id = o.schema_id \
+             WHERE o.type IN ('P','FN','IF','TF','FS','FT') \
+               AND o.is_ms_shipped = 0 {} \
+             ORDER BY s.name, routine_type, o.name",
+            schema_filter.unwrap_or_default(),
+        );
+        let rows = self.fetch_rows(&sql).await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| RoutineInfo {
+                schema: Self::parse_string(&row, 0),
+                name: Self::parse_string(&row, 1),
+                r#type: Self::parse_string(&row, 2),
+            })
+            .collect())
+    }
+
+    async fn get_routine_ddl(
+        &self,
+        schema: String,
+        name: String,
+        routine_type: String,
+    ) -> Result<String, String> {
+        let type_filter = routine_type_sql_filter(&routine_type)?;
+
+        let sql = format!(
+            "SELECT m.definition \
+             FROM sys.objects o \
+             JOIN sys.schemas s ON s.schema_id = o.schema_id \
+             JOIN sys.sql_modules m ON m.object_id = o.object_id \
+             WHERE s.name = '{}' \
+               AND o.name = '{}' \
+               AND o.type IN {} \
+               AND o.is_ms_shipped = 0",
+            escape_literal(&schema),
+            escape_literal(&name),
+            type_filter
+        );
+        let rows = self.fetch_rows(&sql).await?;
+        let ddl = rows
+            .first()
+            .map(|row| Self::parse_string(row, 0))
+            .unwrap_or_default();
+
+        if ddl.trim().is_empty() {
+            return Err(format!(
+                "[NOT_FOUND] Routine '{}.{}' does not exist or its definition is not visible",
+                schema, name
+            ));
+        }
+
+        Ok(ddl)
     }
 
     async fn get_table_structure(

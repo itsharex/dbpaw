@@ -197,6 +197,12 @@ export const zh: Translations = {
     tree: {
       database: "数据库",
       queries: "查询",
+      tables: "表",
+      noTables: "暂无表",
+      procedures: "存储过程",
+      functions: "函数",
+      noProcedures: "暂无存储过程",
+      noFunctions: "暂无函数",
     },
     dialog: {
       editTitle: "编辑数据库连接",
@@ -223,6 +229,11 @@ export const zh: Translations = {
         seedNodes: "Seed Nodes",
         sentinels: "Sentinels",
         connectTimeoutMs: "连接超时（毫秒）",
+        authMode: "认证方式",
+        apiKeyId: "API Key ID",
+        apiKeySecret: "API Key",
+        apiKeyEncoded: "已编码 API Key",
+        cloudId: "Elastic Cloud ID",
         sqliteFilePath: "SQLite 文件路径",
         sqliteKey: "加密密钥（SQLCipher）",
         duckdbFilePath: "DuckDB 文件路径",
@@ -230,6 +241,8 @@ export const zh: Translations = {
       placeholders: {
         selectDatabaseType: "选择数据库类型",
         keepPassword: "留空以保留当前密码",
+        keepApiKey: "留空以保留当前 API Key",
+        cloudId: "deployment:base64-cloud-id",
         sslCaCert: "粘贴 CA 证书 PEM 内容",
         sshHost: "ssh.example.com",
         sshPort: "22",
@@ -276,6 +289,11 @@ export const zh: Translations = {
         require: "仅加密（不校验 CA）",
         verifyCa: "校验服务器证书（CA）",
       },
+      authMode: {
+        none: "无",
+        basic: "用户名 / 密码",
+        apiKey: "API Key",
+      },
       redisMode: {
         standalone: "单机",
         cluster: "集群",
@@ -318,8 +336,12 @@ export const zh: Translations = {
         hostWhitespace: "主机地址不能包含空白字符。",
         hostPortNotAllowed:
           "当前数据库类型不支持在主机字段中填写 host:port，请将端口填写到端口字段。",
+        elasticsearchEndpointRequired: "请填写主机地址或 Elastic Cloud ID。",
+        elasticsearchApiKeyRequired:
+          "请填写已编码 API Key，或同时填写 API Key ID 和 API Key。",
         redisSeedNodesRequired: "Redis 集群模式至少需要两个 seed node。",
-        redisSentinelsRequired: "Redis Sentinel 模式至少需要一个 sentinel 节点。",
+        redisSentinelsRequired:
+          "Redis Sentinel 模式至少需要一个 sentinel 节点。",
         redisConnectTimeoutRange: "Redis 连接超时必须是大于 0 的整数。",
         sshHostRequired: "已开启 SSH，请填写 SSH 主机。",
         sshUsernameRequired: "已开启 SSH，请填写 SSH 用户名。",
@@ -583,6 +605,21 @@ export const zh: Translations = {
       title: "建表 SQL",
       loading: "正在加载 DDL...",
       empty: "暂无 DDL",
+    },
+  },
+  routineMetadata: {
+    title: "Routine 定义",
+    loading: "正在加载定义...",
+    empty: "暂无定义",
+    type: {
+      procedure: "存储过程",
+      function: "函数",
+    },
+    copy: {
+      copy: "复制",
+      copied: "已复制",
+      copiedShort: "已复制",
+      failed: "复制失败",
     },
   },
   createTable: {

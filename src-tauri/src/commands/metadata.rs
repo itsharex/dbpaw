@@ -1,4 +1,6 @@
-use crate::models::{ConnectionForm, SchemaOverview, TableInfo, TableMetadata, TableStructure};
+use crate::models::{
+    ConnectionForm, RoutineInfo, SchemaOverview, TableInfo, TableMetadata, TableStructure,
+};
 use crate::state::AppState;
 use tauri::State;
 
@@ -61,6 +63,42 @@ pub async fn list_tables(
     super::execute_with_retry(&state, id, database, |driver| {
         let schema_clone = schema.clone();
         async move { driver.list_tables(schema_clone).await }
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn list_routines(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    schema: Option<String>,
+) -> Result<Vec<RoutineInfo>, String> {
+    super::execute_with_retry(&state, id, database, |driver| {
+        let schema_clone = schema.clone();
+        async move { driver.list_routines(schema_clone).await }
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn get_routine_ddl(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    schema: String,
+    name: String,
+    routine_type: String,
+) -> Result<String, String> {
+    super::execute_with_retry(&state, id, database, |driver| {
+        let schema_clone = schema.clone();
+        let name_clone = name.clone();
+        let routine_type_clone = routine_type.clone();
+        async move {
+            driver
+                .get_routine_ddl(schema_clone, name_clone, routine_type_clone)
+                .await
+        }
     })
     .await
 }

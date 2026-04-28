@@ -1,11 +1,14 @@
 use crate::db::drivers::conn_failed_error;
 use crate::models::ConnectionForm;
-use redis::AsyncConnectionConfig;
+use base64::Engine;
 use redis::aio::ConnectionLike;
 use redis::aio::MultiplexedConnection;
 use redis::cluster::ClusterClient;
 use redis::cluster_async::ClusterConnection;
-use redis::cluster_routing::{MultipleNodeRoutingInfo, ResponsePolicy, RoutingInfo, SingleNodeRoutingInfo};
+use redis::cluster_routing::{
+    MultipleNodeRoutingInfo, ResponsePolicy, RoutingInfo, SingleNodeRoutingInfo,
+};
+use redis::AsyncConnectionConfig;
 use redis::{
     from_redis_value, Cmd, ConnectionAddr, ConnectionInfo, FromRedisValue, ProtocolVersion,
     RedisConnectionInfo, Value,
@@ -14,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::time::Duration;
-use base64::Engine;
 use tokio::sync::Mutex as TokioMutex;
 
 const DEFAULT_REDIS_PORT: i64 = 6379;
@@ -325,7 +327,12 @@ fn redis_mode(form: &ConnectionForm) -> &str {
         _ if form
             .host
             .as_deref()
-            .map(|host| host.split(',').filter(|part| !part.trim().is_empty()).count() > 1)
+            .map(|host| {
+                host.split(',')
+                    .filter(|part| !part.trim().is_empty())
+                    .count()
+                    > 1
+            })
             .unwrap_or(false) =>
         {
             "cluster"
@@ -343,7 +350,10 @@ fn is_sentinel_form(form: &ConnectionForm) -> bool {
 }
 
 fn connect_timeout(form: &ConnectionForm) -> Duration {
-    Duration::from_millis(form.connect_timeout_ms.unwrap_or(DEFAULT_CONNECT_TIMEOUT_MS) as u64)
+    Duration::from_millis(
+        form.connect_timeout_ms
+            .unwrap_or(DEFAULT_CONNECT_TIMEOUT_MS) as u64,
+    )
 }
 
 fn validate_key(key: &str) -> Result<(), String> {
@@ -562,10 +572,10 @@ async fn fetch_stream_view_internal(
         .arg("GROUPS")
         .arg(key);
 
-    let (entries_raw, info_raw, groups_raw): (Value, Value, Value) =
-        conn.pipe_query(&mut pipe)
-            .await
-            .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+    let (entries_raw, info_raw, groups_raw): (Value, Value, Value) = conn
+        .pipe_query(&mut pipe)
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
 
     let mut entries = parse_xrange_value(entries_raw);
     let has_more = entries.len() > count as usize;
@@ -602,8 +612,15 @@ pub async fn get_stream_range(
     validate_key(&key)?;
     let count = count.clamp(1, MAX_SCAN_LIMIT);
     let mut cmd = redis::cmd("XRANGE");
-    cmd.arg(&key).arg(&start_id).arg("+").arg("COUNT").arg(count);
-    let value: Value = conn.query(cmd).await.map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+    cmd.arg(&key)
+        .arg(&start_id)
+        .arg("+")
+        .arg("COUNT")
+        .arg(count);
+    let value: Value = conn
+        .query(cmd)
+        .await
+        .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
     Ok(parse_xrange_value(value))
 }
 
@@ -736,7 +753,10 @@ fn build_cluster_nodes(form: &ConnectionForm) -> Result<Vec<ConnectionInfo>, Str
     Ok(nodes)
 }
 
-pub async fn connect(form: &ConnectionForm, database: Option<&str>) -> Result<RedisConnection, String> {
+pub async fn connect(
+    form: &ConnectionForm,
+    database: Option<&str>,
+) -> Result<RedisConnection, String> {
     if is_sentinel_form(form) {
         return Err("[NOT_SUPPORTED] Redis Sentinel is not implemented yet".to_string());
     }
@@ -786,7 +806,10 @@ pub async fn ping(conn: &mut RedisConnection) -> Result<(), String> {
         .map_err(|e| conn_failed_error(&e))
 }
 
-pub fn list_databases(form: &ConnectionForm, db_count: i64) -> Result<Vec<RedisDatabaseInfo>, String> {
+pub fn list_databases(
+    form: &ConnectionForm,
+    db_count: i64,
+) -> Result<Vec<RedisDatabaseInfo>, String> {
     if is_sentinel_form(form) {
         return Err("[NOT_SUPPORTED] Redis Sentinel is not implemented yet".to_string());
     }
@@ -811,8 +834,7 @@ pub fn list_databases(form: &ConnectionForm, db_count: i64) -> Result<Vec<RedisD
 }
 
 fn encode_cluster_scan_state(cursors: &HashMap<String, u64>) -> Result<String, String> {
-    let json = serde_json::to_string(cursors)
-        .map_err(|e| format!("[REDIS_SCAN_ERROR] {e}"))?;
+    let json = serde_json::to_string(cursors).map_err(|e| format!("[REDIS_SCAN_ERROR] {e}"))?;
     Ok(base64::prelude::BASE64_STANDARD.encode(json.as_bytes()))
 }
 
@@ -820,10 +842,9 @@ fn decode_cluster_scan_state(s: &str) -> Result<HashMap<String, u64>, String> {
     let bytes = base64::prelude::BASE64_STANDARD
         .decode(s)
         .map_err(|e| format!("[REDIS_SCAN_ERROR] Invalid cursor: {e}"))?;
-    let json = String::from_utf8(bytes)
-        .map_err(|e| format!("[REDIS_SCAN_ERROR] Invalid cursor: {e}"))?;
-    serde_json::from_str(&json)
-        .map_err(|e| format!("[REDIS_SCAN_ERROR] Invalid cursor: {e}"))
+    let json =
+        String::from_utf8(bytes).map_err(|e| format!("[REDIS_SCAN_ERROR] Invalid cursor: {e}"))?;
+    serde_json::from_str(&json).map_err(|e| format!("[REDIS_SCAN_ERROR] Invalid cursor: {e}"))
 }
 
 async fn get_cluster_master_nodes(
@@ -835,11 +856,7 @@ async fn get_cluster_master_nodes(
 
     let slots = match value {
         Value::Array(arr) => arr,
-        _ => {
-            return Err(
-                "[REDIS_SCAN_ERROR] Unexpected CLUSTER SLOTS response".to_string(),
-            )
-        }
+        _ => return Err("[REDIS_SCAN_ERROR] Unexpected CLUSTER SLOTS response".to_string()),
     };
 
     let mut masters = Vec::new();
@@ -872,8 +889,12 @@ async fn get_cluster_master_nodes(
 
 fn parse_node_addr(addr: &str) -> Result<(&str, u16), String> {
     let mut parts = addr.rsplitn(2, ':');
-    let port_part = parts.next().ok_or_else(|| "[REDIS_SCAN_ERROR] Invalid node addr".to_string())?;
-    let host_part = parts.next().ok_or_else(|| "[REDIS_SCAN_ERROR] Invalid node addr".to_string())?;
+    let port_part = parts
+        .next()
+        .ok_or_else(|| "[REDIS_SCAN_ERROR] Invalid node addr".to_string())?;
+    let host_part = parts
+        .next()
+        .ok_or_else(|| "[REDIS_SCAN_ERROR] Invalid node addr".to_string())?;
     let port = port_part
         .parse::<u16>()
         .map_err(|_| "[REDIS_SCAN_ERROR] Invalid node port".to_string())?;
@@ -934,9 +955,7 @@ async fn scan_cluster_keys(
     // it is translated to 0 when passed to SCAN so the first call starts
     // every master from the beginning.
     for (host, port) in &masters {
-        cursors
-            .entry(format!("{host}:{port}"))
-            .or_insert(u64::MAX);
+        cursors.entry(format!("{host}:{port}")).or_insert(u64::MAX);
     }
 
     let mut keys: Vec<String> = Vec::new();
@@ -1075,10 +1094,7 @@ pub async fn scan_keys(
     })
 }
 
-pub async fn get_key(
-    conn: &mut RedisConnection,
-    key: String,
-) -> Result<RedisKeyValue, String> {
+pub async fn get_key(conn: &mut RedisConnection, key: String) -> Result<RedisKeyValue, String> {
     validate_key(&key)?;
 
     let mut pipe1 = redis::pipe();
@@ -1133,7 +1149,13 @@ pub async fn get_key(
                 .arg(PAGE_SIZE);
             let (total, (next_cursor, fields)): (u64, (u64, BTreeMap<String, String>)) =
                 conn.pipe_query(&mut pipe).await.unwrap_or_default();
-            (RedisValue::Hash(fields), Some(total), next_cursor, false, None)
+            (
+                RedisValue::Hash(fields),
+                Some(total),
+                next_cursor,
+                false,
+                None,
+            )
         }
         "list" => {
             let mut pipe = redis::pipe();
@@ -1146,7 +1168,13 @@ pub async fn get_key(
             let (total, items): (u64, Vec<String>) =
                 conn.pipe_query(&mut pipe).await.unwrap_or_default();
             let next_offset = (items.len() as u64).min(total);
-            (RedisValue::List(items), Some(total), next_offset, false, None)
+            (
+                RedisValue::List(items),
+                Some(total),
+                next_offset,
+                false,
+                None,
+            )
         }
         "set" => {
             let mut pipe = redis::pipe();
@@ -1159,7 +1187,13 @@ pub async fn get_key(
                 .arg(PAGE_SIZE);
             let (total, (next_cursor, members)): (u64, (u64, Vec<String>)) =
                 conn.pipe_query(&mut pipe).await.unwrap_or_default();
-            (RedisValue::Set(members), Some(total), next_cursor, false, None)
+            (
+                RedisValue::Set(members),
+                Some(total),
+                next_cursor,
+                false,
+                None,
+            )
         }
         "zset" => {
             let mut pipe = redis::pipe();
@@ -1214,13 +1248,7 @@ pub async fn get_key(
             let mut cmd = redis::cmd("JSON.GET");
             cmd.arg(&key).arg(".");
             match conn.query::<String>(cmd).await {
-                Ok(json_str) => (
-                    RedisValue::Json(json_str),
-                    None,
-                    0,
-                    false,
-                    None,
-                ),
+                Ok(json_str) => (RedisValue::Json(json_str), None, 0, false, None),
                 Err(e) if e.to_string().to_lowercase().contains("unknown command") => {
                     let mut cmd = redis::cmd("GET");
                     cmd.arg(&key);
@@ -1228,8 +1256,7 @@ pub async fn get_key(
                     let (text, is_binary) = match String::from_utf8(bytes) {
                         Ok(s) => (s, false),
                         Err(e) => {
-                            let encoded =
-                                base64::prelude::BASE64_STANDARD.encode(e.into_bytes());
+                            let encoded = base64::prelude::BASE64_STANDARD.encode(e.into_bytes());
                             (encoded, true)
                         }
                     };
