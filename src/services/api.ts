@@ -138,12 +138,19 @@ export interface RedisKeyValue {
   extra?: RedisKeyExtra | null;
   objectEncoding?: string | null;
   memoryUsage?: number | null;
+  objectIdletime?: number | null;
+  objectRefcount?: number | null;
+  keyExists?: boolean | null;
 }
 
 export interface RedisSetKeyPayload {
   key: string;
   value: RedisValue;
   ttlSeconds?: number | null;
+  setNx?: boolean;
+  setXx?: boolean;
+  setPx?: number | null;
+  setKeepttl?: boolean;
 }
 
 export interface RedisMutationResult {
@@ -201,6 +208,7 @@ export interface RedisKeyPatchPayload {
   bitmapSet?: RedisBitmapBit[];
   stringIncrBy?: string;
   hashIncrBy?: Record<string, string>;
+  zsetIncrBy?: { member: string; score: number }[];
 }
 
 export interface RedisRawResult {

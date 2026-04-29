@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowUpDown, Check, Info, Plus, Trash2, X } from "lucide-react";
+import { ArrowUpDown, Check, Info, Minus, Plus, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,9 +23,10 @@ interface Props {
   value: ZSetMember[];
   onChange: (v: ZSetMember[]) => void;
   extra?: RedisKeyExtra | null;
+  onZsetIncrBy?: (member: string, amount: number) => void;
 }
 
-export function RedisZSetViewer({ value, onChange, extra }: Props) {
+export function RedisZSetViewer({ value, onChange, extra, onZsetIncrBy }: Props) {
   const [sortAsc, setSortAsc] = useState(true);
   const [editingMember, setEditingMember] = useState<string | null>(null);
   const [editingScore, setEditingScore] = useState("");
@@ -277,14 +278,38 @@ export function RedisZSetViewer({ value, onChange, extra }: Props) {
                       </Button>
                     </div>
                   ) : (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={() => deleteMember(member)}
-                    >
-                      <Trash2 className="w-3 h-3 text-destructive" />
-                    </Button>
+                    <div className="flex items-center gap-0.5">
+                      {onZsetIncrBy && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => onZsetIncrBy(member, -1)}
+                            title="Decrease score by 1"
+                          >
+                            <Minus className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => onZsetIncrBy(member, 1)}
+                            title="Increase score by 1"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </Button>
+                        </>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => deleteMember(member)}
+                      >
+                        <Trash2 className="w-3 h-3 text-destructive" />
+                      </Button>
+                    </div>
                   )}
                 </TableCell>
               </TableRow>

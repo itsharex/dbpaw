@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Clock, Hash, Loader2, MemoryStick, RefreshCw, Save, Trash2, Box } from "lucide-react";
+import { Clock, Hash, Loader2, MemoryStick, RefreshCw, Save, Trash2, Box, Timer, Copy } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -125,6 +125,16 @@ function formatBytes(bytes: number): string {
   const sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+}
+
+function formatIdleTime(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
 }
 
 function mergeValues(base: RedisValue, next: RedisValue): RedisValue {
@@ -320,6 +330,11 @@ export function RedisKeyView({
   const [loadedOffset, setLoadedOffset] = useState(0);
   const [loadedCount, setLoadedCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [setOptionsExpanded, setSetOptionsExpanded] = useState(false);
+  const [setNx, setSetNx] = useState(false);
+  const [setXx, setSetXx] = useState(false);
+  const [setPx, setSetPx] = useState("");
+  const [setKeepttl, setSetKeepttl] = useState(false);
 
   const isCreateMode = redisKey.trim().length === 0;
   const jsonValidationError = getJsonValidationError(value);
@@ -437,10 +452,15 @@ export function RedisKeyView({
       isValueUnchanged(originalValue, value);
 
     if (isCreateMode) {
+      const pxValue = setPx.trim() ? parseInt(setPx, 10) : undefined;
       await api.redis.setKey(connectionId, database, {
         key: normalizedKey,
         value,
         ttlSeconds: parsedTtl,
+        setNx: setNx || undefined,
+        setXx: setXx || undefined,
+        setPx: pxValue && pxValue > 0 ? pxValue : undefined,
+        setKeepttl: setKeepttl || undefined,
       });
     } else if (ttlOnly) {
       // Only TTL changed: avoid DEL + rebuild entirely
@@ -672,6 +692,18 @@ export function RedisKeyView({
                 Mem: {formatBytes(record.memoryUsage)}
               </span>
             )}
+            {record.objectIdletime != null && record.objectIdletime >= 0 && (
+              <span className="flex items-center gap-1.5">
+                <Timer className="w-3.5 h-3.5" />
+                Idle: {formatIdleTime(record.objectIdletime)}
+              </span>
+            )}
+            {record.objectRefcount != null && record.objectRefcount > 0 && (
+              <span className="flex items-center gap-1.5">
+                <Copy className="w-3.5 h-3.5" />
+                Refs: {record.objectRefcount}
+              </span>
+            )}
             <span className="text-muted-foreground/60">{database}</span>
           </div>
         )}
@@ -736,6 +768,79 @@ export function RedisKeyView({
             </div>
           </div>
         </div>
+
+        {/* Advanced SET options (String type only, create mode only) */}
+        {isCreateMode && value.kind === "string" && (
+          <div className="rounded-lg border bg-card">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setSetOptionsExpanded(!setOptionsExpanded)}
+            >
+              <span>Advanced SET options</span>
+              <span className="text-[10px]">{setOptionsExpanded ? "▲" : "▼"}</span>
+            </button>
+            {setOptionsExpanded && (
+              <div className="grid gap-3 border-t px-4 py-3 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Condition</Label>
+                  <div className="flex gap-2">
+                    <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                      <input
+                        type="radio"
+                        name="set-condition"
+                        checked={!setNx && !setXx}
+                        onChange={() => { setSetNx(false); setSetXx(false); }}
+                      />
+                      None
+                    </label>
+                    <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                      <input
+                        type="radio"
+                        name="set-condition"
+                        checked={setNx}
+                        onChange={() => { setSetNx(true); setSetXx(false); }}
+                      />
+                      NX
+                    </label>
+                    <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                      <input
+                        type="radio"
+                        name="set-condition"
+                        checked={setXx}
+                        onChange={() => { setSetNx(false); setSetXx(true); }}
+                      />
+                      XX
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">NX: set only if absent · XX: set only if exists</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">PX (ms expiry)</Label>
+                  <Input
+                    className="h-7 text-xs"
+                    value={setPx}
+                    onChange={(e) => setSetPx(e.target.value)}
+                    placeholder="disabled"
+                    inputMode="numeric"
+                    disabled={!!ttl.trim()}
+                  />
+                  <p className="text-[10px] text-muted-foreground">Mutually exclusive with TTL (seconds)</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="set-keepttl"
+                    checked={setKeepttl}
+                    onChange={(e) => setSetKeepttl(e.target.checked)}
+                  />
+                  <Label htmlFor="set-keepttl" className="text-xs cursor-pointer">KEEPTTL</Label>
+                  <p className="text-[10px] text-muted-foreground">Retain existing TTL</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Value viewer */}
         <div className="space-y-2">
@@ -847,6 +952,21 @@ export function RedisKeyView({
               value={value.value}
               onChange={(v) => setValue({ kind: "zSet", value: v })}
               extra={record?.extra}
+              onZsetIncrBy={async (member, amount) => {
+                try {
+                  await api.redis.patchKey(connectionId, database, {
+                    key: redisKey,
+                    ttlSeconds: null,
+                    zsetIncrBy: [{ member, score: amount }],
+                  });
+                  toast.success("Score updated");
+                  await load();
+                } catch (e) {
+                  toast.error("Failed to update score", {
+                    description: e instanceof Error ? e.message : String(e),
+                  });
+                }
+              }}
             />
           )}
           {value.kind === "stream" && (

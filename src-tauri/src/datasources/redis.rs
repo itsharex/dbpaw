@@ -277,6 +277,9 @@ pub struct RedisKeyValue {
     pub extra: Option<RedisKeyExtra>,
     pub object_encoding: Option<String>,
     pub memory_usage: Option<u64>,
+    pub object_idletime: Option<i64>,
+    pub object_refcount: Option<i64>,
+    pub key_exists: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -285,6 +288,14 @@ pub struct RedisSetKeyPayload {
     pub key: String,
     pub value: RedisValue,
     pub ttl_seconds: Option<i64>,
+    /// SET NX — only set if key does not exist.
+    pub set_nx: Option<bool>,
+    /// SET XX — only set if key already exists.
+    pub set_xx: Option<bool>,
+    /// SET PX — expire after this many milliseconds (mutually exclusive with ttl_seconds/EX).
+    pub set_px: Option<i64>,
+    /// SET KEEPTTL — retain the existing TTL.
+    pub set_keepttl: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -323,6 +334,7 @@ pub struct RedisKeyPatchPayload {
     pub bitmap_set: Option<Vec<RedisBitmapBit>>,
     pub string_incr_by: Option<String>,
     pub hash_incr_by: Option<BTreeMap<String, String>>,
+    pub zset_incr_by: Option<Vec<RedisZSetMember>>,
 }
 
 fn parse_database(database: Option<&str>) -> Result<i64, String> {
@@ -1496,6 +1508,24 @@ pub async fn get_key(conn: &mut RedisConnection, key: String) -> Result<RedisKey
         conn.query::<i64>(cmd).await.ok().map(|v| v.max(0) as u64)
     };
 
+    let object_idletime = {
+        let mut cmd = redis::cmd("OBJECT");
+        cmd.arg("IDLETIME").arg(&key);
+        conn.query::<i64>(cmd).await.ok()
+    };
+
+    let object_refcount = {
+        let mut cmd = redis::cmd("OBJECT");
+        cmd.arg("REFCOUNT").arg(&key);
+        conn.query::<i64>(cmd).await.ok()
+    };
+
+    let key_exists = {
+        let mut cmd = redis::cmd("EXISTS");
+        cmd.arg(&key);
+        conn.query::<i64>(cmd).await.ok().map(|v| v > 0)
+    };
+
     Ok(RedisKeyValue {
         key,
         key_type,
@@ -1507,6 +1537,9 @@ pub async fn get_key(conn: &mut RedisConnection, key: String) -> Result<RedisKey
         extra,
         object_encoding,
         memory_usage,
+        object_idletime,
+        object_refcount,
+        key_exists,
     })
 }
 
@@ -1629,6 +1662,24 @@ pub async fn get_key_page(
         conn.query::<i64>(cmd).await.ok().map(|v| v.max(0) as u64)
     };
 
+    let object_idletime = {
+        let mut cmd = redis::cmd("OBJECT");
+        cmd.arg("IDLETIME").arg(&key);
+        conn.query::<i64>(cmd).await.ok()
+    };
+
+    let object_refcount = {
+        let mut cmd = redis::cmd("OBJECT");
+        cmd.arg("REFCOUNT").arg(&key);
+        conn.query::<i64>(cmd).await.ok()
+    };
+
+    let key_exists = {
+        let mut cmd = redis::cmd("EXISTS");
+        cmd.arg(&key);
+        conn.query::<i64>(cmd).await.ok().map(|v| v > 0)
+    };
+
     Ok(RedisKeyValue {
         key,
         key_type,
@@ -1640,6 +1691,9 @@ pub async fn get_key_page(
         extra,
         object_encoding,
         memory_usage,
+        object_idletime,
+        object_refcount,
+        key_exists,
     })
 }
 
@@ -1658,10 +1712,23 @@ pub async fn set_key(
         RedisValue::String(value) => {
             let mut cmd = redis::cmd("SET");
             cmd.arg(&payload.key).arg(value);
-            if let Some(ttl) = payload.ttl_seconds {
+            // Atomic SET options: PX (ms) takes precedence over EX (s).
+            if let Some(px) = payload.set_px {
+                if px > 0 {
+                    cmd.arg("PX").arg(px);
+                }
+            } else if let Some(ttl) = payload.ttl_seconds {
                 if ttl > 0 {
                     cmd.arg("EX").arg(ttl);
                 }
+            }
+            if payload.set_keepttl.unwrap_or(false) {
+                cmd.arg("KEEPTTL");
+            }
+            if payload.set_nx.unwrap_or(false) {
+                cmd.arg("NX");
+            } else if payload.set_xx.unwrap_or(false) {
+                cmd.arg("XX");
             }
             conn.query::<()>(cmd).await?;
         }
@@ -1873,6 +1940,13 @@ pub async fn patch_key(
         for (field, amount) in fields {
             let mut cmd = redis::cmd("HINCRBYFLOAT");
             cmd.arg(key).arg(field).arg(amount);
+            conn.query::<String>(cmd).await?;
+        }
+    }
+    if let Some(ref members) = payload.zset_incr_by {
+        for m in members {
+            let mut cmd = redis::cmd("ZINCRBY");
+            cmd.arg(key).arg(m.score).arg(&m.member);
             conn.query::<String>(cmd).await?;
         }
     }
