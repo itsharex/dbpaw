@@ -463,6 +463,7 @@ impl DatabaseDriver for SqliteDriver {
                     .unwrap_or(None),
                 primary_key: pk,
                 comment: None,
+                default_constraint_name: None,
             });
         }
 

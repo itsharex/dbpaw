@@ -264,6 +264,57 @@ impl bb8::ManageConnection for MssqlConnectionManager {
     }
 }
 
+#[allow(dead_code)]
+struct MssqlColumnInfo {
+    name: String,
+    data_type: String,
+    full_type: String,
+    is_nullable: bool,
+    is_identity: bool,
+    is_computed: bool,
+    computed_definition: Option<String>,
+    default_definition: Option<String>,
+    default_constraint_name: Option<String>,
+}
+
+struct MssqlKeyConstraint {
+    name: String,
+    constraint_type: String,
+    columns: Vec<String>,
+}
+
+fn mssql_full_type_string(data_type: &str, max_length: i64, precision: i64, scale: i64) -> String {
+    let dt = data_type.to_ascii_lowercase();
+    match dt.as_str() {
+        "varchar" | "char" | "varbinary" | "binary" => {
+            let len = if max_length == -1 {
+                "MAX".to_string()
+            } else {
+                max_length.to_string()
+            };
+            format!("{}({})", data_type, len)
+        }
+        "nvarchar" | "nchar" => {
+            let len = if max_length == -1 {
+                "MAX".to_string()
+            } else {
+                // nvarchar stores 2 bytes per char
+                (max_length / 2).to_string()
+            };
+            format!("{}({})", data_type, len)
+        }
+        "decimal" | "numeric" => format!("{}({},{})", data_type, precision, scale),
+        "datetime2" | "datetimeoffset" | "time" => {
+            if scale > 0 {
+                format!("{}({})", data_type, scale)
+            } else {
+                data_type.to_string()
+            }
+        }
+        _ => data_type.to_string(),
+    }
+}
+
 impl MssqlDriver {
     pub async fn connect(form: &ConnectionForm) -> Result<Self, String> {
         let mut cfg_form = form.clone();
@@ -329,61 +380,82 @@ impl MssqlDriver {
         Ok((rows, columns))
     }
 
-    async fn load_table_column_type_map(
+    /// Execute a single query wrapped with FOR JSON, collecting both column
+    /// metadata and JSON row data from the same stream to avoid dual execution.
+    async fn fetch_query_result_json(
         &self,
-        schema: &str,
-        table: &str,
-    ) -> Result<HashMap<String, String>, String> {
-        let sql = format!(
-            "SELECT COLUMN_NAME, DATA_TYPE \
-             FROM INFORMATION_SCHEMA.COLUMNS \
-             WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}'",
-            escape_literal(schema),
-            escape_literal(table)
-        );
-        let rows = self.fetch_rows(&sql).await?;
-        let mut map = HashMap::new();
-        for row in rows {
-            let col = Self::parse_string(&row, 0);
-            let data_type = Self::parse_string(&row, 1);
-            if !col.is_empty() {
-                map.insert(col, data_type);
+        sql: &str,
+    ) -> Result<(Vec<serde_json::Value>, Vec<QueryColumn>), String> {
+        let mut client = self.pool.get().await.map_err(map_pool_error)?;
+        let json_sql = Self::build_for_json_query(sql);
+        let mut stream = client
+            .simple_query(&json_sql)
+            .await
+            .map_err(|e| format!("[QUERY_ERROR] {}", e))?;
+
+        let mut columns: Vec<QueryColumn> = Vec::new();
+        let mut high_precision_cols = HashSet::new();
+        let mut json_text = String::new();
+
+        while let Some(item) = stream
+            .try_next()
+            .await
+            .map_err(|e| format!("[QUERY_ERROR] {}", e))?
+        {
+            match item {
+                QueryItem::Metadata(meta) if columns.is_empty() => {
+                    for col in meta.columns() {
+                        let type_str = format!("{:?}", col.column_type());
+                        if is_high_precision_mssql_query_type(&type_str) {
+                            high_precision_cols.insert(col.name().to_string());
+                        }
+                        columns.push(QueryColumn {
+                            name: col.name().to_string(),
+                            r#type: type_str,
+                        });
+                    }
+                }
+                QueryItem::Row(row) => {
+                    json_text.push_str(&Self::parse_string(&row, 0));
+                }
+                _ => {}
             }
         }
-        Ok(map)
+
+        if json_text.trim().is_empty() {
+            return Ok((Vec::new(), columns));
+        }
+
+        let parsed: serde_json::Value = serde_json::from_str(&json_text)
+            .map_err(|e| format!("[QUERY_ERROR] Failed to parse MSSQL JSON result: {e}"))?;
+        let mut data = match parsed {
+            serde_json::Value::Array(arr) => arr,
+            serde_json::Value::Object(obj) => vec![serde_json::Value::Object(obj)],
+            _ => {
+                return Err(
+                    "[QUERY_ERROR] MSSQL FOR JSON result is not array/object".to_string(),
+                );
+            }
+        };
+        for row in &mut data {
+            normalize_mssql_row_json(row, &high_precision_cols)?;
+        }
+
+        Ok((data, columns))
     }
 
     fn build_for_json_query(sql: &str) -> String {
         let trimmed = sql.trim_end().trim_end_matches(';').trim_end();
+        // Avoid double-wrapping when the query already ends with FOR JSON / FOR XML
+        let upper = trimmed.to_uppercase();
+        if upper.ends_with("FOR JSON PATH")
+            || upper.ends_with("FOR JSON AUTO")
+            || upper.ends_with("FOR JSON EXPLICIT")
+            || upper.ends_with("FOR JSON PATH, WITHOUT_ARRAY_WRAPPER")
+        {
+            return trimmed.to_string();
+        }
         format!("{trimmed} FOR JSON PATH, INCLUDE_NULL_VALUES")
-    }
-
-    async fn fetch_json_rows(
-        &self,
-        sql: &str,
-        high_precision_cols: &HashSet<String>,
-    ) -> Result<Vec<serde_json::Value>, String> {
-        let rows = self.fetch_rows(sql).await?;
-        let mut json_text = String::new();
-        for row in rows {
-            json_text.push_str(&Self::parse_string(&row, 0));
-        }
-        if json_text.trim().is_empty() {
-            return Ok(Vec::new());
-        }
-        let parsed: serde_json::Value = serde_json::from_str(&json_text)
-            .map_err(|e| format!("[QUERY_ERROR] Failed to parse MSSQL JSON result: {e}"))?;
-        let mut out = match parsed {
-            serde_json::Value::Array(arr) => arr,
-            serde_json::Value::Object(obj) => vec![serde_json::Value::Object(obj)],
-            _ => {
-                return Err("[QUERY_ERROR] MSSQL FOR JSON result is not array/object".to_string());
-            }
-        };
-        for row in &mut out {
-            normalize_mssql_row_json(row, high_precision_cols)?;
-        }
-        Ok(out)
     }
 
     fn parse_i64(row: &Row, idx: usize) -> i64 {
@@ -408,8 +480,247 @@ impl MssqlDriver {
         }
         String::new()
     }
+
+    /// Load columns with identity, computed, and precision/scale/length info.
+    async fn load_mssql_columns(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<Vec<MssqlColumnInfo>, String> {
+        let sql = format!(
+            "SELECT c.name, t.name AS data_type, c.is_nullable, \
+                    c.max_length, c.precision, c.scale, \
+                    c.is_identity, c.is_computed, \
+                    cc.definition AS computed_definition, \
+                    dc.definition AS default_definition, \
+                    dc.name AS default_constraint_name \
+             FROM sys.columns c \
+             JOIN sys.types t ON c.user_type_id = t.user_type_id \
+             JOIN sys.tables tbl ON tbl.object_id = c.object_id \
+             JOIN sys.schemas s ON s.schema_id = tbl.schema_id \
+             LEFT JOIN sys.computed_columns cc \
+               ON cc.object_id = c.object_id AND cc.column_id = c.column_id \
+             LEFT JOIN sys.default_constraints dc \
+               ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id \
+             WHERE s.name = '{}' AND tbl.name = '{}' \
+             ORDER BY c.column_id",
+            escape_literal(schema),
+            escape_literal(table)
+        );
+        let rows = self.fetch_rows(&sql).await?;
+        let mut cols = Vec::new();
+        for row in rows {
+            let data_type = Self::parse_string(&row, 1);
+            let max_length = Self::parse_i64(&row, 3);
+            let precision = Self::parse_i64(&row, 4);
+            let scale = Self::parse_i64(&row, 5);
+            let is_identity = Self::parse_i64(&row, 6) == 1;
+            let is_computed = Self::parse_i64(&row, 7) == 1;
+            let computed_def = Self::parse_string(&row, 8);
+            let default_def = Self::parse_string(&row, 9);
+            let default_cn = Self::parse_string(&row, 10);
+
+            let full_type = mssql_full_type_string(&data_type, max_length, precision, scale);
+
+            cols.push(MssqlColumnInfo {
+                name: Self::parse_string(&row, 0),
+                data_type,
+                full_type,
+                is_nullable: Self::parse_string(&row, 2).eq_ignore_ascii_case("1"),
+                is_identity,
+                is_computed,
+                computed_definition: if computed_def.is_empty() {
+                    None
+                } else {
+                    Some(computed_def)
+                },
+                default_definition: if default_def.is_empty() {
+                    None
+                } else {
+                    Some(default_def)
+                },
+                default_constraint_name: if default_cn.is_empty() {
+                    None
+                } else {
+                    Some(default_cn)
+                },
+            });
+        }
+        Ok(cols)
+    }
+
+    /// Load key constraints (PRIMARY KEY and UNIQUE).
+    async fn load_mssql_key_constraints(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<Vec<MssqlKeyConstraint>, String> {
+        let sql = format!(
+            "SELECT kc.name, kc.type_desc, c.name AS col_name, ic.key_ordinal \
+             FROM sys.key_constraints kc \
+             JOIN sys.index_columns ic \
+               ON ic.object_id = kc.parent_object_id AND ic.index_id = kc.unique_index_id \
+             JOIN sys.columns c \
+               ON c.object_id = ic.object_id AND c.column_id = ic.column_id \
+             JOIN sys.tables t ON t.object_id = kc.parent_object_id \
+             JOIN sys.schemas s ON s.schema_id = t.schema_id \
+             WHERE s.name = '{}' AND t.name = '{}' \
+             ORDER BY kc.name, ic.key_ordinal",
+            escape_literal(schema),
+            escape_literal(table)
+        );
+        let rows = self.fetch_rows(&sql).await?;
+        let mut map: HashMap<String, (String, Vec<(i64, String)>)> = HashMap::new();
+        for row in rows {
+            let name = Self::parse_string(&row, 0);
+            let type_desc = Self::parse_string(&row, 1);
+            let col = Self::parse_string(&row, 2);
+            let ord = Self::parse_i64(&row, 3);
+            map.entry(name)
+                .or_insert((type_desc, Vec::new()))
+                .1
+                .push((ord, col));
+        }
+        Ok(map
+            .into_iter()
+            .map(|(name, (type_desc, mut cols))| {
+                cols.sort_by_key(|(ord, _)| *ord);
+                MssqlKeyConstraint {
+                    name,
+                    constraint_type: if type_desc.contains("PRIMARY") {
+                        "PRIMARY KEY".to_string()
+                    } else {
+                        "UNIQUE".to_string()
+                    },
+                    columns: cols.into_iter().map(|(_, c)| c).collect(),
+                }
+            })
+            .collect())
+    }
+
+    /// Load check constraints.
+    async fn load_mssql_check_constraints(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<Vec<(String, String)>, String> {
+        let sql = format!(
+            "SELECT cc.name, cc.definition \
+             FROM sys.check_constraints cc \
+             JOIN sys.tables t ON t.object_id = cc.parent_object_id \
+             JOIN sys.schemas s ON s.schema_id = t.schema_id \
+             WHERE s.name = '{}' AND t.name = '{}' AND cc.is_ms_shipped = 0 \
+             ORDER BY cc.name",
+            escape_literal(schema),
+            escape_literal(table)
+        );
+        let rows = self.fetch_rows(&sql).await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| (Self::parse_string(&row, 0), Self::parse_string(&row, 1)))
+            .collect())
+    }
+
+    /// Load foreign key constraints.
+    async fn load_mssql_foreign_keys(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<Vec<ForeignKeyInfo>, String> {
+        let sql = format!(
+            "SELECT fk.name, pc.name, rs.name, rt.name, rc.name, \
+                    fk.update_referential_action_desc, fk.delete_referential_action_desc \
+             FROM sys.foreign_keys fk \
+             JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id \
+             JOIN sys.tables pt ON pt.object_id = fk.parent_object_id \
+             JOIN sys.schemas ps ON ps.schema_id = pt.schema_id \
+             JOIN sys.columns pc ON pc.object_id = pt.object_id AND pc.column_id = fkc.parent_column_id \
+             JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id \
+             JOIN sys.schemas rs ON rs.schema_id = rt.schema_id \
+             JOIN sys.columns rc ON rc.object_id = rt.object_id AND rc.column_id = fkc.referenced_column_id \
+             WHERE ps.name = '{}' AND pt.name = '{}' \
+             ORDER BY fk.name, fkc.constraint_column_id",
+            escape_literal(schema),
+            escape_literal(table)
+        );
+        let rows = self.fetch_rows(&sql).await?;
+        let mut fks: Vec<ForeignKeyInfo> = Vec::new();
+        for row in rows {
+            fks.push(ForeignKeyInfo {
+                name: Self::parse_string(&row, 0),
+                column: Self::parse_string(&row, 1),
+                referenced_schema: Some(Self::parse_string(&row, 2)),
+                referenced_table: Self::parse_string(&row, 3),
+                referenced_column: Self::parse_string(&row, 4),
+                on_update: Some(Self::parse_string(&row, 5)),
+                on_delete: Some(Self::parse_string(&row, 6)),
+            });
+        }
+        Ok(fks)
+    }
+
+    /// Load indexes for a table. When `include_constraints` is false, PK and
+    /// unique-constraint indexes are excluded (used for DDL generation).
+    async fn load_mssql_indexes(
+        &self,
+        schema: &str,
+        table: &str,
+        include_constraints: bool,
+    ) -> Result<Vec<IndexInfo>, String> {
+        let constraint_filter = if include_constraints {
+            ""
+        } else {
+            " AND i.is_primary_key = 0 AND i.is_unique_constraint = 0"
+        };
+        let sql = format!(
+            "SELECT i.name, i.is_unique, i.type_desc, c.name, ic.key_ordinal \
+             FROM sys.indexes i \
+             JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id \
+             JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id \
+             JOIN sys.tables t ON t.object_id = i.object_id \
+             JOIN sys.schemas s ON s.schema_id = t.schema_id \
+             WHERE s.name = '{}' AND t.name = '{}' \
+               AND i.name IS NOT NULL{} \
+             ORDER BY i.name, ic.key_ordinal",
+            escape_literal(schema),
+            escape_literal(table),
+            constraint_filter
+        );
+        let rows = self.fetch_rows(&sql).await?;
+        let mut map: HashMap<String, (bool, Option<String>, Vec<(i64, String)>)> = HashMap::new();
+        for row in rows {
+            let name = Self::parse_string(&row, 0);
+            let unique = Self::parse_i64(&row, 1) == 1;
+            let idx_type = Self::parse_string(&row, 2);
+            let col = Self::parse_string(&row, 3);
+            let ord = Self::parse_i64(&row, 4);
+            let entry = map
+                .entry(name)
+                .or_insert((unique, Some(idx_type.clone()), Vec::new()));
+            entry.0 = unique;
+            if entry.1.is_none() && !idx_type.is_empty() {
+                entry.1 = Some(idx_type);
+            }
+            entry.2.push((ord, col));
+        }
+        let mut indexes: Vec<IndexInfo> = map
+            .into_iter()
+            .map(|(name, (unique, index_type, mut cols))| {
+                cols.sort_by_key(|(ord, _)| *ord);
+                IndexInfo {
+                    name,
+                    unique,
+                    index_type,
+                    columns: cols.into_iter().map(|(_, c)| c).collect(),
+                }
+            })
+            .collect();
+        indexes.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(indexes)
+    }
 }
 
+#[cfg(test)]
 fn is_high_precision_mssql_data_type(data_type: &str) -> bool {
     matches!(
         data_type.trim().to_ascii_lowercase().as_str(),
@@ -533,6 +844,139 @@ mod tests {
             "SELECT id, name FROM dbo.users FOR JSON PATH, INCLUDE_NULL_VALUES"
         );
     }
+}
+
+fn render_mssql_create_table_ddl(
+    schema: &str,
+    table: &str,
+    columns: &[MssqlColumnInfo],
+    key_constraints: &[MssqlKeyConstraint],
+    check_constraints: &[(String, String)],
+    foreign_keys: &[ForeignKeyInfo],
+    indexes: &[IndexInfo],
+) -> String {
+    let mut lines: Vec<String> = Vec::new();
+
+    // Column definitions
+    for col in columns {
+        if col.is_computed {
+            let def = col
+                .computed_definition
+                .as_deref()
+                .unwrap_or("(NULL)");
+            lines.push(format!("    {} AS {}", quote_ident_or(&col.name), def));
+            continue;
+        }
+
+        let mut line = format!("    {} {}", quote_ident_or(&col.name), col.full_type);
+        if col.is_identity {
+            line.push_str(" IDENTITY(1,1)");
+        }
+        if !col.is_nullable {
+            line.push_str(" NOT NULL");
+        }
+        // Inline default from column info (loaded via sys.default_constraints join)
+        if let (Some(def), Some(cn)) = (&col.default_definition, &col.default_constraint_name) {
+            line.push_str(&format!(" CONSTRAINT {} DEFAULT {}", quote_ident_or(cn), def));
+        }
+        lines.push(line);
+    }
+
+    // Primary key constraints (inline)
+    for kc in key_constraints {
+        if kc.constraint_type == "PRIMARY KEY" {
+            let cols: Vec<String> = kc.columns.iter().map(|c| quote_ident_or(c)).collect();
+            lines.push(format!(
+                "    CONSTRAINT {} PRIMARY KEY ({})",
+                quote_ident_or(&kc.name),
+                cols.join(", ")
+            ));
+        }
+    }
+
+    // Unique constraints (inline)
+    for kc in key_constraints {
+        if kc.constraint_type == "UNIQUE" {
+            let cols: Vec<String> = kc.columns.iter().map(|c| quote_ident_or(c)).collect();
+            lines.push(format!(
+                "    CONSTRAINT {} UNIQUE ({})",
+                quote_ident_or(&kc.name),
+                cols.join(", ")
+            ));
+        }
+    }
+
+    // Check constraints (inline)
+    for (name, definition) in check_constraints {
+        lines.push(format!(
+            "    CONSTRAINT {} CHECK {}",
+            quote_ident_or(name),
+            definition
+        ));
+    }
+
+    // Foreign keys (inline)
+    for fk in foreign_keys {
+        let ref_schema = fk
+            .referenced_schema
+            .as_deref()
+            .unwrap_or("dbo");
+        let mut fk_line = format!(
+            "    CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {}.{} ({})",
+            quote_ident_or(&fk.name),
+            quote_ident_or(&fk.column),
+            quote_ident_or(ref_schema),
+            quote_ident_or(&fk.referenced_table),
+            quote_ident_or(&fk.referenced_column),
+        );
+        if let Some(ref action) = fk.on_update {
+            if action != "NO_ACTION" {
+                fk_line.push_str(&format!(" ON UPDATE {}", action));
+            }
+        }
+        if let Some(ref action) = fk.on_delete {
+            if action != "NO_ACTION" {
+                fk_line.push_str(&format!(" ON DELETE {}", action));
+            }
+        }
+        lines.push(fk_line);
+    }
+
+    let body = lines.join(",\n");
+    let mut ddl = format!(
+        "-- Note: This DDL is reconstructed from table metadata.\n\
+         CREATE TABLE {}.{} (\n{}\n);",
+        quote_ident_or(schema),
+        quote_ident_or(table),
+        body
+    );
+
+    // Non-constraint indexes as separate CREATE INDEX statements
+    for idx in indexes {
+        let unique_keyword = if idx.unique { "UNIQUE " } else { "" };
+        let idx_type = idx.index_type.as_deref().unwrap_or("");
+        let idx_hint = if idx_type.to_ascii_lowercase().contains("clustered") {
+            "CLUSTERED "
+        } else if idx_type.to_ascii_lowercase().contains("nonclustered") {
+            "NONCLUSTERED "
+        } else {
+            ""
+        };
+        let cols: Vec<String> = idx.columns.iter().map(|c| quote_ident_or(c)).collect();
+        ddl.push_str(&format!(
+            "\nCREATE {unique_keyword}INDEX {idx_hint}{} ON {}.{} ({});",
+            quote_ident_or(&idx.name),
+            quote_ident_or(schema),
+            quote_ident_or(table),
+            cols.join(", ")
+        ));
+    }
+
+    ddl
+}
+
+fn quote_ident_or(name: &str) -> String {
+    quote_ident(name).unwrap_or_else(|_| format!("[{}]", name))
 }
 
 #[async_trait]
@@ -674,6 +1118,23 @@ impl DatabaseDriver for MssqlDriver {
             .map(|row| Self::parse_string(row, 0))
             .collect();
 
+        let dc_sql = format!(
+            "SELECT c.name AS column_name, dc.name AS constraint_name \
+             FROM sys.default_constraints dc \
+             JOIN sys.columns c \
+               ON dc.parent_object_id = c.object_id AND dc.parent_column_id = c.column_id \
+             JOIN sys.tables tbl ON tbl.object_id = c.object_id \
+             JOIN sys.schemas s ON s.schema_id = tbl.schema_id \
+             WHERE s.name = '{}' AND tbl.name = '{}'",
+            escape_literal(&schema),
+            escape_literal(&table)
+        );
+        let dc_rows = self.fetch_rows(&dc_sql).await?;
+        let dc_map: HashMap<String, String> = dc_rows
+            .iter()
+            .map(|row| (Self::parse_string(row, 0), Self::parse_string(row, 1)))
+            .collect();
+
         let sql = format!(
             "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT \
              FROM INFORMATION_SCHEMA.COLUMNS \
@@ -699,6 +1160,7 @@ impl DatabaseDriver for MssqlDriver {
                 },
                 primary_key: pk_set.contains(&name),
                 comment: None,
+                default_constraint_name: dc_map.get(&name).cloned(),
             });
         }
 
@@ -715,78 +1177,8 @@ impl DatabaseDriver for MssqlDriver {
             .await?
             .columns;
 
-        let index_sql = format!(
-            "SELECT i.name AS index_name, i.is_unique, i.type_desc, ic.key_ordinal, c.name AS column_name \
-             FROM sys.indexes i \
-             JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id \
-             JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id \
-             JOIN sys.tables t ON t.object_id = i.object_id \
-             JOIN sys.schemas s ON s.schema_id = t.schema_id \
-             WHERE s.name = '{}' AND t.name = '{}' AND i.name IS NOT NULL \
-             ORDER BY i.name, ic.key_ordinal",
-            escape_literal(&schema),
-            escape_literal(&table)
-        );
-        let idx_rows = self.fetch_rows(&index_sql).await?;
-        let mut idx_map: HashMap<String, (bool, Option<String>, Vec<(i64, String)>)> =
-            HashMap::new();
-        for row in idx_rows {
-            let name = Self::parse_string(&row, 0);
-            let unique = Self::parse_i64(&row, 1) == 1;
-            let idx_type = Self::parse_string(&row, 2);
-            let ord = Self::parse_i64(&row, 3);
-            let col_name = Self::parse_string(&row, 4);
-            let entry = idx_map
-                .entry(name)
-                .or_insert((unique, Some(idx_type.clone()), Vec::new()));
-            entry.0 = unique;
-            if entry.1.is_none() && !idx_type.is_empty() {
-                entry.1 = Some(idx_type);
-            }
-            entry.2.push((ord, col_name));
-        }
-        let mut indexes = idx_map
-            .into_iter()
-            .map(|(name, (unique, index_type, mut cols))| {
-                cols.sort_by_key(|(ord, _)| *ord);
-                IndexInfo {
-                    name,
-                    unique,
-                    index_type,
-                    columns: cols.into_iter().map(|(_, col)| col).collect(),
-                }
-            })
-            .collect::<Vec<_>>();
-        indexes.sort_by(|a, b| a.name.cmp(&b.name));
-
-        let fk_sql = format!(
-            "SELECT fk.name AS fk_name, pc.name AS parent_col, rs.name AS referenced_schema, rt.name AS referenced_table, rc.name AS referenced_col, fk.update_referential_action_desc, fk.delete_referential_action_desc \
-             FROM sys.foreign_keys fk \
-             JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id \
-             JOIN sys.tables pt ON pt.object_id = fk.parent_object_id \
-             JOIN sys.schemas ps ON ps.schema_id = pt.schema_id \
-             JOIN sys.columns pc ON pc.object_id = pt.object_id AND pc.column_id = fkc.parent_column_id \
-             JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id \
-             JOIN sys.schemas rs ON rs.schema_id = rt.schema_id \
-             JOIN sys.columns rc ON rc.object_id = rt.object_id AND rc.column_id = fkc.referenced_column_id \
-             WHERE ps.name = '{}' AND pt.name = '{}' \
-             ORDER BY fk.name, fkc.constraint_column_id",
-            escape_literal(&schema),
-            escape_literal(&table)
-        );
-        let fk_rows = self.fetch_rows(&fk_sql).await?;
-        let mut foreign_keys = Vec::new();
-        for row in fk_rows {
-            foreign_keys.push(ForeignKeyInfo {
-                name: Self::parse_string(&row, 0),
-                column: Self::parse_string(&row, 1),
-                referenced_schema: Some(Self::parse_string(&row, 2)),
-                referenced_table: Self::parse_string(&row, 3),
-                referenced_column: Self::parse_string(&row, 4),
-                on_update: Some(Self::parse_string(&row, 5)),
-                on_delete: Some(Self::parse_string(&row, 6)),
-            });
-        }
+        let indexes = self.load_mssql_indexes(&schema, &table, true).await?;
+        let foreign_keys = self.load_mssql_foreign_keys(&schema, &table).await?;
 
         Ok(TableMetadata {
             columns,
@@ -798,42 +1190,21 @@ impl DatabaseDriver for MssqlDriver {
     }
 
     async fn get_table_ddl(&self, schema: String, table: String) -> Result<String, String> {
-        let structure = self
-            .get_table_structure(schema.clone(), table.clone())
-            .await?;
+        let columns = self.load_mssql_columns(&schema, &table).await?;
+        let key_constraints = self.load_mssql_key_constraints(&schema, &table).await?;
+        let check_constraints = self.load_mssql_check_constraints(&schema, &table).await?;
+        let foreign_keys = self.load_mssql_foreign_keys(&schema, &table).await?;
+        let indexes = self.load_mssql_indexes(&schema, &table, false).await?;
 
-        let mut lines = Vec::new();
-        let mut pk_cols = Vec::new();
-        for c in &structure.columns {
-            let mut line = format!("    {} {}", quote_ident(&c.name)?, c.r#type);
-            if !c.nullable {
-                line.push_str(" NOT NULL");
-            }
-            if let Some(default_value) = &c.default_value {
-                line.push_str(" DEFAULT ");
-                line.push_str(default_value);
-            }
-            lines.push(line);
-            if c.primary_key {
-                pk_cols.push(quote_ident(&c.name)?);
-            }
-        }
-
-        if !pk_cols.is_empty() {
-            lines.push(format!("    PRIMARY KEY ({})", pk_cols.join(", ")));
-        }
-
-        let ddl = format!(
-            "-- Note: This DDL is reconstructed from table metadata and may be incomplete.\n\
-             -- Constraints such as foreign keys, unique constraints, check constraints,\n\
-             -- and indexes are not included.\n\
-             CREATE TABLE {}.{} (\n{}\n);",
-            quote_ident(&schema)?,
-            quote_ident(&table)?,
-            lines.join(",\n")
-        );
-
-        Ok(ddl)
+        Ok(render_mssql_create_table_ddl(
+            &schema,
+            &table,
+            &columns,
+            &key_constraints,
+            &check_constraints,
+            &foreign_keys,
+            &indexes,
+        ))
     }
 
     async fn get_table_data(
@@ -871,13 +1242,6 @@ impl DatabaseDriver for MssqlDriver {
             .map(|row| Self::parse_i64(row, 0))
             .unwrap_or(0);
 
-        let col_type_map = self.load_table_column_type_map(&schema, &table).await?;
-        let high_precision_cols: HashSet<String> = col_type_map
-            .into_iter()
-            .filter(|(_, data_type)| is_high_precision_mssql_data_type(data_type))
-            .map(|(col, _)| col)
-            .collect();
-
         let order_clause = if let Some(ref raw) = order_by {
             if raw.trim().is_empty() {
                 " ORDER BY (SELECT NULL)".to_string()
@@ -899,10 +1263,7 @@ impl DatabaseDriver for MssqlDriver {
             "SELECT * FROM {}{}{} OFFSET {} ROWS FETCH NEXT {} ROWS ONLY",
             qualified, where_clause, order_clause, offset, safe_limit
         );
-        let json_sql = Self::build_for_json_query(&sql);
-        let data = self
-            .fetch_json_rows(&json_sql, &high_precision_cols)
-            .await?;
+        let (data, _columns) = self.fetch_query_result_json(&sql).await?;
 
         Ok(TableDataResponse {
             data,
@@ -942,20 +1303,11 @@ impl DatabaseDriver for MssqlDriver {
         let first_keyword = first_sql_keyword(&sql);
         let is_read_query = matches!(
             first_keyword.as_deref(),
-            Some("select") | Some("with") | Some("show")
+            Some("select") | Some("with") | Some("show") | Some("exec") | Some("execute")
         );
 
         if is_read_query {
-            let (_, columns) = self.fetch_rows_with_columns(&sql).await?;
-            let high_precision_cols: HashSet<String> = columns
-                .iter()
-                .filter(|col| is_high_precision_mssql_query_type(&col.r#type))
-                .map(|col| col.name.clone())
-                .collect();
-            let json_sql = Self::build_for_json_query(&sql);
-            let data = self
-                .fetch_json_rows(&json_sql, &high_precision_cols)
-                .await?;
+            let (data, columns) = self.fetch_query_result_json(&sql).await?;
 
             return Ok(QueryResult {
                 row_count: data.len() as i64,

@@ -515,6 +515,7 @@ impl DatabaseDriver for DuckdbDriver {
                     default_value,
                     primary_key: pk_cols.contains(&name),
                     comment: None,
+                    default_constraint_name: None,
                 });
             }
 

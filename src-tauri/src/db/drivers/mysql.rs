@@ -1028,6 +1028,7 @@ impl DatabaseDriver for MysqlDriver {
                 nullable: decode_mysql_text_cell(&row, 2).unwrap_or_default() == "YES",
                 default_value: decode_mysql_optional_text_cell(&row, 3).ok().flatten(),
                 comment: None,
+                default_constraint_name: None,
             });
         }
         Ok(TableStructure { columns })
@@ -1078,6 +1079,7 @@ impl DatabaseDriver for MysqlDriver {
                 default_value: decode_mysql_optional_text_cell(&row, 3)?,
                 primary_key: pk_set.contains(&name),
                 comment,
+                default_constraint_name: None,
             });
         }
 

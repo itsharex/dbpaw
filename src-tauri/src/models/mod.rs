@@ -160,6 +160,8 @@ pub struct ColumnInfo {
     pub default_value: Option<String>,
     pub primary_key: bool,
     pub comment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_constraint_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

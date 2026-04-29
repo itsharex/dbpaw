@@ -279,9 +279,17 @@ export function generateAlterTableSQL(
           );
         }
         if (defaultChanged) {
-          unsupportedOps.push(
-            `DEFAULT change for "${col.originalName}" — requires dropping and re-adding a named DEFAULT constraint in MSSQL`,
-          );
+          if (orig.defaultConstraintName) {
+            statements.push(
+              `ALTER TABLE ${tr} DROP CONSTRAINT ${q(orig.defaultConstraintName, driver)};`,
+            );
+          }
+          if (col.defaultValue.trim()) {
+            const dfName = `DF_${table}_${colName}`;
+            statements.push(
+              `ALTER TABLE ${tr} ADD CONSTRAINT ${q(dfName, driver)} DEFAULT ${formatDefault(col.defaultValue, col.dataType)} FOR ${q(colName, driver)};`,
+            );
+          }
         }
         break;
       }

@@ -737,6 +737,7 @@ impl DatabaseDriver for ClickHouseDriver {
                 default_value,
                 primary_key,
                 comment,
+                default_constraint_name: None,
             });
         }
 

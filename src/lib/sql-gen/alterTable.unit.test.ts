@@ -590,24 +590,75 @@ describe("generateAlterTableSQL: DEFAULT change", () => {
     );
   });
 
-  test("mssql — DEFAULT change emits unsupportedOps", () => {
-    const orig = [col("status", "NVARCHAR(50)", { defaultValue: "active" })];
+  test("mssql — DEFAULT change with existing constraint generates DROP + ADD", () => {
+    const orig = [
+      col("status", "NVARCHAR(50)", {
+        defaultValue: "('active')",
+        defaultConstraintName: "DF_t_status",
+      }),
+    ];
     const next = [
       alterCol("status", "NVARCHAR", "status", {
         length: "50",
-        defaultValue: "inactive",
+        defaultValue: "('inactive')",
       }),
     ];
-    const { unsupportedOps } = generateAlterTableSQL(
+    const { sql, unsupportedOps } = generateAlterTableSQL(
       "dbo",
       "t",
       orig,
       next,
       "mssql",
     );
-    expect(unsupportedOps.length).toBe(1);
-    expect(unsupportedOps[0]).toMatch(/DEFAULT/);
-    expect(unsupportedOps[0]).toMatch(/MSSQL/i);
+    expect(unsupportedOps).toEqual([]);
+    expect(sql).toContain("ALTER TABLE [dbo].[t] DROP CONSTRAINT [DF_t_status];");
+    expect(sql).toContain("ALTER TABLE [dbo].[t] ADD CONSTRAINT [DF_t_status] DEFAULT");
+    expect(sql).toContain("FOR [status];");
+  });
+
+  test("mssql — DEFAULT change without existing constraint only generates ADD", () => {
+    const orig = [col("status", "NVARCHAR(50)", { defaultValue: null })];
+    const next = [
+      alterCol("status", "NVARCHAR", "status", {
+        length: "50",
+        defaultValue: "('active')",
+      }),
+    ];
+    const { sql, unsupportedOps } = generateAlterTableSQL(
+      "dbo",
+      "t",
+      orig,
+      next,
+      "mssql",
+    );
+    expect(unsupportedOps).toEqual([]);
+    expect(sql).not.toContain("DROP CONSTRAINT");
+    expect(sql).toContain("ALTER TABLE [dbo].[t] ADD CONSTRAINT [DF_t_status] DEFAULT");
+    expect(sql).toContain("FOR [status];");
+  });
+
+  test("mssql — removing DEFAULT only generates DROP CONSTRAINT", () => {
+    const orig = [
+      col("status", "NVARCHAR(50)", {
+        defaultValue: "('active')",
+        defaultConstraintName: "DF_t_status",
+      }),
+    ];
+    const next = [
+      alterCol("status", "NVARCHAR", "status", {
+        length: "50",
+        defaultValue: "",
+      }),
+    ];
+    const { sql, unsupportedOps } = generateAlterTableSQL(
+      "dbo",
+      "t",
+      orig,
+      next,
+      "mssql",
+    );
+    expect(unsupportedOps).toEqual([]);
+    expect(sql).toBe("ALTER TABLE [dbo].[t] DROP CONSTRAINT [DF_t_status];");
   });
 });
 

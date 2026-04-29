@@ -625,6 +625,7 @@ impl DatabaseDriver for PostgresDriver {
                 default_value: decode_postgres_optional_text_cell(&row, 3).ok().flatten(),
                 primary_key: false, // TODO: Need to query constraint
                 comment: None,
+                default_constraint_name: None,
             });
         }
         Ok(TableStructure { columns })
@@ -704,6 +705,7 @@ impl DatabaseDriver for PostgresDriver {
                 default_value: decode_postgres_optional_text_cell(&row, 3)?,
                 primary_key: pk_set.contains(&name),
                 comment,
+                default_constraint_name: None,
             });
         }
 

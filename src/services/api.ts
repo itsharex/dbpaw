@@ -420,6 +420,7 @@ export interface ColumnInfo {
   defaultValue?: string | null;
   primaryKey: boolean;
   comment?: string | null;
+  defaultConstraintName?: string | null;
 }
 
 export interface IndexInfo {

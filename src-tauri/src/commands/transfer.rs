@@ -2054,6 +2054,7 @@ mod tests {
                     default_value: None,
                     primary_key: true,
                     comment: None,
+                    default_constraint_name: None,
                 }]
             } else {
                 Vec::new()

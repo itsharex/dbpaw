@@ -361,6 +361,7 @@ impl DatabaseDriver for OracleDriver {
                         default_value,
                         primary_key,
                         comment: None,
+                        default_constraint_name: None,
                     });
                 }
             }
