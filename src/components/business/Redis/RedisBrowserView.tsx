@@ -38,7 +38,7 @@ import type { RedisKeyInfo } from "@/services/api";
 import { toast } from "sonner";
 import { cn } from "@/components/ui/utils";
 import { RedisKeyView } from "./RedisKeyView";
-import { isRedisClusterDatabaseList } from "./redis-utils";
+import { isRedisClusterDatabaseList, parseMsetInput } from "./redis-utils";
 import { TYPE_COLORS, TYPE_DISPLAY_LABEL } from "./redis-type-colors";
 
 const SCAN_LIMIT = 200;
@@ -49,28 +49,6 @@ function formatTtlShort(ttl: number): string {
   if (ttl < 60) return `${ttl}s`;
   if (ttl < 3600) return `${Math.floor(ttl / 60)}m`;
   return `${Math.floor(ttl / 3600)}h`;
-}
-
-function parseMsetInput(raw: string): Record<string, string> | null {
-  try {
-    const obj = JSON.parse(raw);
-    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
-      return obj as Record<string, string>;
-    }
-  } catch {
-    // not JSON — try line-based
-  }
-  const entries: Record<string, string> = {};
-  let valid = false;
-  for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const idx = trimmed.indexOf(":");
-    if (idx === -1) continue;
-    entries[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
-    valid = true;
-  }
-  return valid ? entries : null;
 }
 
 interface Props {

@@ -3022,19 +3022,32 @@ pub async fn cluster_info(
     let mut cmd = redis::cmd("CLUSTER");
     cmd.arg("INFO");
     let info_raw: String = conn.query(cmd).await?;
-    let mut info = HashMap::new();
-    for line in info_raw.lines() {
-        if let Some((k, v)) = line.split_once(':') {
-            info.insert(k.trim().to_string(), v.trim().to_string());
-        }
-    }
+    let info = parse_cluster_info_text(&info_raw);
 
     // CLUSTER NODES — returns a multi-line string
     let mut cmd = redis::cmd("CLUSTER");
     cmd.arg("NODES");
     let nodes_raw: String = conn.query(cmd).await?;
+    let nodes = parse_cluster_nodes_text(&nodes_raw);
+
+    Ok(RedisClusterInfo { info, nodes })
+}
+
+/// Parse `CLUSTER INFO` output (lines of `key:value`) into a map.
+fn parse_cluster_info_text(raw: &str) -> HashMap<String, String> {
+    let mut info = HashMap::new();
+    for line in raw.lines() {
+        if let Some((k, v)) = line.split_once(':') {
+            info.insert(k.trim().to_string(), v.trim().to_string());
+        }
+    }
+    info
+}
+
+/// Parse `CLUSTER NODES` output into a list of `RedisClusterNode`.
+fn parse_cluster_nodes_text(raw: &str) -> Vec<RedisClusterNode> {
     let mut nodes = Vec::new();
-    for line in nodes_raw.lines() {
+    for line in raw.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -3067,15 +3080,15 @@ pub async fn cluster_info(
             slot_range,
         });
     }
-
-    Ok(RedisClusterInfo { info, nodes })
+    nodes
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         build_cluster_nodes, build_connection_info, is_cluster_form, list_databases,
-        parse_database, redis_mode, validate_value_for_write, RedisValue,
+        parse_cluster_info_text, parse_cluster_nodes_text, parse_database, redis_mode,
+        validate_value_for_write, RedisValue,
     };
     use crate::models::ConnectionForm;
     use redis::ConnectionAddr;
@@ -3305,5 +3318,71 @@ mod tests {
         let outer = Value::Array(vec![inner, Value::Nil]);
         let out = format_redis_value(outer);
         assert_eq!(out, "1) 1) (integer) 1\n2) (integer) 2\n2) (nil)");
+    }
+
+    // ── parse_cluster_info_text ───────────────────────────────────────────
+
+    #[test]
+    fn cluster_info_text_parses_key_value_pairs() {
+        let raw = "cluster_state:ok\ncluster_slots:16384\ncluster_known_nodes:3\n";
+        let info = parse_cluster_info_text(raw);
+        assert_eq!(info.get("cluster_state").map(String::as_str), Some("ok"));
+        assert_eq!(info.get("cluster_slots").map(String::as_str), Some("16384"));
+        assert_eq!(info.get("cluster_known_nodes").map(String::as_str), Some("3"));
+    }
+
+    #[test]
+    fn cluster_info_text_handles_empty_input() {
+        let info = parse_cluster_info_text("");
+        assert!(info.is_empty());
+    }
+
+    #[test]
+    fn cluster_info_text_trims_whitespace() {
+        let raw = "  cluster_state : ok  \n";
+        let info = parse_cluster_info_text(raw);
+        assert_eq!(info.get("cluster_state").map(String::as_str), Some("ok"));
+    }
+
+    // ── parse_cluster_nodes_text ──────────────────────────────────────────
+
+    #[test]
+    fn cluster_nodes_text_parses_master_and_slave() {
+        let raw = "abc123 127.0.0.1:6379 myself,master - 0 1 1 connected 0-5460\ndef456 127.0.0.1:6380 slave abc123 0 2 2 connected\n";
+        let nodes = parse_cluster_nodes_text(raw);
+        assert_eq!(nodes.len(), 2);
+
+        assert_eq!(nodes[0].id, "abc123");
+        assert_eq!(nodes[0].addr, "127.0.0.1:6379");
+        assert!(nodes[0].flags.contains(&"myself".to_string()));
+        assert!(nodes[0].flags.contains(&"master".to_string()));
+        assert!(nodes[0].master_id.is_none());
+        assert_eq!(nodes[0].link_state, "connected");
+        assert_eq!(nodes[0].slot_range.as_deref(), Some("0-5460"));
+
+        assert_eq!(nodes[1].id, "def456");
+        assert!(nodes[1].flags.contains(&"slave".to_string()));
+        assert_eq!(nodes[1].master_id.as_deref(), Some("abc123"));
+        assert!(nodes[1].slot_range.is_none());
+    }
+
+    #[test]
+    fn cluster_nodes_text_skips_empty_lines() {
+        let raw = "\n\nabc123 127.0.0.1:6379 myself,master - 0 1 1 connected 0-5460\n\n";
+        let nodes = parse_cluster_nodes_text(raw);
+        assert_eq!(nodes.len(), 1);
+    }
+
+    #[test]
+    fn cluster_nodes_text_skips_malformed_lines() {
+        let raw = "too few fields\nabc123 127.0.0.1:6379 myself,master - 0 1 1 connected 0-5460\n";
+        let nodes = parse_cluster_nodes_text(raw);
+        assert_eq!(nodes.len(), 1);
+    }
+
+    #[test]
+    fn cluster_nodes_text_handles_empty_input() {
+        let nodes = parse_cluster_nodes_text("");
+        assert!(nodes.is_empty());
     }
 }

@@ -33,6 +33,39 @@ export function countRedisValueItems(value: RedisValue): number {
   return value.value.length;
 }
 
+/**
+ * Parse MSET import text into a key-value record.
+ * Accepts either a JSON object or line-based "key: value" format.
+ * Returns null if the input cannot be parsed.
+ */
+export function parseMsetInput(raw: string): Record<string, string> | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  // Try JSON first
+  try {
+    const obj = JSON.parse(trimmed);
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      return obj as Record<string, string>;
+    }
+  } catch {
+    // not JSON — fall through to line-based
+  }
+
+  // Line-based: "key: value" per line, # for comments
+  const entries: Record<string, string> = {};
+  let valid = false;
+  for (const line of trimmed.split("\n")) {
+    const lineTrimmed = line.trim();
+    if (!lineTrimmed || lineTrimmed.startsWith("#")) continue;
+    const idx = lineTrimmed.indexOf(":");
+    if (idx === -1) continue;
+    entries[lineTrimmed.slice(0, idx).trim()] = lineTrimmed.slice(idx + 1).trim();
+    valid = true;
+  }
+  return valid ? entries : null;
+}
+
 export function isRedisValuePagePartial(
   value: RedisValue,
   totalLen: number | null,

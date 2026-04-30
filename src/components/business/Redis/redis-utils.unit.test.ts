@@ -3,6 +3,7 @@ import {
   countRedisValueItems,
   isRedisClusterDatabaseList,
   isRedisValuePagePartial,
+  parseMsetInput,
   parseRedisTtlSeconds,
   parseRedisZSetScore,
 } from "./redis-utils";
@@ -90,5 +91,44 @@ describe("redis value helpers", () => {
         1,
       ),
     ).toBe(false);
+  });
+});
+
+describe("parseMsetInput", () => {
+  test("returns null for empty input", () => {
+    expect(parseMsetInput("")).toBeNull();
+    expect(parseMsetInput("   ")).toBeNull();
+  });
+
+  test("parses JSON object", () => {
+    expect(parseMsetInput('{"a":"1","b":"2"}')).toEqual({ a: "1", b: "2" });
+  });
+
+  test("rejects JSON array", () => {
+    expect(parseMsetInput('["a","b"]')).toBeNull();
+  });
+
+  test("parses line-based key:value format", () => {
+    const input = "name: alice\nage: 30\ncity: beijing";
+    expect(parseMsetInput(input)).toEqual({
+      name: "alice",
+      age: "30",
+      city: "beijing",
+    });
+  });
+
+  test("skips empty lines and comments in line-based format", () => {
+    const input = "# comment\n\nkey1: val1\n# another\nkey2: val2";
+    expect(parseMsetInput(input)).toEqual({ key1: "val1", key2: "val2" });
+  });
+
+  test("handles values containing colons", () => {
+    const input = "url: http://example.com";
+    expect(parseMsetInput(input)).toEqual({ url: "http://example.com" });
+  });
+
+  test("returns null when no valid lines found", () => {
+    expect(parseMsetInput("# only comments\n\n  ")).toBeNull();
+    expect(parseMsetInput("no-colon-line")).toBeNull();
   });
 });
