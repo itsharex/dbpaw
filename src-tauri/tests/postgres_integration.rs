@@ -1249,3 +1249,261 @@ async fn test_postgres_routines() {
         ))
         .await;
 }
+
+#[tokio::test]
+#[ignore]
+async fn test_postgres_ddl_includes_constraints_indexes_comments() {
+    let form = shared_postgres_form();
+    let driver = postgres_context::connect_with_retry(|| PostgresDriver::connect(&form)).await;
+
+    let parent = "dbpaw_pg_ddl_parent";
+    let child = "dbpaw_pg_ddl_child";
+    let parent_q = format!("public.{}", parent);
+    let child_q = format!("public.{}", child);
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", child_q))
+        .await;
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", parent_q))
+        .await;
+
+    driver
+        .execute_query(format!(
+            "CREATE TABLE {} (id SERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE)",
+            parent_q
+        ))
+        .await
+        .expect("create parent table failed");
+    driver
+        .execute_query(format!(
+            "COMMENT ON TABLE {} IS 'Parent table for DDL test'",
+            parent_q
+        ))
+        .await
+        .expect("comment on parent table failed");
+    driver
+        .execute_query(format!(
+            "COMMENT ON COLUMN {}.code IS 'Unique code identifier'",
+            parent_q
+        ))
+        .await
+        .expect("comment on parent code column failed");
+
+    driver
+        .execute_query(format!(
+            "CREATE TABLE {} (\
+                id SERIAL PRIMARY KEY, \
+                parent_id INT NOT NULL, \
+                name TEXT, \
+                age INT CHECK (age > 0), \
+                CONSTRAINT fk_child_parent FOREIGN KEY (parent_id) REFERENCES {}(id) \
+            )",
+            child_q, parent_q
+        ))
+        .await
+        .expect("create child table failed");
+    driver
+        .execute_query(format!(
+            "CREATE INDEX idx_child_name ON {} (name)",
+            child_q
+        ))
+        .await
+        .expect("create child index failed");
+
+    let ddl = driver
+        .get_table_ddl("public".to_string(), child.to_string())
+        .await
+        .expect("get_table_ddl failed");
+
+    let ddl_upper = ddl.to_uppercase();
+    assert!(ddl_upper.contains("CREATE TABLE"), "DDL should contain CREATE TABLE");
+    assert!(
+        ddl_upper.contains("PRIMARY KEY"),
+        "DDL should contain PRIMARY KEY constraint, got:\n{}",
+        ddl
+    );
+    assert!(
+        ddl_upper.contains("FOREIGN KEY"),
+        "DDL should contain FOREIGN KEY constraint, got:\n{}",
+        ddl
+    );
+    assert!(
+        ddl_upper.contains("REFERENCES"),
+        "DDL should contain REFERENCES, got:\n{}",
+        ddl
+    );
+    assert!(
+        ddl_upper.contains("CHECK"),
+        "DDL should contain CHECK constraint, got:\n{}",
+        ddl
+    );
+    assert!(
+        ddl_upper.contains("CREATE INDEX"),
+        "DDL should contain CREATE INDEX, got:\n{}",
+        ddl
+    );
+    assert!(
+        ddl.contains("idx_child_name"),
+        "DDL should contain index name, got:\n{}",
+        ddl
+    );
+    assert!(
+        ddl.contains("fk_child_parent"),
+        "DDL should contain FK constraint name, got:\n{}",
+        ddl
+    );
+
+    let parent_ddl = driver
+        .get_table_ddl("public".to_string(), parent.to_string())
+        .await
+        .expect("get_parent_table_ddl failed");
+    let parent_ddl_upper = parent_ddl.to_uppercase();
+    assert!(
+        parent_ddl_upper.contains("PRIMARY KEY"),
+        "Parent DDL should contain PRIMARY KEY, got:\n{}",
+        parent_ddl
+    );
+    assert!(
+        parent_ddl_upper.contains("UNIQUE"),
+        "Parent DDL should contain UNIQUE constraint, got:\n{}",
+        parent_ddl
+    );
+    assert!(
+        parent_ddl.contains("COMMENT ON TABLE"),
+        "Parent DDL should contain COMMENT ON TABLE, got:\n{}",
+        parent_ddl
+    );
+    assert!(
+        parent_ddl.contains("COMMENT ON COLUMN"),
+        "Parent DDL should contain COMMENT ON COLUMN, got:\n{}",
+        parent_ddl
+    );
+    assert!(
+        parent_ddl.contains("Parent table for DDL test"),
+        "Parent DDL should contain table comment text, got:\n{}",
+        parent_ddl
+    );
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", child_q))
+        .await;
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", parent_q))
+        .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_postgres_table_structure_includes_primary_key_and_comment() {
+    let form = shared_postgres_form();
+    let driver = postgres_context::connect_with_retry(|| PostgresDriver::connect(&form)).await;
+
+    let table_name = "dbpaw_pg_struct_pk_comment";
+    let qualified = format!("public.{}", table_name);
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+    driver
+        .execute_query(format!(
+            "CREATE TABLE {} (id INT PRIMARY KEY, label TEXT, count INT)",
+            qualified
+        ))
+        .await
+        .expect("create probe table failed");
+    driver
+        .execute_query(format!(
+            "COMMENT ON COLUMN {}.label IS 'The label column'",
+            qualified
+        ))
+        .await
+        .expect("add column comment failed");
+
+    let structure = driver
+        .get_table_structure("public".to_string(), table_name.to_string())
+        .await
+        .expect("get_table_structure failed");
+
+    let id_col = structure
+        .columns
+        .iter()
+        .find(|c| c.name == "id")
+        .expect("should have id column");
+    assert!(id_col.primary_key, "id column should be marked as primary key");
+
+    let label_col = structure
+        .columns
+        .iter()
+        .find(|c| c.name == "label")
+        .expect("should have label column");
+    assert!(
+        !label_col.primary_key,
+        "label column should NOT be primary key"
+    );
+    assert_eq!(
+        label_col.comment.as_deref(),
+        Some("The label column"),
+        "label column should have comment"
+    );
+
+    let count_col = structure
+        .columns
+        .iter()
+        .find(|c| c.name == "count")
+        .expect("should have count column");
+    assert!(
+        !count_col.primary_key,
+        "count column should NOT be primary key"
+    );
+    assert!(
+        count_col.comment.is_none(),
+        "count column should have no comment"
+    );
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_postgres_ddl_identity_columns() {
+    let form = shared_postgres_form();
+    let driver = postgres_context::connect_with_retry(|| PostgresDriver::connect(&form)).await;
+
+    let table_name = "dbpaw_pg_ddl_identity";
+    let qualified = format!("public.{}", table_name);
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+    driver
+        .execute_query(format!(
+            "CREATE TABLE {} (id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name TEXT)",
+            qualified
+        ))
+        .await
+        .expect("create identity table failed");
+
+    let ddl = driver
+        .get_table_ddl("public".to_string(), table_name.to_string())
+        .await
+        .expect("get_table_ddl failed");
+
+    let ddl_upper = ddl.to_uppercase();
+    assert!(
+        ddl_upper.contains("GENERATED ALWAYS AS IDENTITY"),
+        "DDL should contain GENERATED ALWAYS AS IDENTITY, got:\n{}",
+        ddl
+    );
+    assert!(
+        ddl_upper.contains("PRIMARY KEY"),
+        "DDL should contain PRIMARY KEY, got:\n{}",
+        ddl
+    );
+
+    let _ = driver
+        .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
+        .await;
+}

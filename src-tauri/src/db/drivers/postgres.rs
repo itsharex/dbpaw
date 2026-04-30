@@ -248,6 +248,307 @@ impl PostgresDriver {
         }
         Ok(data)
     }
+
+    async fn load_pg_columns(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<Vec<PgColumnInfo>, String> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+              a.attname AS column_name,
+              format_type(a.atttypid, a.atttypmod) AS column_type,
+              a.attnotnull AS not_null,
+              pg_get_expr(ad.adbin, ad.adrelid) AS column_default,
+              a.attidentity::text AS attidentity
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_attribute a ON a.attrelid = c.oid
+            LEFT JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
+            WHERE n.nspname = $1
+              AND c.relname = $2
+              AND a.attnum > 0
+              AND NOT a.attisdropped
+            ORDER BY a.attnum
+            "#,
+        )
+        .bind(schema)
+        .bind(table)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+
+        let mut cols = Vec::new();
+        for row in rows {
+            let name = decode_postgres_text_cell(&row, 0)?;
+            let data_type = decode_postgres_text_cell(&row, 1)?;
+            let not_null: bool = row.try_get(2).unwrap_or(false);
+            let default_value = decode_postgres_optional_text_cell(&row, 3)?;
+            let identity: Option<String> = row
+                .try_get::<Option<String>, _>(4)
+                .unwrap_or(None)
+                .and_then(|v| if v.is_empty() { None } else { Some(v) });
+
+            cols.push(PgColumnInfo {
+                name,
+                data_type,
+                is_nullable: !not_null,
+                default_value,
+                identity,
+            });
+        }
+        Ok(cols)
+    }
+
+    async fn load_pg_constraints(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<(Vec<PgKeyConstraint>, Vec<ForeignKeyInfo>, Vec<(String, String)>), String> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+              con.conname,
+              con.contype::text AS contype,
+              array_agg(a.attname ORDER BY ord.ord) FILTER (WHERE a.attname IS NOT NULL) AS columns,
+              pg_get_constraintdef(con.oid, true) AS condef,
+              fn.nspname AS ref_schema,
+              fc.relname AS ref_table,
+              array_agg(fa.attname ORDER BY ford.ord) FILTER (WHERE fa.attname IS NOT NULL) AS ref_columns,
+              CASE con.confupdtype::text
+                WHEN 'a' THEN 'NO ACTION'
+                WHEN 'r' THEN 'RESTRICT'
+                WHEN 'c' THEN 'CASCADE'
+                WHEN 'n' THEN 'SET NULL'
+                WHEN 'd' THEN 'SET DEFAULT'
+                ELSE NULL
+              END AS on_update,
+              CASE con.confdeltype::text
+                WHEN 'a' THEN 'NO ACTION'
+                WHEN 'r' THEN 'RESTRICT'
+                WHEN 'c' THEN 'CASCADE'
+                WHEN 'n' THEN 'SET NULL'
+                WHEN 'd' THEN 'SET DEFAULT'
+                ELSE NULL
+              END AS on_delete
+            FROM pg_constraint con
+            JOIN pg_class c ON c.oid = con.conrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            LEFT JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS ord(attnum, ord) ON true
+            LEFT JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ord.attnum
+            LEFT JOIN pg_class fc ON fc.oid = con.confrelid
+            LEFT JOIN pg_namespace fn ON fn.oid = fc.relnamespace
+            LEFT JOIN LATERAL unnest(con.confkey) WITH ORDINALITY AS ford(attnum, ord)
+              ON con.contype = 'f' AND ford.ord = ord.ord
+            LEFT JOIN pg_attribute fa ON fa.attrelid = fc.oid AND fa.attnum = ford.attnum
+            WHERE n.nspname = $1
+              AND c.relname = $2
+              AND con.contype IN ('p', 'u', 'c', 'f')
+            GROUP BY con.conname, con.contype, con.oid, fn.nspname, fc.relname,
+                     con.confupdtype, con.confdeltype
+            ORDER BY
+              CASE con.contype WHEN 'p' THEN 0 WHEN 'u' THEN 1 WHEN 'c' THEN 2 WHEN 'f' THEN 3 END,
+              con.conname
+            "#,
+        )
+        .bind(schema)
+        .bind(table)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+
+        let mut key_constraints = Vec::new();
+        let mut foreign_keys = Vec::new();
+        let mut check_constraints = Vec::new();
+
+        for row in rows {
+            let conname: String = row.try_get(0).unwrap_or_default();
+            let contype: String = row.try_get(1).unwrap_or_default();
+            let columns: Option<Vec<String>> = row.try_get(2).ok();
+
+            match contype.as_str() {
+                "p" | "u" => {
+                    let constraint_type = if contype == "p" {
+                        "PRIMARY KEY".to_string()
+                    } else {
+                        "UNIQUE".to_string()
+                    };
+                    key_constraints.push(PgKeyConstraint {
+                        name: conname,
+                        constraint_type,
+                        columns: columns.unwrap_or_default(),
+                    });
+                }
+                "c" => {
+                    let condef: String = row.try_get(3).unwrap_or_default();
+                    if !condef.is_empty() {
+                        check_constraints.push((conname, condef));
+                    }
+                }
+                "f" => {
+                    let col_list = columns.unwrap_or_default();
+                    let col = col_list.first().cloned().unwrap_or_default();
+                    let referenced_schema: Option<String> =
+                        row.try_get::<Option<String>, _>(4).unwrap_or(None);
+                    let referenced_table: String = row.try_get(5).unwrap_or_default();
+                    let ref_columns: Option<Vec<String>> = row.try_get(6).ok();
+                    let referenced_column = ref_columns
+                        .and_then(|c| c.first().cloned())
+                        .unwrap_or_default();
+                    foreign_keys.push(ForeignKeyInfo {
+                        name: conname,
+                        column: col,
+                        referenced_schema,
+                        referenced_table,
+                        referenced_column,
+                        on_update: row.try_get::<Option<String>, _>(7).unwrap_or(None),
+                        on_delete: row.try_get::<Option<String>, _>(8).unwrap_or(None),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        Ok((key_constraints, foreign_keys, check_constraints))
+    }
+
+    async fn load_pg_indexes(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<Vec<PgIndexInfo>, String> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+              ic.relname AS index_name,
+              i.indisunique AS is_unique,
+              am.amname AS index_type,
+              i.indkey,
+              pg_get_indexdef(i.indexrelid) AS full_def,
+              pg_get_expr(i.indpred, i.indrelid) AS condition
+            FROM pg_index i
+            JOIN pg_class tc ON tc.oid = i.indrelid
+            JOIN pg_namespace tn ON tn.oid = tc.relnamespace
+            JOIN pg_class ic ON ic.oid = i.indexrelid
+            JOIN pg_am am ON am.oid = ic.relam
+            WHERE tn.nspname = $1
+              AND tc.relname = $2
+              AND NOT i.indisprimary
+              AND i.indisvalid
+              AND NOT EXISTS (
+                SELECT 1 FROM pg_constraint con
+                WHERE con.conindid = i.indexrelid
+              )
+            ORDER BY ic.relname
+            "#,
+        )
+        .bind(schema)
+        .bind(table)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+
+        let mut indexes = Vec::new();
+        for row in rows {
+            let name: String = row.try_get(0).unwrap_or_default();
+            let unique: bool = row.try_get(1).unwrap_or(false);
+            let index_type: String = row.try_get(2).unwrap_or_default();
+            let indkey: Vec<i16> = row.try_get::<Vec<i16>, _>(3).unwrap_or_default();
+            let full_def: String = row.try_get(4).unwrap_or_default();
+            let condition: Option<String> = row.try_get::<Option<String>, _>(5).unwrap_or(None);
+
+            let has_expression = indkey.iter().any(|&k| k == 0);
+
+            let columns = if !has_expression {
+                let mut cols = Vec::new();
+                for &attnum in &indkey {
+                    if attnum > 0 {
+                        let col_rows = sqlx::query_scalar::<_, String>(
+                            "SELECT attname FROM pg_attribute WHERE attrelid = \
+                             (SELECT oid FROM pg_class WHERE relname = $1 \
+                              AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = $2)) \
+                             AND attnum = $3",
+                        )
+                        .bind(table)
+                        .bind(schema)
+                        .bind(attnum as i32)
+                        .fetch_optional(&self.pool)
+                        .await
+                        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+                        if let Some(col) = col_rows {
+                            cols.push(col);
+                        }
+                    }
+                }
+                cols
+            } else {
+                extract_pg_index_columns(&full_def).unwrap_or_default()
+            };
+
+            indexes.push(PgIndexInfo {
+                name,
+                unique,
+                index_type,
+                columns,
+                condition,
+                full_statement: full_def,
+            });
+        }
+        Ok(indexes)
+    }
+
+    async fn load_pg_comments(
+        &self,
+        schema: &str,
+        table: &str,
+    ) -> Result<(Option<String>, HashMap<String, String>), String> {
+        let table_comment: Option<String> = sqlx::query_scalar(
+            r#"
+            SELECT d.description
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_description d ON d.objoid = c.oid AND d.objsubid = 0
+            WHERE n.nspname = $1 AND c.relname = $2
+            "#,
+        )
+        .bind(schema)
+        .bind(table)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("[QUERY_ERROR] {e}"))?
+        .flatten();
+
+        let comment_rows = sqlx::query(
+            r#"
+            SELECT a.attname, d.description
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_attribute a ON a.attrelid = c.oid
+            JOIN pg_description d ON d.objoid = c.oid AND d.objsubid = a.attnum
+            WHERE n.nspname = $1
+              AND c.relname = $2
+              AND a.attnum > 0
+              AND NOT a.attisdropped
+            "#,
+        )
+        .bind(schema)
+        .bind(table)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+
+        let mut col_comments = HashMap::new();
+        for row in comment_rows {
+            let col_name: String = row.try_get(0).unwrap_or_default();
+            let comment: String = row.try_get(1).unwrap_or_default();
+            if !comment.is_empty() {
+                col_comments.insert(col_name, comment);
+            }
+        }
+
+        Ok((table_comment, col_comments))
+    }
 }
 
 fn is_high_precision_pg_type(data_type: &str, udt_name: &str) -> bool {
@@ -318,6 +619,169 @@ fn decode_postgres_optional_text_cell(
     Err(format!(
         "[QUERY_ERROR] Failed to decode Postgres optional text column at index {idx}"
     ))
+}
+
+struct PgColumnInfo {
+    name: String,
+    data_type: String,
+    is_nullable: bool,
+    default_value: Option<String>,
+    identity: Option<String>,
+}
+
+struct PgKeyConstraint {
+    name: String,
+    constraint_type: String,
+    columns: Vec<String>,
+}
+
+#[allow(dead_code)]
+struct PgIndexInfo {
+    name: String,
+    unique: bool,
+    index_type: String,
+    columns: Vec<String>,
+    condition: Option<String>,
+    full_statement: String,
+}
+
+fn pg_quote_ident(ident: &str) -> String {
+    if ident.is_empty() {
+        return "\"\"".to_string();
+    }
+    format!("\"{}\"", ident.replace('"', "\"\""))
+}
+
+fn extract_pg_index_columns(full_def: &str) -> Option<Vec<String>> {
+    let upper = full_def.to_uppercase();
+    let table_end = upper.find(")\n") .or_else(|| upper.find(") WHERE"))
+        .or_else(|| upper.find(") INCLUDE"))
+        .unwrap_or(full_def.len());
+    let prefix = &full_def[..table_end];
+    let open = prefix.rfind('(')?;
+    let content = &full_def[open + 1..];
+    let close = content.find(')')?;
+    let col_list = &content[..close];
+    if col_list.trim().is_empty() {
+        return None;
+    }
+    let cols: Vec<String> = col_list
+        .split(',')
+        .map(|c| c.trim().trim_matches('"').to_string())
+        .filter(|c| !c.is_empty())
+        .collect();
+    if cols.is_empty() { None } else { Some(cols) }
+}
+
+fn render_pg_create_table_ddl(
+    schema: &str,
+    table: &str,
+    columns: &[PgColumnInfo],
+    key_constraints: &[PgKeyConstraint],
+    check_constraints: &[(String, String)],
+    foreign_keys: &[ForeignKeyInfo],
+    indexes: &[PgIndexInfo],
+    table_comment: Option<&str>,
+    column_comments: &HashMap<String, String>,
+) -> String {
+    let mut lines: Vec<String> = Vec::new();
+
+    for col in columns {
+        let mut line = format!("    {} {}", pg_quote_ident(&col.name), col.data_type);
+        if let Some(ref identity) = col.identity {
+            match identity.as_str() {
+                "a" => line.push_str(" GENERATED ALWAYS AS IDENTITY"),
+                "d" => line.push_str(" GENERATED BY DEFAULT AS IDENTITY"),
+                _ => {}
+            }
+        }
+        if !col.is_nullable {
+            line.push_str(" NOT NULL");
+        }
+        if let Some(ref default) = col.default_value {
+            line.push_str(&format!(" DEFAULT {}", default));
+        }
+        lines.push(line);
+    }
+
+    for kc in key_constraints {
+        let cols: Vec<String> = kc.columns.iter().map(|c| pg_quote_ident(c)).collect();
+        lines.push(format!(
+            "    CONSTRAINT {} {} ({})",
+            pg_quote_ident(&kc.name),
+            kc.constraint_type,
+            cols.join(", ")
+        ));
+    }
+
+    for (name, definition) in check_constraints {
+        lines.push(format!(
+            "    CONSTRAINT {} CHECK {}",
+            pg_quote_ident(name),
+            definition
+        ));
+    }
+
+    for fk in foreign_keys {
+        let ref_schema = fk.referenced_schema.as_deref().unwrap_or(schema);
+        let mut fk_line = format!(
+            "    CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {}.{} ({})",
+            pg_quote_ident(&fk.name),
+            pg_quote_ident(&fk.column),
+            pg_quote_ident(ref_schema),
+            pg_quote_ident(&fk.referenced_table),
+            pg_quote_ident(&fk.referenced_column),
+        );
+        if let Some(ref action) = fk.on_update {
+            if action != "NO ACTION" {
+                fk_line.push_str(&format!(" ON UPDATE {}", action));
+            }
+        }
+        if let Some(ref action) = fk.on_delete {
+            if action != "NO ACTION" {
+                fk_line.push_str(&format!(" ON DELETE {}", action));
+            }
+        }
+        lines.push(fk_line);
+    }
+
+    let body = lines.join(",\n");
+    let mut ddl = format!(
+        "-- Note: This DDL is reconstructed from table metadata.\n\
+         CREATE TABLE {}.{} (\n{}\n);",
+        pg_quote_ident(schema),
+        pg_quote_ident(table),
+        body
+    );
+
+    for idx in indexes {
+        ddl.push_str(&format!("\n{};", idx.full_statement));
+    }
+
+    if let Some(comment) = table_comment {
+        ddl.push_str(&format!(
+            "\nCOMMENT ON TABLE {}.{} IS {};",
+            pg_quote_ident(schema),
+            pg_quote_ident(table),
+            pg_quote_literal(comment)
+        ));
+    }
+
+    for (col_name, comment) in column_comments {
+        ddl.push_str(&format!(
+            "\nCOMMENT ON COLUMN {}.{}.{} IS {};",
+            pg_quote_ident(schema),
+            pg_quote_ident(table),
+            pg_quote_ident(col_name),
+            pg_quote_literal(comment)
+        ));
+    }
+
+    ddl
+}
+
+fn pg_quote_literal(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
 }
 
 fn skip_single_quote(bytes: &[u8], mut i: usize) -> usize {
@@ -678,11 +1142,47 @@ impl DatabaseDriver for PostgresDriver {
         schema: String,
         table: String,
     ) -> Result<TableStructure, String> {
+        let pk_rows: Vec<(String,)> = sqlx::query_as(
+            r#"
+            SELECT a.attname
+            FROM pg_index i
+            JOIN pg_class c ON c.oid = i.indrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+            JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = k.attnum
+            WHERE i.indisprimary = true
+              AND n.nspname = $1
+              AND c.relname = $2
+            ORDER BY k.ord
+            "#,
+        )
+        .bind(&schema)
+        .bind(&table)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+
+        let pk_set: HashSet<String> = pk_rows.into_iter().map(|r| r.0).collect();
+
         let rows = sqlx::query(
-            "SELECT column_name, data_type, is_nullable, column_default \
-             FROM information_schema.columns \
-             WHERE table_schema = $1 AND table_name = $2 \
-             ORDER BY ordinal_position",
+            r#"
+            SELECT
+              a.attname AS column_name,
+              format_type(a.atttypid, a.atttypmod) AS column_type,
+              a.attnotnull AS not_null,
+              pg_get_expr(ad.adbin, ad.adrelid) AS column_default,
+              d.description AS comment
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_attribute a ON a.attrelid = c.oid
+            LEFT JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
+            LEFT JOIN pg_description d ON d.objoid = a.attrelid AND d.objsubid = a.attnum
+            WHERE n.nspname = $1
+              AND c.relname = $2
+              AND a.attnum > 0
+              AND NOT a.attisdropped
+            ORDER BY a.attnum
+            "#,
         )
         .bind(&schema)
         .bind(&table)
@@ -692,13 +1192,21 @@ impl DatabaseDriver for PostgresDriver {
 
         let mut columns = Vec::new();
         for row in rows {
+            let name = decode_postgres_text_cell(&row, 0)?;
+            let not_null: bool = row.try_get(2).unwrap_or(false);
+            let comment = decode_postgres_optional_text_cell(&row, 4)?;
+            let comment = comment.and_then(|c| {
+                let trimmed = c.trim().to_string();
+                if trimmed.is_empty() { None } else { Some(trimmed) }
+            });
+
             columns.push(ColumnInfo {
-                name: decode_postgres_text_cell(&row, 0).unwrap_or_default(),
-                r#type: decode_postgres_text_cell(&row, 1).unwrap_or_default(),
-                nullable: decode_postgres_text_cell(&row, 2).unwrap_or_default() == "YES",
-                default_value: decode_postgres_optional_text_cell(&row, 3).ok().flatten(),
-                primary_key: false, // TODO: Need to query constraint
-                comment: None,
+                name: name.clone(),
+                r#type: decode_postgres_text_cell(&row, 1)?,
+                nullable: !not_null,
+                default_value: decode_postgres_optional_text_cell(&row, 3)?,
+                primary_key: pk_set.contains(&name),
+                comment,
                 default_constraint_name: None,
             });
         }
@@ -835,7 +1343,7 @@ impl DatabaseDriver for PostgresDriver {
               fn.nspname AS referenced_schema,
               fc.relname AS referenced_table,
               fa.attname AS referenced_column,
-              CASE con.confupdtype
+              CASE con.confupdtype::text
                 WHEN 'a' THEN 'NO ACTION'
                 WHEN 'r' THEN 'RESTRICT'
                 WHEN 'c' THEN 'CASCADE'
@@ -843,7 +1351,7 @@ impl DatabaseDriver for PostgresDriver {
                 WHEN 'd' THEN 'SET DEFAULT'
                 ELSE NULL
               END AS on_update,
-              CASE con.confdeltype
+              CASE con.confdeltype::text
                 WHEN 'a' THEN 'NO ACTION'
                 WHEN 'r' THEN 'RESTRICT'
                 WHEN 'c' THEN 'CASCADE'
@@ -900,34 +1408,24 @@ impl DatabaseDriver for PostgresDriver {
     }
 
     async fn get_table_ddl(&self, schema: String, table: String) -> Result<String, String> {
-        let query = r#"
-            SELECT
-                'CREATE TABLE ' || quote_ident(n.nspname) || '.' || quote_ident(c.relname) || ' (' || E'\n' ||
-                array_to_string(array_agg(
-                    '    ' || quote_ident(a.attname) || ' ' ||
-                    format_type(a.atttypid, a.atttypmod) ||
-                    CASE WHEN a.attnotnull THEN ' NOT NULL' ELSE '' END ||
-                    CASE WHEN a.atthasdef THEN ' DEFAULT ' || pg_get_expr(d.adbin, d.adrelid) ELSE '' END
-                    ORDER BY a.attnum
-                ), E',\n') || E'\n' ||
-                ');'
-            FROM pg_class c
-            JOIN pg_namespace n ON n.oid = c.relnamespace
-            JOIN pg_attribute a ON a.attrelid = c.oid
-            LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
-            WHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped
-            AND n.nspname = $1 AND c.relname = $2
-            GROUP BY n.nspname, c.relname;
-        "#;
+        let columns = self.load_pg_columns(&schema, &table).await?;
+        let (key_constraints, foreign_keys, check_constraints) =
+            self.load_pg_constraints(&schema, &table).await?;
+        let indexes = self.load_pg_indexes(&schema, &table).await?;
+        let (table_comment, column_comments) =
+            self.load_pg_comments(&schema, &table).await?;
 
-        let row: (String,) = sqlx::query_as(query)
-            .bind(&schema)
-            .bind(&table)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
-
-        Ok(row.0)
+        Ok(render_pg_create_table_ddl(
+            &schema,
+            &table,
+            &columns,
+            &key_constraints,
+            &check_constraints,
+            &foreign_keys,
+            &indexes,
+            table_comment.as_deref(),
+            &column_comments,
+        ))
     }
 
     async fn get_table_data(

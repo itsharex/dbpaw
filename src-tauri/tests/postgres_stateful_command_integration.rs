@@ -88,8 +88,8 @@ async fn prepare_metadata_fixture(
         .expect("create metadata child table should succeed");
     driver
         .execute_query(format!(
-            "CREATE INDEX idx_child_name ON {} (name)",
-            child_qualified
+            "CREATE INDEX IF NOT EXISTS idx_{}_name ON {} (name)",
+            child_table, child_qualified
         ))
         .await
         .expect("create metadata child index should succeed");
@@ -312,6 +312,23 @@ async fn test_postgres_command_get_table_structure_success() {
     assert!(structure.columns.iter().any(|c| c.name == "id"));
     assert!(structure.columns.iter().any(|c| c.name == "parent_id"));
 
+    let id_col = structure
+        .columns
+        .iter()
+        .find(|c| c.name == "id")
+        .expect("should have id column");
+    assert!(id_col.primary_key, "id column should be primary key");
+
+    let parent_id_col = structure
+        .columns
+        .iter()
+        .find(|c| c.name == "parent_id")
+        .expect("should have parent_id column");
+    assert!(
+        !parent_id_col.primary_key,
+        "parent_id column should NOT be primary key"
+    );
+
     cleanup_metadata_fixture(&form, &schema, &parent, &child).await;
     let _ = connection::delete_connection_direct(&state, conn_id).await;
 }
@@ -360,8 +377,34 @@ async fn test_postgres_command_get_table_ddl_success() {
     )
     .await
     .expect("get_table_ddl should succeed");
-    assert!(ddl.to_uppercase().contains("CREATE TABLE"));
-    assert!(ddl.contains(&child));
+    let ddl_upper = ddl.to_uppercase();
+    assert!(ddl_upper.contains("CREATE TABLE"), "DDL should contain CREATE TABLE");
+    assert!(ddl.contains(&child), "DDL should contain table name");
+    assert!(
+        ddl_upper.contains("PRIMARY KEY"),
+        "DDL should contain PRIMARY KEY, got:\n{}",
+        ddl
+    );
+    assert!(
+        ddl_upper.contains("FOREIGN KEY"),
+        "DDL should contain FOREIGN KEY, got:\n{}",
+        ddl
+    );
+    assert!(
+        ddl.contains("fk_child_parent"),
+        "DDL should contain FK constraint name, got:\n{}",
+        ddl
+    );
+    assert!(
+        ddl_upper.contains("CREATE INDEX"),
+        "DDL should contain CREATE INDEX, got:\n{}",
+        ddl
+    );
+    assert!(
+        ddl.contains(&format!("idx_{}_name", child)),
+        "DDL should contain index name, got:\n{}",
+        ddl
+    );
 
     cleanup_metadata_fixture(&form, &schema, &parent, &child).await;
     let _ = connection::delete_connection_direct(&state, conn_id).await;
@@ -393,7 +436,7 @@ async fn test_postgres_command_get_table_metadata_contains_indexes_and_foreign_k
     )
     .await
     .expect("get_table_metadata should succeed");
-    assert!(meta.indexes.iter().any(|idx| idx.name == "idx_child_name"));
+    assert!(meta.indexes.iter().any(|idx| idx.name == format!("idx_{}_name", child)));
     assert!(meta.foreign_keys.iter().any(|fk| fk.column == "parent_id"));
 
     cleanup_metadata_fixture(&form, &schema, &parent, &child).await;
