@@ -648,17 +648,6 @@ fn build_stream_extra(
     }
 }
 
-fn build_bitmap_extra(count: u64) -> RedisKeyExtra {
-    RedisKeyExtra {
-        subtype: Some("bitmap".to_string()),
-        stream_info: None,
-        stream_groups: None,
-        hll_count: None,
-        geo_count: None,
-        bitmap_count: Some(count),
-    }
-}
-
 async fn fetch_stream_view_internal(
     conn: &mut RedisConnection,
     key: &str,
@@ -1397,18 +1386,6 @@ pub async fn get_key(conn: &mut RedisConnection, key: String) -> Result<RedisKey
                     (encoded, true)
                 }
             };
-
-            // Bitmap detection: if not HLL, check BITCOUNT.
-            // A non-empty string with BITCOUNT > 0 is likely a bitmap.
-            if extra.is_none() && !text.is_empty() {
-                let mut bitcount_cmd = redis::cmd("BITCOUNT");
-                bitcount_cmd.arg(&key);
-                if let Ok(count) = conn.query::<i64>(bitcount_cmd).await {
-                    if count > 0 {
-                        extra = Some(build_bitmap_extra(count as u64));
-                    }
-                }
-            }
 
             (RedisValue::String(text), None, 0, is_binary, extra)
         }
