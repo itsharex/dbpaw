@@ -1,8 +1,9 @@
 use crate::datasources::redis::{
-    self, RedisDatabaseInfo, RedisGeoMember, RedisGeoPosition, RedisGeoSearchResult,
-    RedisKeyPatchPayload, RedisKeyValue, RedisMutationResult, RedisRawResult, RedisScanResponse,
-    RedisServerInfo, RedisSetKeyPayload, RedisSetOperation, RedisSlowlogEntry, RedisStreamEntry,
-    RedisStreamView, RedisXClaimEntry, RedisXPendingResult, RedisZRangeByScoreResult,
+    self, RedisBatchKeyOp, RedisBatchKeyOpResult, RedisClusterInfo, RedisDatabaseInfo,
+    RedisGeoMember, RedisGeoPosition, RedisGeoSearchResult, RedisKeyPatchPayload, RedisKeyValue,
+    RedisMgetEntry, RedisMutationResult, RedisRawResult, RedisScanResponse, RedisServerInfo,
+    RedisSetKeyPayload, RedisSetOperation, RedisSlowlogEntry, RedisStreamEntry, RedisStreamView,
+    RedisXClaimEntry, RedisXPendingResult, RedisZRangeByScoreResult,
 };
 use crate::datasources::redis::{connect, RedisConnection};
 use crate::models::ConnectionForm;
@@ -983,6 +984,88 @@ pub async fn redis_xreadgroup(
             evict(&state, id, &form, db).await;
             let mut conn = acquire(&state, id, &form, db).await?;
             redis::xreadgroup(&mut conn, key, group, consumer, start_id, count).await
+        }
+        r => r,
+    }
+}
+
+// ── Batch operations ────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn redis_batch_key_ops(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    operations: Vec<RedisBatchKeyOp>,
+) -> Result<Vec<RedisBatchKeyOpResult>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::batch_key_ops(&mut conn, operations.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::batch_key_ops(&mut conn, operations).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_mget(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    keys: Vec<String>,
+) -> Result<Vec<RedisMgetEntry>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::mget_keys(&mut conn, keys.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::mget_keys(&mut conn, keys).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_mset(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    entries: HashMap<String, String>,
+) -> Result<RedisMutationResult, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let pairs: Vec<(String, String)> = entries.into_iter().collect();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::mset_keys(&mut conn, pairs.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::mset_keys(&mut conn, pairs).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_cluster_info(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+) -> Result<RedisClusterInfo, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::cluster_info(&mut conn).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::cluster_info(&mut conn).await
         }
         r => r,
     }

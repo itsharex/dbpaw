@@ -244,6 +244,42 @@ export interface RedisZRangeByScoreResult {
 
 export type RedisSetOperation = "inter" | "union" | "diff";
 
+export interface RedisBatchKeyOp {
+  op: "del" | "unlink" | "expire" | "persist";
+  key: string;
+  ttlSeconds?: number;
+}
+
+export interface RedisBatchKeyOpResult {
+  key: string;
+  op: string;
+  success: boolean;
+  affected: number;
+}
+
+export interface RedisMgetEntry {
+  key: string;
+  value: string | null;
+  exists: boolean;
+}
+
+export interface RedisClusterNode {
+  id: string;
+  addr: string;
+  flags: string[];
+  masterId: string | null;
+  pingSent: number;
+  pongRecv: number;
+  configEpoch: number;
+  linkState: string;
+  slotRange: string | null;
+}
+
+export interface RedisClusterInfo {
+  info: Record<string, string>;
+  nodes: RedisClusterNode[];
+}
+
 export interface ElasticsearchConnectionInfo {
   clusterName?: string | null;
   clusterUuid?: string | null;
@@ -1111,6 +1147,18 @@ export const api = {
       member: string,
     ) =>
       invoke<boolean>("redis_smove", { id, database, source, destination, member }),
+    batchKeyOps: (
+      id: number,
+      database: string | undefined,
+      operations: RedisBatchKeyOp[],
+    ) =>
+      invoke<RedisBatchKeyOpResult[]>("redis_batch_key_ops", { id, database, operations }),
+    mget: (id: number, database: string | undefined, keys: string[]) =>
+      invoke<RedisMgetEntry[]>("redis_mget", { id, database, keys }),
+    mset: (id: number, database: string | undefined, entries: Record<string, string>) =>
+      invoke<RedisMutationResult>("redis_mset", { id, database, entries }),
+    clusterInfo: (id: number, database: string | undefined) =>
+      invoke<RedisClusterInfo>("redis_cluster_info", { id, database }),
   },
   elasticsearch: {
     testConnection: (id: number) =>
