@@ -1547,13 +1547,13 @@ async fn xtrim_maxlen() {
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
-    // XTRIM MAXLEN 10 (exact trimming)
+    // XTRIM MAXLEN 10 (exact trimming by default)
     let trimmed = redis::xtrim(
         &mut conn,
         key.clone(),
         "MAXLEN".to_string(),
         "10".to_string(),
-        Some(false),
+        None,
     )
     .await
     .unwrap();
@@ -1595,13 +1595,13 @@ async fn xtrim_minid() {
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
-    // XTRIM MINID 6-0 (exact trimming, remove entries with ID < 6-0)
+    // XTRIM MINID 6-0 (exact trimming by default, remove entries with ID < 6-0)
     let trimmed = redis::xtrim(
         &mut conn,
         key.clone(),
         "MINID".to_string(),
         "6-0".to_string(),
-        Some(false),
+        None,
     )
     .await
     .unwrap();

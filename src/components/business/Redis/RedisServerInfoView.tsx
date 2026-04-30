@@ -432,8 +432,8 @@ export function RedisServerInfoView({ connectionId, database }: Props) {
                           {clusterData.nodes.map((node) => {
                             const role = node.flags.includes("master")
                               ? "master"
-                              : node.flags.includes("slave")
-                                ? "slave"
+                              : node.flags.includes("slave") || node.flags.includes("replica")
+                                ? "replica"
                                 : node.flags.join(", ");
                             return (
                               <tr key={node.id} className="hover:bg-muted/30">

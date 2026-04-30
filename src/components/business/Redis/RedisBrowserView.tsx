@@ -86,6 +86,10 @@ export function RedisBrowserView({ connectionId, database, onOpenConsole }: Prop
   const [msetImportText, setMsetImportText] = useState("");
   const [msetLoading, setMsetLoading] = useState(false);
 
+  // EXPIRE dialog state
+  const [expireDialogOpen, setExpireDialogOpen] = useState(false);
+  const [expireTtl, setExpireTtl] = useState("");
+
   // scan never touches detail — callers decide what happens to selection
   const scan = useCallback(
     async (pat: string, cur: string, append: boolean) => {
@@ -422,10 +426,7 @@ export function RedisBrowserView({ connectionId, database, onOpenConsole }: Prop
                   size="sm"
                   className="h-6 px-2 text-xs"
                   disabled={batchLoading}
-                  onClick={() => {
-                    const ttl = prompt("TTL in seconds:");
-                    if (ttl) runBatchOp("expire", parseInt(ttl, 10));
-                  }}
+                  onClick={() => setExpireDialogOpen(true)}
                 >
                   <Clock className="w-3 h-3 mr-1" />
                   EXPIRE
@@ -583,6 +584,53 @@ export function RedisBrowserView({ connectionId, database, onOpenConsole }: Prop
           />
         )}
       </ResizablePanel>
+
+      {/* EXPIRE Dialog */}
+      <Dialog open={expireDialogOpen} onOpenChange={setExpireDialogOpen}>
+        <DialogContent className="sm:max-w-xs">
+          <DialogHeader>
+            <DialogTitle>Set TTL</DialogTitle>
+            <DialogDescription>
+              Set expiry for {selectedKeys.size} selected key(s)
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="expire-ttl">TTL (seconds)</Label>
+            <Input
+              id="expire-ttl"
+              type="number"
+              min="1"
+              value={expireTtl}
+              onChange={(e) => setExpireTtl(e.target.value)}
+              placeholder="3600"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setExpireDialogOpen(false);
+                setExpireTtl("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={batchLoading || !expireTtl.trim() || Number(expireTtl) <= 0}
+              onClick={() => {
+                runBatchOp("expire", parseInt(expireTtl, 10));
+                setExpireDialogOpen(false);
+                setExpireTtl("");
+              }}
+            >
+              Set TTL
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* MGET Export Dialog */}
       <Dialog open={mgetDialogOpen} onOpenChange={setMgetDialogOpen}>

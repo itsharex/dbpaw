@@ -2829,7 +2829,7 @@ pub async fn xtrim(
 
     let mut cmd = redis::cmd("XTRIM");
     cmd.arg(&key).arg(&strategy_upper);
-    if approximate.unwrap_or(true) {
+    if approximate.unwrap_or(false) {
         cmd.arg("~");
     }
     cmd.arg(&threshold);
@@ -2981,11 +2981,6 @@ pub async fn mget_keys(
                 value: None,
                 exists: false,
             },
-            Value::Okay => RedisMgetEntry {
-                key,
-                value: Some("OK".to_string()),
-                exists: true,
-            },
             other => RedisMgetEntry {
                 key,
                 value: Some(format_redis_value(other)),
@@ -3023,16 +3018,12 @@ pub async fn mset_keys(
 pub async fn cluster_info(
     conn: &mut RedisConnection,
 ) -> Result<RedisClusterInfo, String> {
-    // CLUSTER INFO — returns a map of key:value pairs
-    let mut cmd = redis::cmd("CLUSTER");
-    cmd.arg("INFO");
-    let info_raw: String = conn.query(cmd).await?;
-    let info = parse_cluster_info_text(&info_raw);
+    let mut pipe = redis::pipe();
+    pipe.cmd("CLUSTER").arg("INFO");
+    pipe.cmd("CLUSTER").arg("NODES");
+    let (info_raw, nodes_raw): (String, String) = conn.pipe_query(&mut pipe).await?;
 
-    // CLUSTER NODES — returns a multi-line string
-    let mut cmd = redis::cmd("CLUSTER");
-    cmd.arg("NODES");
-    let nodes_raw: String = conn.query(cmd).await?;
+    let info = parse_cluster_info_text(&info_raw);
     let nodes = parse_cluster_nodes_text(&nodes_raw);
 
     Ok(RedisClusterInfo { info, nodes })
