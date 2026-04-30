@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type RedisServerInfo, type RedisSlowlogEntry } from "@/services/api";
+import { api, type RedisClusterInfo, type RedisServerInfo, type RedisSlowlogEntry } from "@/services/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronRight,
   Loader2,
+  Network,
 } from "lucide-react";
 
 interface Props {
@@ -63,6 +64,8 @@ export function RedisServerInfoView({ connectionId, database }: Props) {
   const [configFilter, setConfigFilter] = useState("");
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set());
   const [slowlogLoading, setSlowlogLoading] = useState(false);
+  const [clusterData, setClusterData] = useState<RedisClusterInfo | null>(null);
+  const [clusterLoading, setClusterLoading] = useState(false);
 
   const loadInfo = useCallback(async () => {
     try {
@@ -99,6 +102,18 @@ export function RedisServerInfoView({ connectionId, database }: Props) {
     }
   }, [connectionId, database]);
 
+  const loadClusterInfo = useCallback(async () => {
+    try {
+      setClusterLoading(true);
+      const data = await api.redis.clusterInfo(connectionId, database || undefined);
+      setClusterData(data);
+    } catch {
+      // Cluster info may not be available on non-cluster servers
+    } finally {
+      setClusterLoading(false);
+    }
+  }, [connectionId, database]);
+
   useEffect(() => {
     loadInfo();
   }, [loadInfo]);
@@ -107,8 +122,9 @@ export function RedisServerInfoView({ connectionId, database }: Props) {
     (tab: string) => {
       if (tab === "config" && config === null) loadConfig();
       if (tab === "slowlog" && slowlog === null) loadSlowlog();
+      if (tab === "cluster" && clusterData === null) loadClusterInfo();
     },
-    [config, slowlog, loadConfig, loadSlowlog],
+    [config, slowlog, clusterData, loadConfig, loadSlowlog, loadClusterInfo],
   );
 
   const toggleSection = useCallback((section: string) => {
@@ -135,6 +151,8 @@ export function RedisServerInfoView({ connectionId, database }: Props) {
   const memorySection = sections["Memory"] ?? {};
   const clientsSection = sections["Clients"] ?? {};
   const keyspaceSection = sections["Keyspace"] ?? {};
+  const replicationSection = sections["Replication"] ?? {};
+  const isCluster = replicationSection["cluster_enabled"] === "1";
 
   const dbsize = info?.dbsize ?? 0;
   const usedMemory = memorySection["used_memory"];
@@ -224,6 +242,7 @@ export function RedisServerInfoView({ connectionId, database }: Props) {
             <TabsTrigger value="info">Info</TabsTrigger>
             <TabsTrigger value="config">Config</TabsTrigger>
             <TabsTrigger value="slowlog">Slow Log</TabsTrigger>
+            {isCluster && <TabsTrigger value="cluster">Cluster</TabsTrigger>}
           </TabsList>
 
           {/* Info Tab */}
@@ -354,6 +373,104 @@ export function RedisServerInfoView({ connectionId, database }: Props) {
               </Card>
             )}
           </TabsContent>
+
+          {/* Cluster Tab */}
+          {isCluster && (
+            <TabsContent value="cluster" className="mt-3 space-y-3">
+              {clusterLoading ? (
+                <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Loading cluster info...
+                </div>
+              ) : clusterData ? (
+                <>
+                  {/* Cluster overview metrics */}
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <MetricCard
+                      icon={<Network className="h-4 w-4" />}
+                      label="Cluster State"
+                      value={clusterData.info["cluster_state"] ?? "N/A"}
+                      sub={clusterData.info["cluster_slots_ok"] ? `${clusterData.info["cluster_slots_ok"]} slots` : undefined}
+                    />
+                    <MetricCard
+                      icon={<Database className="h-4 w-4" />}
+                      label="Known Nodes"
+                      value={clusterData.info["cluster_known_nodes"] ?? String(clusterData.nodes.length)}
+                      sub={`${clusterData.nodes.filter((n) => n.linkState === "connected").length} connected`}
+                    />
+                    <MetricCard
+                      icon={<Server className="h-4 w-4" />}
+                      label="Slots Assigned"
+                      value={clusterData.info["cluster_slots_assigned"] ?? "N/A"}
+                      sub={clusterData.info["cluster_slots_pfail"] ? `${clusterData.info["cluster_slots_pfail"]} pfail` : undefined}
+                    />
+                    <MetricCard
+                      icon={<Clock className="h-4 w-4" />}
+                      label="Current Epoch"
+                      value={clusterData.info["cluster_current_epoch"] ?? "N/A"}
+                      sub={clusterData.info["cluster_my_epoch"] ? `My epoch: ${clusterData.info["cluster_my_epoch"]}` : undefined}
+                    />
+                  </div>
+
+                  {/* Nodes table */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-sm">Cluster Nodes</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b text-left text-muted-foreground">
+                            <th className="px-4 py-2 font-medium text-xs">Address</th>
+                            <th className="px-4 py-2 font-medium text-xs">ID</th>
+                            <th className="px-4 py-2 font-medium text-xs">Role</th>
+                            <th className="px-4 py-2 font-medium text-xs">Link</th>
+                            <th className="px-4 py-2 font-medium text-xs">Slots</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {clusterData.nodes.map((node) => {
+                            const role = node.flags.includes("master")
+                              ? "master"
+                              : node.flags.includes("slave")
+                                ? "slave"
+                                : node.flags.join(", ");
+                            return (
+                              <tr key={node.id} className="hover:bg-muted/30">
+                                <td className="px-4 py-2 font-mono text-xs">{node.addr}</td>
+                                <td className="px-4 py-2 font-mono text-xs text-muted-foreground max-w-[120px] truncate" title={node.id}>
+                                  {node.id.substring(0, 8)}…
+                                </td>
+                                <td className="px-4 py-2">
+                                  <Badge variant={role === "master" ? "default" : "secondary"} className="text-xs">
+                                    {role}
+                                  </Badge>
+                                </td>
+                                <td className="px-4 py-2">
+                                  <Badge variant={node.linkState === "connected" ? "outline" : "destructive"} className="text-xs">
+                                    {node.linkState}
+                                  </Badge>
+                                </td>
+                                <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
+                                  {node.slotRange ?? "—"}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </CardContent>
+                  </Card>
+                </>
+              ) : (
+                <Card>
+                  <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                    No cluster info available
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+          )}
         </Tabs>
       </div>
     </ScrollArea>

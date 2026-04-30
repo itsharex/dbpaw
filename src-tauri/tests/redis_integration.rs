@@ -3,8 +3,9 @@ mod redis_context;
 
 use dbpaw_lib::datasources::redis;
 use dbpaw_lib::datasources::redis::{
-    RedisKeyPatchPayload, RedisSetKeyPayload, RedisSetOperation, RedisStreamEntry, RedisValue,
-    RedisXPendingResult, RedisZRangeByScoreResult, RedisZSetMember,
+    RedisBatchKeyOp, RedisKeyPatchPayload, RedisMgetEntry, RedisSetKeyPayload,
+    RedisSetOperation, RedisStreamEntry, RedisValue, RedisXPendingResult,
+    RedisZRangeByScoreResult, RedisZSetMember,
 };
 use std::collections::BTreeMap;
 
@@ -1662,4 +1663,237 @@ async fn xgroup_create_idempotent_error() {
     );
 
     cleanup(&form, &key).await;
+}
+
+// ── Round 4: Batch key operations ────────────────────────────────────────────
+
+#[tokio::test]
+async fn batch_del_keys() {
+    let form = noauth();
+    let prefix = redis_context::unique_name("batch_del");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    // Create 5 string keys
+    for i in 0..5u32 {
+        let payload = RedisSetKeyPayload {
+            key: format!("{prefix}:{i}"),
+            value: RedisValue::String(format!("v{i}")),
+            ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
+        };
+        redis::set_key(&mut conn, payload).await.unwrap();
+    }
+
+    // Batch DEL all 5
+    let ops: Vec<RedisBatchKeyOp> = (0..5u32)
+        .map(|i| RedisBatchKeyOp {
+            op: "del".to_string(),
+            key: format!("{prefix}:{i}"),
+            ttl_seconds: None,
+        })
+        .collect();
+    let results = redis::batch_key_ops(&mut conn, ops).await.unwrap();
+    assert_eq!(results.len(), 5);
+    for r in &results {
+        assert!(r.success, "DEL should succeed for {}", r.key);
+        assert_eq!(r.affected, 1, "DEL should affect 1 key: {}", r.key);
+    }
+
+    // Verify keys are gone
+    for i in 0..5u32 {
+        let got = redis::get_key(&mut conn, format!("{prefix}:{i}")).await.unwrap();
+        assert_eq!(got.key_type, "none", "key {prefix}:{i} should be deleted");
+    }
+}
+
+#[tokio::test]
+async fn batch_unlink_keys() {
+    let form = noauth();
+    let prefix = redis_context::unique_name("batch_unlink");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    for i in 0..3u32 {
+        let payload = RedisSetKeyPayload {
+            key: format!("{prefix}:{i}"),
+            value: RedisValue::String(format!("v{i}")),
+            ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
+        };
+        redis::set_key(&mut conn, payload).await.unwrap();
+    }
+
+    let ops: Vec<RedisBatchKeyOp> = (0..3u32)
+        .map(|i| RedisBatchKeyOp {
+            op: "unlink".to_string(),
+            key: format!("{prefix}:{i}"),
+            ttl_seconds: None,
+        })
+        .collect();
+    let results = redis::batch_key_ops(&mut conn, ops).await.unwrap();
+    assert_eq!(results.len(), 3);
+    for r in &results {
+        assert!(r.success, "UNLINK should succeed for {}", r.key);
+        assert_eq!(r.affected, 1);
+    }
+
+    for i in 0..3u32 {
+        let got = redis::get_key(&mut conn, format!("{prefix}:{i}")).await.unwrap();
+        assert_eq!(got.key_type, "none");
+    }
+}
+
+#[tokio::test]
+async fn batch_expire_and_persist() {
+    let form = noauth();
+    let key = redis_context::unique_name("batch_exp");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::String("data".to_string()),
+        ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    // EXPIRE with 3600s
+    let ops = vec![RedisBatchKeyOp {
+        op: "expire".to_string(),
+        key: key.clone(),
+        ttl_seconds: Some(3600),
+    }];
+    let results = redis::batch_key_ops(&mut conn, ops).await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].success);
+    assert_eq!(results[0].affected, 1);
+
+    let got = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    assert!(got.ttl > 0, "expected positive TTL after batch EXPIRE");
+
+    // PERSIST
+    let ops = vec![RedisBatchKeyOp {
+        op: "persist".to_string(),
+        key: key.clone(),
+        ttl_seconds: None,
+    }];
+    let results = redis::batch_key_ops(&mut conn, ops).await.unwrap();
+    assert!(results[0].success);
+
+    let got2 = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    assert_eq!(got2.ttl, -1, "expected -1 after PERSIST");
+
+    cleanup(&form, &key).await;
+}
+
+// ── Round 4: MGET ────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn mget_reads_multiple_string_keys() {
+    let form = noauth();
+    let prefix = redis_context::unique_name("mget_test");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let keys: Vec<String> = (0..4u32).map(|i| format!("{prefix}:{i}")).collect();
+    for (i, k) in keys.iter().enumerate() {
+        let payload = RedisSetKeyPayload {
+            key: k.clone(),
+            value: RedisValue::String(format!("val{i}")),
+            ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
+        };
+        redis::set_key(&mut conn, payload).await.unwrap();
+    }
+
+    // Add a non-existent key in the middle
+    let mut mget_keys = keys.clone();
+    mget_keys.insert(2, format!("{prefix}:nonexistent"));
+
+    let entries: Vec<RedisMgetEntry> = redis::mget_keys(&mut conn, mget_keys.clone())
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 5);
+
+    // First 2 exist
+    assert!(entries[0].exists);
+    assert_eq!(entries[0].value.as_deref(), Some("val0"));
+    assert!(entries[1].exists);
+    assert_eq!(entries[1].value.as_deref(), Some("val1"));
+
+    // Non-existent key
+    assert!(!entries[2].exists);
+    assert!(entries[2].value.is_none());
+
+    // Last 2 exist
+    assert!(entries[3].exists);
+    assert_eq!(entries[3].value.as_deref(), Some("val2"));
+    assert!(entries[4].exists);
+    assert_eq!(entries[4].value.as_deref(), Some("val3"));
+
+    for k in &keys {
+        cleanup(&form, k).await;
+    }
+}
+
+// ── Round 4: MSET ────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn mset_writes_multiple_keys() {
+    let form = noauth();
+    let prefix = redis_context::unique_name("mset_test");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let entries: Vec<(String, String)> = (0..5u32)
+        .map(|i| (format!("{prefix}:{i}"), format!("val{i}")))
+        .collect();
+
+    let result = redis::mset_keys(&mut conn, entries).await.unwrap();
+    assert!(result.success);
+    assert_eq!(result.affected, 5);
+
+    // Verify each key was written
+    for i in 0..5u32 {
+        let got = redis::get_key(&mut conn, format!("{prefix}:{i}"))
+            .await
+            .unwrap();
+        assert_eq!(got.key_type, "string");
+        assert!(matches!(&got.value, RedisValue::String(v) if v == &format!("val{i}")));
+    }
+
+    for i in 0..5u32 {
+        cleanup(&form, &format!("{prefix}:{i}")).await;
+    }
+}
+
+// ── Round 4: Batch invalid op ────────────────────────────────────────────────
+
+#[tokio::test]
+async fn batch_invalid_op_returns_error() {
+    let form = noauth();
+    let key = redis_context::unique_name("batch_bad_op");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let ops = vec![RedisBatchKeyOp {
+        op: "invalid_op".to_string(),
+        key: key.clone(),
+        ttl_seconds: None,
+    }];
+    let result = redis::batch_key_ops(&mut conn, ops).await;
+    assert!(result.is_err(), "invalid op should return error");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("Unknown batch operation"),
+        "unexpected error: {err}"
+    );
 }

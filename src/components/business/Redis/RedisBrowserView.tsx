@@ -1,12 +1,38 @@
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Plus, RefreshCw, Search, Terminal } from "lucide-react";
+import {
+  CheckSquare,
+  Copy,
+  FileDown,
+  FileUp,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Search,
+  Terminal,
+  Trash2,
+  Unlink,
+  Clock,
+  LockOpen,
+  Upload,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
+import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/services/api";
 import type { RedisKeyInfo } from "@/services/api";
 import { toast } from "sonner";
@@ -23,6 +49,28 @@ function formatTtlShort(ttl: number): string {
   if (ttl < 60) return `${ttl}s`;
   if (ttl < 3600) return `${Math.floor(ttl / 60)}m`;
   return `${Math.floor(ttl / 3600)}h`;
+}
+
+function parseMsetInput(raw: string): Record<string, string> | null {
+  try {
+    const obj = JSON.parse(raw);
+    if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+      return obj as Record<string, string>;
+    }
+  } catch {
+    // not JSON — try line-based
+  }
+  const entries: Record<string, string> = {};
+  let valid = false;
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const idx = trimmed.indexOf(":");
+    if (idx === -1) continue;
+    entries[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
+    valid = true;
+  }
+  return valid ? entries : null;
 }
 
 interface Props {
@@ -45,6 +93,20 @@ export function RedisBrowserView({ connectionId, database, onOpenConsole }: Prop
   const [detail, setDetail] = useState<DetailState>({ mode: "none" });
   const [isClusterMode, setIsClusterMode] = useState(false);
   const [requiresPattern, setRequiresPattern] = useState(false);
+
+  // Multi-select state
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
+
+  // Batch operation loading
+  const [batchLoading, setBatchLoading] = useState(false);
+
+  // MGET/MSET dialog state
+  const [mgetDialogOpen, setMgetDialogOpen] = useState(false);
+  const [msetData, setMsetData] = useState("");
+  const [msetDialogOpen, setMsetDialogOpen] = useState(false);
+  const [msetImportText, setMsetImportText] = useState("");
+  const [msetLoading, setMsetLoading] = useState(false);
 
   // scan never touches detail — callers decide what happens to selection
   const scan = useCallback(
@@ -115,7 +177,33 @@ export function RedisBrowserView({ connectionId, database, onOpenConsole }: Prop
 
   const handleLoadMore = () => void scan(pattern, cursor, true);
 
-  const handleSelectKey = (key: string) => setDetail({ mode: "view", key });
+  const handleSelectKey = (key: string, index: number, e: React.MouseEvent) => {
+    if (selectedKeys.size > 0) {
+      // Shift-click range selection
+      if (e.shiftKey && lastClickedIndex !== null) {
+        const start = Math.min(lastClickedIndex, index);
+        const end = Math.max(lastClickedIndex, index);
+        const rangeKeys = keys.slice(start, end + 1).map((k) => k.key);
+        setSelectedKeys((prev) => {
+          const next = new Set(prev);
+          for (const k of rangeKeys) next.add(k);
+          return next;
+        });
+        setLastClickedIndex(index);
+        return;
+      }
+      // Normal click in multi-select mode — toggle
+      setSelectedKeys((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+      setLastClickedIndex(index);
+      return;
+    }
+    setDetail({ mode: "view", key });
+  };
 
   const handleNewKey = () => setDetail({ mode: "new" });
 
@@ -139,7 +227,113 @@ export function RedisBrowserView({ connectionId, database, onOpenConsole }: Prop
     }
   };
 
+  // ── Batch operations ──────────────────────────────────────────────────────
+
+  const runBatchOp = async (
+    op: "del" | "unlink" | "expire" | "persist",
+    ttlSeconds?: number,
+  ) => {
+    if (selectedKeys.size === 0) return;
+    setBatchLoading(true);
+    try {
+      const operations = Array.from(selectedKeys).map((key) => ({
+        op,
+        key,
+        ttlSeconds,
+      }));
+      const results = await api.redis.batchKeyOps(connectionId, database, operations);
+      const succeeded = results.filter((r) => r.success).length;
+      const failed = results.filter((r) => !r.success);
+      if (succeeded > 0) {
+        toast.success(`Batch ${op.toUpperCase()}: ${succeeded} key(s)`);
+      }
+      if (failed.length > 0) {
+        toast.error(`${failed.length} key(s) failed`);
+      }
+      if (op === "del" || op === "unlink") {
+        setKeys((prev) => prev.filter((k) => !selectedKeys.has(k.key)));
+        setDetail((d) =>
+          d.mode === "view" && selectedKeys.has(d.key) ? { mode: "none" } : d,
+        );
+      }
+      setSelectedKeys(new Set());
+      void scan(pattern, "0", false);
+    } catch (e) {
+      toast.error("Batch operation failed", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const handleMgetExport = async () => {
+    if (selectedKeys.size === 0) return;
+    const keysArr = Array.from(selectedKeys);
+    setBatchLoading(true);
+    try {
+      const entries = await api.redis.mget(connectionId, database, keysArr);
+      const result = JSON.stringify(entries, null, 2);
+      setMsetData(result);
+      setMgetDialogOpen(true);
+    } catch (e) {
+      toast.error("MGET failed", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const handleMsetImport = async () => {
+    const entries = parseMsetInput(msetImportText);
+    if (!entries || Object.keys(entries).length === 0) {
+      toast.error("Invalid format", {
+        description: "Expected JSON object or lines of key:value",
+      });
+      return;
+    }
+    setMsetLoading(true);
+    try {
+      await api.redis.mset(connectionId, database, entries);
+      const count = Object.keys(entries).length;
+      toast.success(`MSET: ${count} key(s) written`);
+      setMsetDialogOpen(false);
+      setMsetImportText("");
+      void scan(pattern, "0", false);
+    } catch (e) {
+      toast.error("MSET failed", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setMsetLoading(false);
+    }
+  };
+
+  const handleMsetFileImport = async () => {
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog");
+      const { readTextFile } = await import("@tauri-apps/plugin-fs");
+      const selected = await open({
+        multiple: false,
+        filters: [
+          { name: "JSON", extensions: ["json"] },
+          { name: "Text", extensions: ["txt"] },
+          { name: "All", extensions: ["*"] },
+        ],
+      });
+      if (!selected) return;
+      const content = await readTextFile(selected as string);
+      setMsetImportText(content);
+    } catch (e) {
+      toast.error("Failed to read file", {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    }
+  };
+
   const selectedKey = detail.mode === "view" ? detail.key : null;
+  const selectedCount = selectedKeys.size;
 
   return (
     <ResizablePanelGroup direction="horizontal" className="h-full">
@@ -182,6 +376,23 @@ export function RedisBrowserView({ connectionId, database, onOpenConsole }: Prop
               </span>
               <div className="flex items-center gap-1.5">
                 <Button
+                  variant={selectedCount > 0 ? "default" : "outline"}
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={() => {
+                    if (selectedCount > 0) {
+                      setSelectedKeys(new Set());
+                      setLastClickedIndex(null);
+                    } else {
+                      setSelectedKeys(new Set(keys.map((k) => k.key)));
+                    }
+                  }}
+                  title={selectedCount > 0 ? "Clear selection" : "Select all"}
+                >
+                  <CheckSquare className="w-3 h-3 mr-1" />
+                  {selectedCount > 0 ? "Clear" : "Select"}
+                </Button>
+                <Button
                   variant="outline"
                   size="sm"
                   className="h-6 px-2 text-xs"
@@ -204,6 +415,81 @@ export function RedisBrowserView({ connectionId, database, onOpenConsole }: Prop
             </div>
           </div>
 
+          {/* Batch operations toolbar */}
+          {selectedCount > 0 && (
+            <div className="px-3 py-2 border-b bg-muted/30 space-y-1.5 shrink-0">
+              <div className="flex items-center gap-1 flex-wrap">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  disabled={batchLoading}
+                  onClick={() => runBatchOp("del")}
+                >
+                  <Trash2 className="w-3 h-3 mr-1" />
+                  DEL ({selectedCount})
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  disabled={batchLoading}
+                  onClick={() => runBatchOp("unlink")}
+                >
+                  <Unlink className="w-3 h-3 mr-1" />
+                  UNLINK
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  disabled={batchLoading}
+                  onClick={() => {
+                    const ttl = prompt("TTL in seconds:");
+                    if (ttl) runBatchOp("expire", parseInt(ttl, 10));
+                  }}
+                >
+                  <Clock className="w-3 h-3 mr-1" />
+                  EXPIRE
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  disabled={batchLoading}
+                  onClick={() => runBatchOp("persist")}
+                >
+                  <LockOpen className="w-3 h-3 mr-1" />
+                  PERSIST
+                </Button>
+                <div className="w-px h-4 bg-border mx-0.5" />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  disabled={batchLoading}
+                  onClick={handleMgetExport}
+                >
+                  <FileDown className="w-3 h-3 mr-1" />
+                  MGET
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  disabled={batchLoading}
+                  onClick={() => setMsetDialogOpen(true)}
+                >
+                  <FileUp className="w-3 h-3 mr-1" />
+                  MSET
+                </Button>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Shift+click to range-select
+              </p>
+            </div>
+          )}
+
           {/* Key list */}
           <div className="flex-1 overflow-y-auto">
             {keys.length === 0 && !isLoading && (
@@ -214,17 +500,33 @@ export function RedisBrowserView({ connectionId, database, onOpenConsole }: Prop
               </div>
             )}
 
-            {keys.map((k) => {
+            {keys.map((k, index) => {
               const ttlLabel = formatTtlShort(k.ttl);
+              const isSelected = selectedKeys.has(k.key);
               return (
                 <div
                   key={k.key}
                   className={cn(
                     "flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-muted/50 border-b border-border/30 text-xs",
-                    selectedKey === k.key && "bg-accent/50",
+                    selectedKey === k.key && selectedCount === 0 && "bg-accent/50",
+                    isSelected && "bg-primary/10",
                   )}
-                  onClick={() => handleSelectKey(k.key)}
+                  onClick={(e) => handleSelectKey(k.key, index, e)}
                 >
+                  <Checkbox
+                    checked={isSelected}
+                    onCheckedChange={() => {
+                      setSelectedKeys((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(k.key)) next.delete(k.key);
+                        else next.add(k.key);
+                        return next;
+                      });
+                      setLastClickedIndex(index);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="shrink-0 h-3.5 w-3.5"
+                  />
                   <span
                     className={cn(
                       "shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium",
@@ -303,6 +605,121 @@ export function RedisBrowserView({ connectionId, database, onOpenConsole }: Prop
           />
         )}
       </ResizablePanel>
+
+      {/* MGET Export Dialog */}
+      <Dialog open={mgetDialogOpen} onOpenChange={setMgetDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>MGET Export</DialogTitle>
+            <DialogDescription>
+              Values of {selectedKeys.size} selected key(s)
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Textarea
+              value={msetData}
+              readOnly
+              className="min-h-[200px] font-mono text-xs"
+            />
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(msetData);
+                    toast.success("Copied to clipboard");
+                  } catch {
+                    toast.error("Copy failed");
+                  }
+                }}
+              >
+                <Copy className="w-3.5 h-3.5 mr-1.5" />
+                Copy
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const { save } = await import("@tauri-apps/plugin-dialog");
+                    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+                    const filePath = await save({
+                      defaultPath: "redis-mget-export.json",
+                      filters: [{ name: "JSON", extensions: ["json"] }],
+                    });
+                    if (filePath) {
+                      await writeTextFile(filePath, msetData);
+                      toast.success("Exported successfully");
+                    }
+                  } catch (e) {
+                    toast.error("Export failed", {
+                      description: e instanceof Error ? e.message : String(e),
+                    });
+                  }
+                }}
+              >
+                <FileDown className="w-3.5 h-3.5 mr-1.5" />
+                Save to File
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* MSET Import Dialog */}
+      <Dialog open={msetDialogOpen} onOpenChange={setMsetDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>MSET Import</DialogTitle>
+            <DialogDescription>
+              Import key-value pairs (JSON object or lines of key:value)
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label>Data</Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  onClick={handleMsetFileImport}
+                >
+                  <Upload className="w-3 h-3 mr-1" />
+                  Import File
+                </Button>
+              </div>
+              <Textarea
+                value={msetImportText}
+                onChange={(e) => setMsetImportText(e.target.value)}
+                className="min-h-[180px] font-mono text-xs"
+                placeholder={'{"key1": "value1", "key2": "value2"}\nor\nkey1: value1\nkey2: value2'}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setMsetDialogOpen(false);
+                setMsetImportText("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={msetLoading || !msetImportText.trim()}
+              onClick={handleMsetImport}
+            >
+              {msetLoading && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
+              Import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </ResizablePanelGroup>
   );
 }
