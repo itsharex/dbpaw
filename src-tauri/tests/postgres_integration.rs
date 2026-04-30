@@ -1148,3 +1148,104 @@ async fn test_postgres_prepared_statements_prepare_execute_and_deallocate() {
         .execute_query(format!("DROP TABLE IF EXISTS {}", qualified))
         .await;
 }
+
+#[tokio::test]
+#[ignore]
+async fn test_postgres_routines() {
+    let form = shared_postgres_form();
+    let driver = postgres_context::connect_with_retry(|| PostgresDriver::connect(&form)).await;
+
+    let function_name = "dbpaw_pg_test_func";
+    let procedure_name = "dbpaw_pg_test_proc";
+
+    let _ = driver
+        .execute_query(format!(
+            "DROP FUNCTION IF EXISTS public.{}",
+            function_name
+        ))
+        .await;
+    let _ = driver
+        .execute_query(format!(
+            "DROP PROCEDURE IF EXISTS public.{}",
+            procedure_name
+        ))
+        .await;
+
+    driver
+        .execute_query(format!(
+            "CREATE FUNCTION public.{}() RETURNS INT LANGUAGE sql AS $$ SELECT 42 $$",
+            function_name
+        ))
+        .await
+        .expect("create function failed");
+
+    driver
+        .execute_query(format!(
+            "CREATE PROCEDURE public.{}() LANGUAGE sql AS $$ SELECT 1 $$",
+            procedure_name
+        ))
+        .await
+        .expect("create procedure failed");
+
+    let routines = driver
+        .list_routines(Some("public".to_string()))
+        .await
+        .expect("list_routines failed");
+    assert!(
+        routines
+            .iter()
+            .any(|r| r.schema == "public"
+                && r.name == function_name
+                && r.r#type == "function"),
+        "list_routines should include created function"
+    );
+    assert!(
+        routines
+            .iter()
+            .any(|r| r.schema == "public"
+                && r.name == procedure_name
+                && r.r#type == "procedure"),
+        "list_routines should include created procedure"
+    );
+
+    let function_ddl = driver
+        .get_routine_ddl(
+            "public".to_string(),
+            function_name.to_string(),
+            "function".to_string(),
+        )
+        .await
+        .expect("get function ddl failed");
+    assert!(
+        function_ddl.to_ascii_lowercase().contains("function"),
+        "function ddl should contain 'function', got: {}",
+        function_ddl
+    );
+
+    let procedure_ddl = driver
+        .get_routine_ddl(
+            "public".to_string(),
+            procedure_name.to_string(),
+            "procedure".to_string(),
+        )
+        .await
+        .expect("get procedure ddl failed");
+    assert!(
+        procedure_ddl.to_ascii_lowercase().contains("procedure"),
+        "procedure ddl should contain 'procedure', got: {}",
+        procedure_ddl
+    );
+
+    let _ = driver
+        .execute_query(format!(
+            "DROP FUNCTION IF EXISTS public.{}",
+            function_name
+        ))
+        .await;
+    let _ = driver
+        .execute_query(format!(
+            "DROP PROCEDURE IF EXISTS public.{}",
+            procedure_name
+        ))
+        .await;
+}

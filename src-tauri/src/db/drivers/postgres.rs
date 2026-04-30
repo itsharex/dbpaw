@@ -1,7 +1,8 @@
 use super::{strip_trailing_statement_terminator, DatabaseDriver};
 use crate::models::{
     ColumnInfo, ColumnSchema, ConnectionForm, ForeignKeyInfo, IndexInfo, QueryColumn, QueryResult,
-    SchemaOverview, TableDataResponse, TableInfo, TableMetadata, TableSchema, TableStructure,
+    RoutineInfo, SchemaOverview, TableDataResponse, TableInfo, TableMetadata, TableSchema,
+    TableStructure,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
@@ -597,6 +598,79 @@ impl DatabaseDriver for PostgresDriver {
             });
         }
         Ok(res)
+    }
+
+    async fn list_routines(&self, schema: Option<String>) -> Result<Vec<RoutineInfo>, String> {
+        let rows = if let Some(schema) = schema {
+            sqlx::query(
+                "SELECT n.nspname AS schema_name, \
+                        p.proname AS routine_name, \
+                        CASE WHEN p.prokind = 'p' THEN 'procedure' ELSE 'function' END AS routine_type \
+                 FROM pg_proc p \
+                 JOIN pg_namespace n ON n.oid = p.pronamespace \
+                 WHERE n.nspname = $1 \
+                   AND p.prokind IN ('f', 'p') \
+                 ORDER BY routine_type, p.proname",
+            )
+            .bind(&schema)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| format!("[QUERY_ERROR] {e}"))?
+        } else {
+            sqlx::query(
+                "SELECT n.nspname AS schema_name, \
+                        p.proname AS routine_name, \
+                        CASE WHEN p.prokind = 'p' THEN 'procedure' ELSE 'function' END AS routine_type \
+                 FROM pg_proc p \
+                 JOIN pg_namespace n ON n.oid = p.pronamespace \
+                 WHERE n.nspname NOT IN ('information_schema', 'pg_catalog', 'pg_toast') \
+                   AND n.nspname NOT LIKE 'pg_toast%' \
+                   AND p.prokind IN ('f', 'p') \
+                 ORDER BY n.nspname, routine_type, p.proname",
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| format!("[QUERY_ERROR] {e}"))?
+        };
+
+        let mut res = Vec::new();
+        for row in rows {
+            res.push(RoutineInfo {
+                schema: decode_postgres_text_cell(&row, 0).unwrap_or_else(|_| "public".to_string()),
+                name: decode_postgres_text_cell(&row, 1).unwrap_or_default(),
+                r#type: decode_postgres_text_cell(&row, 2).unwrap_or_default(),
+            });
+        }
+        Ok(res)
+    }
+
+    async fn get_routine_ddl(
+        &self,
+        schema: String,
+        name: String,
+        _routine_type: String,
+    ) -> Result<String, String> {
+        let row: (String,) = sqlx::query_as(
+            "SELECT pg_get_functiondef(p.oid) \
+             FROM pg_proc p \
+             JOIN pg_namespace n ON n.oid = p.pronamespace \
+             WHERE n.nspname = $1 AND p.proname = $2 \
+             LIMIT 1",
+        )
+        .bind(&schema)
+        .bind(&name)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("[QUERY_ERROR] {e}"))?;
+
+        let ddl = row.0;
+        if ddl.trim().is_empty() {
+            return Err(format!(
+                "[NOT_FOUND] Routine '{}.{}' does not exist or its definition is not visible",
+                schema, name
+            ));
+        }
+        Ok(ddl)
     }
 
     async fn get_table_structure(

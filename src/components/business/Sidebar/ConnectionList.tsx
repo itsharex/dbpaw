@@ -82,6 +82,7 @@ import {
   isMysqlFamilyDriver,
   supportsSSLCA,
   supportsCreateDatabase,
+  supportsRoutines,
   supportsSchemaBrowsing,
 } from "@/lib/driver-registry";
 import { toast } from "sonner";
@@ -1413,7 +1414,7 @@ export function ConnectionList({
     databaseName: string,
     driver: Driver,
   ): Promise<RoutineInfo[]> => {
-    if (driver !== "mssql") return [];
+    if (!supportsRoutines(driver)) return [];
     try {
       const routines = await api.metadata.listRoutines(
         Number(connectionId),
@@ -3232,7 +3233,7 @@ export function ConnectionList({
                           });
                         }}
                       >
-                        {connection.type === "mssql" ? (
+                        {supportsRoutines(connection.type) ? (
                           <>
                             {(() => {
                               const tableGroupKey = getTableGroupNodeKey(

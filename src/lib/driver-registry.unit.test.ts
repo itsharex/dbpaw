@@ -7,6 +7,7 @@ import {
   isMysqlFamilyDriver,
   supportsSSLCA,
   supportsCreateDatabase,
+  supportsRoutines,
   supportsSchemaBrowsing,
   getConnectionIcon,
   type Driver,
@@ -253,6 +254,34 @@ describe("supportsSchemaBrowsing", () => {
 
   test("returns true for oracle", () => {
     expect(supportsSchemaBrowsing("oracle")).toBe(true);
+  });
+});
+
+// ─── supportsRoutines ────────────────────────────────────────────────────────
+
+describe("supportsRoutines", () => {
+  test("returns true for drivers with routine support", () => {
+    expect(supportsRoutines("postgres")).toBe(true);
+    expect(supportsRoutines("mssql")).toBe(true);
+  });
+
+  test("returns false for drivers without routine support", () => {
+    const noRoutines: Driver[] = [
+      "mysql",
+      "mariadb",
+      "tidb",
+      "starrocks",
+      "doris",
+      "sqlite",
+      "duckdb",
+      "clickhouse",
+      "oracle",
+      "redis",
+      "elasticsearch",
+    ];
+    for (const d of noRoutines) {
+      expect(supportsRoutines(d)).toBe(false);
+    }
   });
 });
 

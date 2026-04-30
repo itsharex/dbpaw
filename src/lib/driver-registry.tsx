@@ -69,6 +69,7 @@ export interface DriverConfig {
   supportsSSLCA: boolean;
   supportsSchemaBrowsing: boolean;
   supportsCreateDatabase: boolean;
+  supportsRoutines: boolean;
   importCapability: ImportDriverCapability;
   icon: () => ReactNode;
 }
@@ -84,6 +85,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: true,
     supportsSchemaBrowsing: true,
     supportsCreateDatabase: true,
+    supportsRoutines: true,
     importCapability: "supported",
     icon: () => renderSimpleIcon(siPostgresql),
   },
@@ -97,6 +99,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: true,
     supportsSchemaBrowsing: false,
     supportsCreateDatabase: true,
+    supportsRoutines: false,
     importCapability: "supported",
     icon: () => renderSimpleIcon(siMysql),
   },
@@ -110,6 +113,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: true,
     supportsSchemaBrowsing: false,
     supportsCreateDatabase: true,
+    supportsRoutines: false,
     importCapability: "supported",
     icon: () => renderSimpleIcon(siMariadb),
   },
@@ -123,6 +127,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: true,
     supportsSchemaBrowsing: false,
     supportsCreateDatabase: true,
+    supportsRoutines: false,
     importCapability: "supported",
     icon: () => renderSimpleIcon(siTidb),
   },
@@ -136,6 +141,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: true,
     supportsSchemaBrowsing: false,
     supportsCreateDatabase: true,
+    supportsRoutines: false,
     importCapability: "unsupported",
     icon: () => renderLocalIcon("/icons/db/starrocks.svg"),
   },
@@ -149,6 +155,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: true,
     supportsSchemaBrowsing: false,
     supportsCreateDatabase: true,
+    supportsRoutines: false,
     importCapability: "unsupported",
     icon: () => renderSimpleIcon(siApachedoris),
   },
@@ -162,6 +169,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: false,
     supportsSchemaBrowsing: false,
     supportsCreateDatabase: false,
+    supportsRoutines: false,
     importCapability: "supported",
     icon: () => renderSimpleIcon(siSqlite),
   },
@@ -175,6 +183,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: false,
     supportsSchemaBrowsing: false,
     supportsCreateDatabase: false,
+    supportsRoutines: false,
     importCapability: "supported",
     icon: () => renderSimpleIcon(siDuckdb),
   },
@@ -188,6 +197,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: false,
     supportsSchemaBrowsing: false,
     supportsCreateDatabase: true,
+    supportsRoutines: false,
     importCapability: "read_only_not_supported",
     icon: () => renderSimpleIcon(siClickhouse),
   },
@@ -201,6 +211,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: false,
     supportsSchemaBrowsing: true,
     supportsCreateDatabase: true,
+    supportsRoutines: true,
     importCapability: "supported",
     icon: () => renderLocalIcon("/icons/db/mssql.svg"),
   },
@@ -214,6 +225,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: false,
     supportsSchemaBrowsing: true,
     supportsCreateDatabase: false,
+    supportsRoutines: false,
     importCapability: "supported",
     icon: () => renderLocalIcon("/icons/db/oracle.svg"),
   },
@@ -227,6 +239,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: false,
     supportsSchemaBrowsing: false,
     supportsCreateDatabase: false,
+    supportsRoutines: false,
     importCapability: "unsupported",
     icon: () => renderSimpleIcon(siRedis),
   },
@@ -240,6 +253,7 @@ export const DRIVER_REGISTRY: DriverConfig[] = [
     supportsSSLCA: true,
     supportsSchemaBrowsing: false,
     supportsCreateDatabase: false,
+    supportsRoutines: false,
     importCapability: "unsupported",
     icon: () => renderSimpleIcon(siElasticsearch),
   },
@@ -265,6 +279,9 @@ export const supportsCreateDatabase = (driver: Driver): boolean =>
 
 export const supportsSchemaBrowsing = (driver: Driver): boolean =>
   getDriverConfig(driver).supportsSchemaBrowsing;
+
+export const supportsRoutines = (driver: Driver): boolean =>
+  getDriverConfig(driver).supportsRoutines;
 
 export const getDriverKind = (driver: Driver): DriverKind =>
   getDriverConfig(driver).kind;
