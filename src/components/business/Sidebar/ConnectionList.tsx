@@ -1158,8 +1158,7 @@ export function ConnectionList({
   const toggleConnection = (id: string) => {
     const connection = connections.find((conn) => conn.id === id);
     if (!connection) return;
-    if (connection.connectState !== "success" && !showSavedQueriesInTree)
-      return;
+    if (connection.connectState !== "success") return;
 
     const newExpanded = new Set(expandedConnections);
     if (newExpanded.has(id)) {
@@ -3308,9 +3307,7 @@ export function ConnectionList({
               icon={getConnectionIcon(connection.type)}
               label={connection.name}
               isExpanded={expandedConnections.has(connection.id)}
-              toggleOnRowClick={
-                showSavedQueriesInTree || connection.connectState === "success"
-              }
+              toggleOnRowClick={connection.connectState === "success"}
               onToggle={() => toggleConnection(connection.id)}
               onDoubleClick={() => {
                 void connectConnection(connection.id);
