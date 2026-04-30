@@ -2815,6 +2815,7 @@ pub async fn xtrim(
     key: String,
     strategy: String,
     threshold: String,
+    approximate: Option<bool>,
 ) -> Result<i64, String> {
     validate_key(&key)?;
 
@@ -2827,7 +2828,11 @@ pub async fn xtrim(
     }
 
     let mut cmd = redis::cmd("XTRIM");
-    cmd.arg(&key).arg(&strategy_upper).arg("~").arg(&threshold);
+    cmd.arg(&key).arg(&strategy_upper);
+    if approximate.unwrap_or(true) {
+        cmd.arg("~");
+    }
+    cmd.arg(&threshold);
     let count: i64 = conn.query(cmd).await?;
     Ok(count)
 }

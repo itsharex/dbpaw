@@ -1055,8 +1055,9 @@ export const api = {
       key: string,
       strategy: string,
       threshold: string,
+      approximate?: boolean,
     ) =>
-      invoke<number>("redis_xtrim", { id, database, key, strategy, threshold }),
+      invoke<number>("redis_xtrim", { id, database, key, strategy, threshold, approximate }),
     xreadgroup: (
       id: number,
       database: string | undefined,

@@ -942,15 +942,16 @@ pub async fn redis_xtrim(
     key: String,
     strategy: String,
     threshold: String,
+    approximate: Option<bool>,
 ) -> Result<i64, String> {
     let form = connection_form(&state, id).await?;
     let db = database.as_deref();
     let mut conn = acquire(&state, id, &form, db).await?;
-    match redis::xtrim(&mut conn, key.clone(), strategy.clone(), threshold.clone()).await {
+    match redis::xtrim(&mut conn, key.clone(), strategy.clone(), threshold.clone(), approximate).await {
         Err(ref e) if is_io_error(e) => {
             evict(&state, id, &form, db).await;
             let mut conn = acquire(&state, id, &form, db).await?;
-            redis::xtrim(&mut conn, key, strategy, threshold).await
+            redis::xtrim(&mut conn, key, strategy, threshold, approximate).await
         }
         r => r,
     }

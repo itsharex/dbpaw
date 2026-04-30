@@ -1343,11 +1343,11 @@ async fn xgroup_setid() {
         .unwrap();
     assert!(ok, "XGROUP SETID should return true");
 
-    // Verify last_delivered_id is "0"
+    // Verify last_delivered_id is "0-0" (Redis normalizes "0" to "0-0")
     let kv = redis::get_key(&mut conn, key.clone()).await.unwrap();
     let groups = kv.extra.unwrap().stream_groups.unwrap_or_default();
     let g = groups.iter().find(|g| g.name == "g1").unwrap();
-    assert_eq!(g.last_delivered_id, "0");
+    assert_eq!(g.last_delivered_id, "0-0");
 
     cleanup(&form, &key).await;
 }
@@ -1547,12 +1547,13 @@ async fn xtrim_maxlen() {
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
-    // XTRIM MAXLEN 10
+    // XTRIM MAXLEN 10 (exact trimming)
     let trimmed = redis::xtrim(
         &mut conn,
         key.clone(),
         "MAXLEN".to_string(),
         "10".to_string(),
+        Some(false),
     )
     .await
     .unwrap();
@@ -1594,12 +1595,13 @@ async fn xtrim_minid() {
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
-    // XTRIM MINID 6-0 (remove entries with ID < 6-0)
+    // XTRIM MINID 6-0 (exact trimming, remove entries with ID < 6-0)
     let trimmed = redis::xtrim(
         &mut conn,
         key.clone(),
         "MINID".to_string(),
         "6-0".to_string(),
+        Some(false),
     )
     .await
     .unwrap();
