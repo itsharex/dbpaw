@@ -381,6 +381,13 @@ pub struct RedisZRangeByScoreResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisZRangeByLexResult {
+    pub members: Vec<String>,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RedisSetOperation {
     Inter,
@@ -2536,6 +2543,141 @@ pub async fn zrank(
     let rank: Option<i64> = conn.query(cmd).await?;
 
     Ok(rank)
+}
+
+pub async fn zscore(
+    conn: &mut RedisConnection,
+    key: String,
+    member: String,
+) -> Result<Option<f64>, String> {
+    validate_key(&key)?;
+
+    let mut cmd = redis::cmd("ZSCORE");
+    cmd.arg(&key).arg(&member);
+    let score: Option<f64> = conn.query(cmd).await?;
+
+    Ok(score)
+}
+
+pub async fn zmscore(
+    conn: &mut RedisConnection,
+    key: String,
+    members: Vec<String>,
+) -> Result<Vec<Option<f64>>, String> {
+    validate_key(&key)?;
+    if members.is_empty() {
+        return Err("[VALIDATION_ERROR] At least one member is required".to_string());
+    }
+
+    let mut cmd = redis::cmd("ZMSCORE");
+    cmd.arg(&key);
+    for m in &members {
+        cmd.arg(m);
+    }
+    let scores: Vec<Option<f64>> = conn.query(cmd).await?;
+
+    Ok(scores)
+}
+
+pub async fn zrangebylex(
+    conn: &mut RedisConnection,
+    key: String,
+    min: String,
+    max: String,
+    offset: Option<u64>,
+    limit: Option<u64>,
+) -> Result<RedisZRangeByLexResult, String> {
+    validate_key(&key)?;
+
+    let mut count_cmd = redis::cmd("ZLEXCOUNT");
+    count_cmd.arg(&key).arg(&min).arg(&max);
+    let total: u64 = conn.query(count_cmd).await?;
+
+    let mut cmd = redis::cmd("ZRANGEBYLEX");
+    cmd.arg(&key).arg(&min).arg(&max);
+    if let (Some(off), Some(lim)) = (offset, limit) {
+        cmd.arg("LIMIT").arg(off).arg(lim);
+    }
+    let members: Vec<String> = conn.query(cmd).await?;
+
+    Ok(RedisZRangeByLexResult { members, total })
+}
+
+pub async fn zlexcount(
+    conn: &mut RedisConnection,
+    key: String,
+    min: String,
+    max: String,
+) -> Result<u64, String> {
+    validate_key(&key)?;
+
+    let mut cmd = redis::cmd("ZLEXCOUNT");
+    cmd.arg(&key).arg(&min).arg(&max);
+    let count: u64 = conn.query(cmd).await?;
+
+    Ok(count)
+}
+
+pub async fn zpopmin(
+    conn: &mut RedisConnection,
+    key: String,
+    count: Option<u64>,
+) -> Result<Vec<RedisZSetMember>, String> {
+    validate_key(&key)?;
+
+    let mut cmd = redis::cmd("ZPOPMIN");
+    cmd.arg(&key);
+    if let Some(c) = count {
+        cmd.arg(c);
+    }
+    let raw: Vec<String> = conn.query(cmd).await?;
+
+    let mut members = Vec::new();
+    let mut iter = raw.iter();
+    while let Some(member) = iter.next() {
+        if let Some(score_str) = iter.next() {
+            let score: f64 = score_str
+                .parse()
+                .map_err(|_| format!("[REDIS_ERROR] Cannot parse score: {score_str}"))?;
+            members.push(RedisZSetMember {
+                member: member.clone(),
+                score,
+            });
+        }
+    }
+
+    Ok(members)
+}
+
+pub async fn zpopmax(
+    conn: &mut RedisConnection,
+    key: String,
+    count: Option<u64>,
+) -> Result<Vec<RedisZSetMember>, String> {
+    validate_key(&key)?;
+
+    let mut cmd = redis::cmd("ZPOPMAX");
+    cmd.arg(&key);
+    if let Some(c) = count {
+        cmd.arg(c);
+    }
+    let raw: Vec<String> = conn.query(cmd).await?;
+
+    let mut members = Vec::new();
+    let mut iter = raw.iter();
+    while let Some(member) = iter.next() {
+        if let Some(score_str) = iter.next() {
+            let score: f64 = score_str
+                .parse()
+                .map_err(|_| format!("[REDIS_ERROR] Cannot parse score: {score_str}"))?;
+            members.push(RedisZSetMember {
+                member: member.clone(),
+                score,
+            });
+        }
+    }
+
+    Ok(members)
 }
 
 pub async fn set_operation(

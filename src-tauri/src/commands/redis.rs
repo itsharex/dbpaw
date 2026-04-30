@@ -3,7 +3,8 @@ use crate::datasources::redis::{
     RedisGeoMember, RedisGeoPosition, RedisGeoSearchResult, RedisKeyPatchPayload, RedisKeyValue,
     RedisMgetEntry, RedisMutationResult, RedisRawResult, RedisScanResponse, RedisServerInfo,
     RedisSetKeyPayload, RedisSetOperation, RedisSlowlogEntry, RedisStreamEntry, RedisStreamView,
-    RedisXClaimEntry, RedisXPendingResult, RedisZRangeByScoreResult,
+    RedisXClaimEntry, RedisXPendingResult, RedisZRangeByLexResult, RedisZRangeByScoreResult,
+    RedisZSetMember,
 };
 use crate::datasources::redis::{connect, RedisConnection};
 use crate::models::ConnectionForm;
@@ -1067,6 +1068,136 @@ pub async fn redis_cluster_info(
             evict(&state, id, &form, db).await;
             let mut conn = acquire(&state, id, &form, db).await?;
             redis::cluster_info(&mut conn).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_zscore(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    member: String,
+) -> Result<Option<f64>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::zscore(&mut conn, key.clone(), member.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::zscore(&mut conn, key, member).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_zmscore(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    members: Vec<String>,
+) -> Result<Vec<Option<f64>>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::zmscore(&mut conn, key.clone(), members.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::zmscore(&mut conn, key, members).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_zrangebylex(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    min: String,
+    max: String,
+    offset: Option<u64>,
+    limit: Option<u64>,
+) -> Result<RedisZRangeByLexResult, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::zrangebylex(&mut conn, key.clone(), min.clone(), max.clone(), offset, limit).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::zrangebylex(&mut conn, key, min, max, offset, limit).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_zlexcount(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    min: String,
+    max: String,
+) -> Result<u64, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::zlexcount(&mut conn, key.clone(), min.clone(), max.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::zlexcount(&mut conn, key, min, max).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_zpopmin(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    count: Option<u64>,
+) -> Result<Vec<RedisZSetMember>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::zpopmin(&mut conn, key.clone(), count).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::zpopmin(&mut conn, key, count).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_zpopmax(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    count: Option<u64>,
+) -> Result<Vec<RedisZSetMember>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::zpopmax(&mut conn, key.clone(), count).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::zpopmax(&mut conn, key, count).await
         }
         r => r,
     }

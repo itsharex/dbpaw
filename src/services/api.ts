@@ -242,6 +242,11 @@ export interface RedisZRangeByScoreResult {
   total: number;
 }
 
+export interface RedisZRangeByLexResult {
+  members: string[];
+  total: number;
+}
+
 export type RedisSetOperation = "inter" | "union" | "diff";
 
 export interface RedisBatchKeyOp {
@@ -1160,6 +1165,28 @@ export const api = {
       invoke<RedisMutationResult>("redis_mset", { id, database, entries }),
     clusterInfo: (id: number, database: string | undefined) =>
       invoke<RedisClusterInfo>("redis_cluster_info", { id, database }),
+    zscore: (id: number, database: string | undefined, key: string, member: string) =>
+      invoke<number | null>("redis_zscore", { id, database, key, member }),
+    zmscore: (id: number, database: string | undefined, key: string, members: string[]) =>
+      invoke<(number | null)[]>("redis_zmscore", { id, database, key, members }),
+    zrangebylex: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      min: string,
+      max: string,
+      offset?: number,
+      limit?: number,
+    ) =>
+      invoke<RedisZRangeByLexResult>("redis_zrangebylex", {
+        id, database, key, min, max, offset, limit,
+      }),
+    zlexcount: (id: number, database: string | undefined, key: string, min: string, max: string) =>
+      invoke<number>("redis_zlexcount", { id, database, key, min, max }),
+    zpopmin: (id: number, database: string | undefined, key: string, count?: number) =>
+      invoke<{ member: string; score: number }[]>("redis_zpopmin", { id, database, key, count }),
+    zpopmax: (id: number, database: string | undefined, key: string, count?: number) =>
+      invoke<{ member: string; score: number }[]>("redis_zpopmax", { id, database, key, count }),
   },
   elasticsearch: {
     testConnection: (id: number) =>

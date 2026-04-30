@@ -1000,6 +1000,66 @@ export function RedisKeyView({
                 );
                 return rank;
               }}
+              onZScore={async (member) => {
+                const score = await api.redis.zscore(
+                  connectionId,
+                  database,
+                  redisKey,
+                  member,
+                );
+                return score;
+              }}
+              onZMScore={async (members) => {
+                const scores = await api.redis.zmscore(
+                  connectionId,
+                  database,
+                  redisKey,
+                  members,
+                );
+                return scores;
+              }}
+              onZRangeByLex={async (min, max) => {
+                const result = await api.redis.zrangebylex(
+                  connectionId,
+                  database,
+                  redisKey,
+                  min,
+                  max,
+                );
+                return result;
+              }}
+              onZPopMin={async (count) => {
+                try {
+                  await api.redis.zpopmin(
+                    connectionId,
+                    database,
+                    redisKey,
+                    count,
+                  );
+                  toast.success("Popped member with lowest score");
+                  await load();
+                } catch (e) {
+                  toast.error("Failed to pop min", {
+                    description: e instanceof Error ? e.message : String(e),
+                  });
+                }
+              }}
+              onZPopMax={async (count) => {
+                try {
+                  await api.redis.zpopmax(
+                    connectionId,
+                    database,
+                    redisKey,
+                    count,
+                  );
+                  toast.success("Popped member with highest score");
+                  await load();
+                } catch (e) {
+                  toast.error("Failed to pop max", {
+                    description: e instanceof Error ? e.message : String(e),
+                  });
+                }
+              }}
             />
           )}
           {value.kind === "stream" && (

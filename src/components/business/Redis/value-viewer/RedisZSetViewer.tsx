@@ -9,6 +9,8 @@ import {
   SlidersHorizontal,
   Trash2,
   X,
+  ArrowDownToLine,
+  ArrowUpFromLine,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,7 +23,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { RedisKeyExtra, RedisZRangeByScoreResult } from "@/services/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import type {
+  RedisKeyExtra,
+  RedisZRangeByLexResult,
+  RedisZRangeByScoreResult,
+} from "@/services/api";
 import { parseRedisZSetScore } from "../redis-utils";
 
 interface ZSetMember {
@@ -39,6 +55,14 @@ interface Props {
     max: string,
   ) => Promise<RedisZRangeByScoreResult>;
   onZRank?: (member: string, reverse: boolean) => Promise<number | null>;
+  onZScore?: (member: string) => Promise<number | null>;
+  onZMScore?: (members: string[]) => Promise<(number | null)[]>;
+  onZRangeByLex?: (
+    min: string,
+    max: string,
+  ) => Promise<RedisZRangeByLexResult>;
+  onZPopMin?: (count?: number) => Promise<void>;
+  onZPopMax?: (count?: number) => Promise<void>;
 }
 
 export function RedisZSetViewer({
@@ -48,6 +72,11 @@ export function RedisZSetViewer({
   onZsetIncrBy,
   onZRangeByScore,
   onZRank,
+  onZScore,
+  onZMScore,
+  onZRangeByLex,
+  onZPopMin,
+  onZPopMax,
 }: Props) {
   const [sortAsc, setSortAsc] = useState(true);
   const [editingMember, setEditingMember] = useState<string | null>(null);
@@ -76,6 +105,28 @@ export function RedisZSetViewer({
     reverse: boolean;
   } | null>(null);
   const [isRanking, setIsRanking] = useState(false);
+
+  // Score lookup state (ZSCORE / ZMSCORE)
+  const [scoreMember, setScoreMember] = useState("");
+  const [scoreResult, setScoreResult] = useState<{
+    value: (number | null)[];
+    members: string[];
+  } | null>(null);
+  const [isScoring, setIsScoring] = useState(false);
+
+  // Lex range state (ZRANGEBYLEX)
+  const [lexMin, setLexMin] = useState("-");
+  const [lexMax, setLexMax] = useState("+");
+  const [lexActive, setLexActive] = useState(false);
+  const [lexMembers, setLexMembers] = useState<string[] | null>(null);
+  const [lexTotal, setLexTotal] = useState<number | null>(null);
+  const [isLexing, setIsLexing] = useState(false);
+
+  // Pop confirmation state (ZPOPMIN / ZPOPMAX)
+  const [popDialog, setPopDialog] = useState<{
+    type: "min" | "max";
+  } | null>(null);
+  const [isPopping, setIsPopping] = useState(false);
 
   const displayMembers = filterActive && filteredMembers
     ? filteredMembers
@@ -114,6 +165,66 @@ export function RedisZSetViewer({
       setRankResult(null);
     } finally {
       setIsRanking(false);
+    }
+  };
+
+  const handleScoreLookup = async (multi: boolean) => {
+    const raw = scoreMember.trim();
+    if (!raw) return;
+    const members = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    if (members.length === 0) return;
+    setIsScoring(true);
+    try {
+      if (multi && onZMScore) {
+        const scores = await onZMScore(members);
+        setScoreResult({ value: scores, members });
+      } else if (onZScore) {
+        const score = await onZScore(members[0]);
+        setScoreResult({
+          value: [score],
+          members: [members[0]],
+        });
+      }
+    } catch {
+      setScoreResult(null);
+    } finally {
+      setIsScoring(false);
+    }
+  };
+
+  const handleLexRange = async () => {
+    if (!onZRangeByLex) return;
+    setIsLexing(true);
+    try {
+      const result = await onZRangeByLex(lexMin, lexMax);
+      setLexMembers(result.members);
+      setLexTotal(result.total);
+      setLexActive(true);
+    } catch {
+      setLexMembers(null);
+    } finally {
+      setIsLexing(false);
+    }
+  };
+
+  const clearLex = () => {
+    setLexActive(false);
+    setLexMembers(null);
+    setLexTotal(null);
+  };
+
+  const handlePop = async () => {
+    if (!popDialog) return;
+    setIsPopping(true);
+    try {
+      if (popDialog.type === "min" && onZPopMin) {
+        await onZPopMin();
+      } else if (popDialog.type === "max" && onZPopMax) {
+        await onZPopMax();
+      }
+    } finally {
+      setIsPopping(false);
+      setPopDialog(null);
     }
   };
 
@@ -171,7 +282,8 @@ export function RedisZSetViewer({
     setScoreError(null);
   };
 
-  const hasQueryCapability = onZRangeByScore || onZRank;
+  const hasQueryCapability = onZRangeByScore || onZRank || onZScore || onZMScore || onZRangeByLex;
+  const hasPopCapability = onZPopMin || onZPopMax;
 
   return (
     <div className="space-y-2">
@@ -227,6 +339,32 @@ export function RedisZSetViewer({
             <Plus className="w-3 h-3 mr-1" />
             Add member
           </Button>
+          {hasPopCapability && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-destructive hover:text-destructive"
+                onClick={() => setPopDialog({ type: "min" })}
+                disabled={value.length === 0}
+                title="Pop member with lowest score"
+              >
+                <ArrowDownToLine className="w-3 h-3 mr-1" />
+                Pop Min
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-destructive hover:text-destructive"
+                onClick={() => setPopDialog({ type: "max" })}
+                disabled={value.length === 0}
+                title="Pop member with highest score"
+              >
+                <ArrowUpFromLine className="w-3 h-3 mr-1" />
+                Pop Max
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -353,6 +491,156 @@ export function RedisZSetViewer({
                     Member not found
                   </div>
                 )}
+            </div>
+          )}
+
+          {/* Score Lookup (ZSCORE / ZMSCORE) */}
+          {(onZScore || onZMScore) && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">
+                Score Lookup
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  className="h-7 font-mono text-xs w-48"
+                  value={scoreMember}
+                  onChange={(e) => {
+                    setScoreMember(e.target.value);
+                    setScoreResult(null);
+                  }}
+                  placeholder="member (comma-sep for multi)"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleScoreLookup(false);
+                  }}
+                />
+                {onZScore && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => void handleScoreLookup(false)}
+                    disabled={isScoring || !scoreMember.trim()}
+                  >
+                    {isScoring ? (
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                    ) : null}
+                    ZSCORE
+                  </Button>
+                )}
+                {onZMScore && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7"
+                    onClick={() => void handleScoreLookup(true)}
+                    disabled={isScoring || !scoreMember.trim()}
+                  >
+                    {isScoring ? (
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                    ) : null}
+                    ZMSCORE
+                  </Button>
+                )}
+              </div>
+              {scoreResult && (
+                <div className="text-xs space-y-0.5">
+                  {scoreResult.members.map((m, i) => (
+                    <div key={m} className="flex items-center gap-2">
+                      <Badge variant="secondary" className="text-xs font-mono">
+                        {m}
+                      </Badge>
+                      <span className="text-muted-foreground">→</span>
+                      {scoreResult.value[i] !== null ? (
+                        <span className="font-mono text-foreground">
+                          {scoreResult.value[i]}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground italic">
+                          (nil)
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {scoreResult === null &&
+                scoreMember.trim() &&
+                !isScoring && (
+                  <div className="text-xs text-muted-foreground">
+                    Member not found
+                  </div>
+                )}
+            </div>
+          )}
+
+          {/* Lex Range (ZRANGEBYLEX) */}
+          {onZRangeByLex && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">
+                Lex Range{" "}
+                <span className="text-muted-foreground/60 font-normal">
+                  (all members must share the same score)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  className="h-7 font-mono text-xs w-28"
+                  value={lexMin}
+                  onChange={(e) => setLexMin(e.target.value)}
+                  placeholder="-"
+                />
+                <span className="text-xs text-muted-foreground">~</span>
+                <Input
+                  className="h-7 font-mono text-xs w-28"
+                  value={lexMax}
+                  onChange={(e) => setLexMax(e.target.value)}
+                  placeholder="+"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7"
+                  onClick={() => void handleLexRange()}
+                  disabled={isLexing}
+                >
+                  {isLexing ? (
+                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  ) : null}
+                  ZRANGEBYLEX
+                </Button>
+                {lexActive && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-muted-foreground"
+                    onClick={clearLex}
+                  >
+                    <X className="w-3 h-3 mr-1" />
+                    Clear
+                  </Button>
+                )}
+              </div>
+              {lexActive && lexTotal !== null && (
+                <div className="text-xs text-muted-foreground">
+                  <Badge variant="secondary" className="text-xs mr-1.5">
+                    ZLEXCOUNT: {lexTotal}
+                  </Badge>
+                  Showing {lexMembers?.length ?? 0} members in lex range [{lexMin}, {lexMax}]
+                </div>
+              )}
+              {lexActive && lexMembers && lexMembers.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {lexMembers.map((m) => (
+                    <Badge
+                      key={m}
+                      variant="outline"
+                      className="text-xs font-mono"
+                    >
+                      {m}
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -562,6 +850,53 @@ export function RedisZSetViewer({
           </TableBody>
         </Table>
       </div>
+
+      {/* Lex filter banner */}
+      {lexActive && (
+        <div className="flex items-center gap-2 text-xs rounded-md border border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-950/20 px-3 py-1.5">
+          <SlidersHorizontal className="w-3 h-3 text-purple-500" />
+          <span className="text-purple-700 dark:text-purple-300">
+            Lex range [{lexMin}, {lexMax}] — {lexMembers?.length ?? 0} members
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 px-1.5 ml-auto text-xs text-purple-600 dark:text-purple-400"
+            onClick={clearLex}
+          >
+            Show all
+          </Button>
+        </div>
+      )}
+
+      {/* Pop confirmation dialog */}
+      <AlertDialog open={!!popDialog} onOpenChange={(open) => { if (!open) setPopDialog(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {popDialog?.type === "min" ? "ZPOPMIN" : "ZPOPMAX"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove and return the member with the{" "}
+              {popDialog?.type === "min" ? "lowest" : "highest"} score. This
+              action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isPopping}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handlePop()}
+              disabled={isPopping}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isPopping ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : null}
+              Pop {popDialog?.type === "min" ? "Min" : "Max"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

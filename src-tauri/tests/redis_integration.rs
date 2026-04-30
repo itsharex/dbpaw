@@ -1899,3 +1899,247 @@ async fn batch_invalid_op_returns_error() {
         "unexpected error: {err}"
     );
 }
+
+// ── Round 5: ZSCORE / ZMSCORE / ZRANGEBYLEX / ZLEXCOUNT / ZPOPMIN / ZPOPMAX ─
+
+#[tokio::test]
+async fn zscore_basic() {
+    let form = noauth();
+    let key = redis_context::unique_name("zscore");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let members = vec![
+        RedisZSetMember { member: "a".into(), score: 1.5 },
+        RedisZSetMember { member: "b".into(), score: 2.5 },
+        RedisZSetMember { member: "c".into(), score: 3.5 },
+    ];
+    redis::set_key(&mut conn, RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::ZSet(members),
+        ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    }).await.unwrap();
+
+    // existing member
+    let score = redis::zscore(&mut conn, key.clone(), "b".into()).await.unwrap();
+    assert_eq!(score, Some(2.5));
+
+    // non-existing member
+    let score = redis::zscore(&mut conn, key.clone(), "z".into()).await.unwrap();
+    assert_eq!(score, None);
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn zmscore_basic() {
+    let form = noauth();
+    let key = redis_context::unique_name("zmscore");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let members = vec![
+        RedisZSetMember { member: "a".into(), score: 10.0 },
+        RedisZSetMember { member: "b".into(), score: 20.0 },
+        RedisZSetMember { member: "c".into(), score: 30.0 },
+    ];
+    redis::set_key(&mut conn, RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::ZSet(members),
+        ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    }).await.unwrap();
+
+    // mix of existing and non-existing
+    let scores = redis::zmscore(
+        &mut conn,
+        key.clone(),
+        vec!["a".into(), "z".into(), "c".into()],
+    ).await.unwrap();
+    assert_eq!(scores, vec![Some(10.0), None, Some(30.0)]);
+
+    // single member
+    let scores = redis::zmscore(
+        &mut conn,
+        key.clone(),
+        vec!["b".into()],
+    ).await.unwrap();
+    assert_eq!(scores, vec![Some(20.0)]);
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn zmscore_empty_members_returns_error() {
+    let form = noauth();
+    let key = redis_context::unique_name("zmscore_empty");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let result = redis::zmscore(&mut conn, key.clone(), vec![]).await;
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("At least one member"));
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn zrangebylex_and_zlexcount() {
+    let form = noauth();
+    let key = redis_context::unique_name("zrangebylex");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    // All members must share the same score for ZRANGEBYLEX to work
+    let members = vec![
+        RedisZSetMember { member: "a".into(), score: 0.0 },
+        RedisZSetMember { member: "b".into(), score: 0.0 },
+        RedisZSetMember { member: "c".into(), score: 0.0 },
+        RedisZSetMember { member: "d".into(), score: 0.0 },
+        RedisZSetMember { member: "e".into(), score: 0.0 },
+    ];
+    redis::set_key(&mut conn, RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::ZSet(members),
+        ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    }).await.unwrap();
+
+    // closed range [b, d]
+    let result = redis::zrangebylex(
+        &mut conn, key.clone(),
+        "[b".into(), "[d".into(),
+        None, None,
+    ).await.unwrap();
+    assert_eq!(result.members, vec!["b", "c", "d"]);
+    assert_eq!(result.total, 3);
+
+    // open range (a, c — excludes a, includes up to c
+    let result = redis::zrangebylex(
+        &mut conn, key.clone(),
+        "(a".into(), "[c".into(),
+        None, None,
+    ).await.unwrap();
+    assert_eq!(result.members, vec!["b", "c"]);
+    assert_eq!(result.total, 2);
+
+    // full range -, +
+    let result = redis::zrangebylex(
+        &mut conn, key.clone(),
+        "-".into(), "+".into(),
+        None, None,
+    ).await.unwrap();
+    assert_eq!(result.members, vec!["a", "b", "c", "d", "e"]);
+    assert_eq!(result.total, 5);
+
+    // with LIMIT
+    let result = redis::zrangebylex(
+        &mut conn, key.clone(),
+        "-".into(), "+".into(),
+        Some(1), Some(2),
+    ).await.unwrap();
+    assert_eq!(result.members, vec!["b", "c"]);
+    assert_eq!(result.total, 5); // total is ZLEXCOUNT, unaffected by LIMIT
+
+    // ZLEXCOUNT standalone
+    let count = redis::zlexcount(&mut conn, key.clone(), "[b".into(), "[d".into()).await.unwrap();
+    assert_eq!(count, 3);
+
+    let count = redis::zlexcount(&mut conn, key.clone(), "-".into(), "+".into()).await.unwrap();
+    assert_eq!(count, 5);
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn zpopmin_basic() {
+    let form = noauth();
+    let key = redis_context::unique_name("zpopmin");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let members = vec![
+        RedisZSetMember { member: "a".into(), score: 10.0 },
+        RedisZSetMember { member: "b".into(), score: 20.0 },
+        RedisZSetMember { member: "c".into(), score: 30.0 },
+    ];
+    redis::set_key(&mut conn, RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::ZSet(members),
+        ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    }).await.unwrap();
+
+    // pop 1 (default)
+    let popped = redis::zpopmin(&mut conn, key.clone(), None).await.unwrap();
+    assert_eq!(popped.len(), 1);
+    assert_eq!(popped[0].member, "a");
+    assert_eq!(popped[0].score, 10.0);
+
+    // verify remaining
+    let remaining = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    match remaining.value {
+        RedisValue::ZSet(v) => assert_eq!(v.len(), 2),
+        other => panic!("expected ZSet, got {:?}", other),
+    }
+
+    // pop 2 at once
+    let popped = redis::zpopmin(&mut conn, key.clone(), Some(2)).await.unwrap();
+    assert_eq!(popped.len(), 2);
+    assert_eq!(popped[0].member, "b");
+    assert_eq!(popped[1].member, "c");
+
+    // key should now be empty (deleted by Redis)
+    let remaining = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    assert!(matches!(remaining.value, RedisValue::None));
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn zpopmax_basic() {
+    let form = noauth();
+    let key = redis_context::unique_name("zpopmax");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let members = vec![
+        RedisZSetMember { member: "a".into(), score: 10.0 },
+        RedisZSetMember { member: "b".into(), score: 20.0 },
+        RedisZSetMember { member: "c".into(), score: 30.0 },
+    ];
+    redis::set_key(&mut conn, RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::ZSet(members),
+        ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    }).await.unwrap();
+
+    // pop 1 max
+    let popped = redis::zpopmax(&mut conn, key.clone(), None).await.unwrap();
+    assert_eq!(popped.len(), 1);
+    assert_eq!(popped[0].member, "c");
+    assert_eq!(popped[0].score, 30.0);
+
+    // pop all remaining
+    let popped = redis::zpopmax(&mut conn, key.clone(), Some(5)).await.unwrap();
+    assert_eq!(popped.len(), 2);
+    assert_eq!(popped[0].member, "b");
+    assert_eq!(popped[1].member, "a");
+
+    // key should be empty
+    let remaining = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    assert!(matches!(remaining.value, RedisValue::None));
+
+    cleanup(&form, &key).await;
+}
