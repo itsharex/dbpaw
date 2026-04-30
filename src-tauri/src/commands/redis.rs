@@ -2,7 +2,7 @@ use crate::datasources::redis::{
     self, RedisDatabaseInfo, RedisGeoMember, RedisGeoPosition, RedisGeoSearchResult,
     RedisKeyPatchPayload, RedisKeyValue, RedisMutationResult, RedisRawResult, RedisScanResponse,
     RedisServerInfo, RedisSetKeyPayload, RedisSetOperation, RedisSlowlogEntry, RedisStreamEntry,
-    RedisStreamView, RedisZRangeByScoreResult,
+    RedisStreamView, RedisXClaimEntry, RedisXPendingResult, RedisZRangeByScoreResult,
 };
 use crate::datasources::redis::{connect, RedisConnection};
 use crate::models::ConnectionForm;
@@ -769,6 +769,220 @@ pub async fn redis_smove(
             evict(&state, id, &form, db).await;
             let mut conn = acquire(&state, id, &form, db).await?;
             redis::smove(&mut conn, source, destination, member).await
+        }
+        r => r,
+    }
+}
+
+// ── Stream Consumer Group commands ──────────────────────────────────────────
+
+#[tauri::command]
+pub async fn redis_xgroup_create(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    group: String,
+    start_id: String,
+    mkstream: Option<bool>,
+) -> Result<bool, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    let ms = mkstream.unwrap_or(false);
+    match redis::xgroup_create(&mut conn, key.clone(), group.clone(), start_id.clone(), ms).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::xgroup_create(&mut conn, key, group, start_id, ms).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_xgroup_del(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    group: String,
+) -> Result<bool, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::xgroup_del(&mut conn, key.clone(), group.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::xgroup_del(&mut conn, key, group).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_xgroup_setid(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    group: String,
+    start_id: String,
+) -> Result<bool, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::xgroup_setid(&mut conn, key.clone(), group.clone(), start_id.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::xgroup_setid(&mut conn, key, group, start_id).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_xack(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    group: String,
+    ids: Vec<String>,
+) -> Result<i64, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::xack(&mut conn, key.clone(), group.clone(), ids.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::xack(&mut conn, key, group, ids).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_xpending(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    group: String,
+    start: Option<String>,
+    end: Option<String>,
+    count: Option<i64>,
+    consumer: Option<String>,
+) -> Result<RedisXPendingResult, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::xpending(
+        &mut conn,
+        key.clone(),
+        group.clone(),
+        start.clone(),
+        end.clone(),
+        count,
+        consumer.clone(),
+    )
+    .await
+    {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::xpending(&mut conn, key, group, start, end, count, consumer).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_xclaim(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    group: String,
+    consumer: String,
+    min_idle_ms: i64,
+    ids: Vec<String>,
+) -> Result<Vec<RedisXClaimEntry>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::xclaim(
+        &mut conn,
+        key.clone(),
+        group.clone(),
+        consumer.clone(),
+        min_idle_ms,
+        ids.clone(),
+    )
+    .await
+    {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::xclaim(&mut conn, key, group, consumer, min_idle_ms, ids).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_xtrim(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    strategy: String,
+    threshold: String,
+) -> Result<i64, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::xtrim(&mut conn, key.clone(), strategy.clone(), threshold.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::xtrim(&mut conn, key, strategy, threshold).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_xreadgroup(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    group: String,
+    consumer: String,
+    start_id: String,
+    count: Option<i64>,
+) -> Result<Vec<RedisStreamEntry>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::xreadgroup(
+        &mut conn,
+        key.clone(),
+        group.clone(),
+        consumer.clone(),
+        start_id.clone(),
+        count,
+    )
+    .await
+    {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::xreadgroup(&mut conn, key, group, consumer, start_id, count).await
         }
         r => r,
     }

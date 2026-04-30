@@ -4,7 +4,7 @@ mod redis_context;
 use dbpaw_lib::datasources::redis;
 use dbpaw_lib::datasources::redis::{
     RedisKeyPatchPayload, RedisSetKeyPayload, RedisSetOperation, RedisStreamEntry, RedisValue,
-    RedisZRangeByScoreResult, RedisZSetMember,
+    RedisXPendingResult, RedisZRangeByScoreResult, RedisZSetMember,
 };
 use std::collections::BTreeMap;
 
@@ -1245,4 +1245,421 @@ async fn smove_between_sets() {
 
     cleanup(&form, &src).await;
     cleanup(&form, &dst).await;
+}
+
+// ── Stream Consumer Group tests ──────────────────────────────────────────────
+
+#[tokio::test]
+async fn xgroup_create_and_del() {
+    let form = noauth();
+    let key = redis_context::unique_name("xgroup_crud");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    // Create stream
+    let mut fields = BTreeMap::new();
+    fields.insert("a".to_string(), "1".to_string());
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::Stream(vec![RedisStreamEntry {
+            id: "*".to_string(),
+            fields,
+        }]),
+        ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    // XGROUP CREATE
+    let created = redis::xgroup_create(
+        &mut conn,
+        key.clone(),
+        "test-group".to_string(),
+        "0".to_string(),
+        false,
+    )
+    .await
+    .unwrap();
+    assert!(created, "XGROUP CREATE should return true");
+
+    // Verify group exists via get_key
+    let kv = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    let groups = kv.extra.unwrap().stream_groups.unwrap_or_default();
+    assert!(groups.iter().any(|g| g.name == "test-group"), "group should exist");
+
+    // XGROUP DEL
+    let deleted = redis::xgroup_del(&mut conn, key.clone(), "test-group".to_string())
+        .await
+        .unwrap();
+    assert!(deleted, "XGROUP DEL should return true");
+
+    // Verify group removed
+    let kv = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    let groups = kv.extra.unwrap().stream_groups.unwrap_or_default();
+    assert!(!groups.iter().any(|g| g.name == "test-group"), "group should be gone");
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn xgroup_setid() {
+    let form = noauth();
+    let key = redis_context::unique_name("xgroup_setid");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    // Create stream with entries
+    let entries: Vec<RedisStreamEntry> = (0..5)
+        .map(|i| {
+            let mut fields = BTreeMap::new();
+            fields.insert("idx".to_string(), i.to_string());
+            RedisStreamEntry {
+                id: "*".to_string(),
+                fields,
+            }
+        })
+        .collect();
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::Stream(entries),
+        ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    // Create group
+    redis::xgroup_create(&mut conn, key.clone(), "g1".to_string(), "$".to_string(), false)
+        .await
+        .unwrap();
+
+    // SETID to "0" (reset to beginning)
+    let ok = redis::xgroup_setid(&mut conn, key.clone(), "g1".to_string(), "0".to_string())
+        .await
+        .unwrap();
+    assert!(ok, "XGROUP SETID should return true");
+
+    // Verify last_delivered_id is "0"
+    let kv = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    let groups = kv.extra.unwrap().stream_groups.unwrap_or_default();
+    let g = groups.iter().find(|g| g.name == "g1").unwrap();
+    assert_eq!(g.last_delivered_id, "0");
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn xack_and_xpending() {
+    let form = noauth();
+    let key = redis_context::unique_name("xack_xpending");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    // Create stream
+    let mut fields = BTreeMap::new();
+    fields.insert("data".to_string(), "hello".to_string());
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::Stream(vec![RedisStreamEntry {
+            id: "*".to_string(),
+            fields,
+        }]),
+        ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    // Create group starting at "0"
+    redis::xgroup_create(&mut conn, key.clone(), "grp".to_string(), "0".to_string(), false)
+        .await
+        .unwrap();
+
+    // XREADGROUP to consume the message (makes it pending)
+    let entries = redis::xreadgroup(
+        &mut conn,
+        key.clone(),
+        "grp".to_string(),
+        "consumer-1".to_string(),
+        ">".to_string(),
+        Some(10),
+    )
+    .await
+    .unwrap();
+    assert_eq!(entries.len(), 1, "should have 1 pending message");
+
+    // XPENDING summary
+    let pending = redis::xpending(
+        &mut conn,
+        key.clone(),
+        "grp".to_string(),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    match &pending {
+        RedisXPendingResult::Summary(s) => {
+            assert_eq!(s.count, 1, "should have 1 pending");
+        }
+        _ => panic!("expected summary"),
+    }
+
+    // XACK
+    let msg_id = entries[0].id.clone();
+    let acked = redis::xack(&mut conn, key.clone(), "grp".to_string(), vec![msg_id])
+        .await
+        .unwrap();
+    assert_eq!(acked, 1, "should ack 1 message");
+
+    // XPENDING should be empty now
+    let pending = redis::xpending(
+        &mut conn,
+        key.clone(),
+        "grp".to_string(),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    match &pending {
+        RedisXPendingResult::Summary(s) => {
+            assert_eq!(s.count, 0, "should have 0 pending after ACK");
+        }
+        _ => panic!("expected summary"),
+    }
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn xclaim() {
+    let form = noauth();
+    let key = redis_context::unique_name("xclaim");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    // Create stream + group
+    let mut fields = BTreeMap::new();
+    fields.insert("val".to_string(), "42".to_string());
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::Stream(vec![RedisStreamEntry {
+            id: "*".to_string(),
+            fields,
+        }]),
+        ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    redis::xgroup_create(&mut conn, key.clone(), "grp".to_string(), "0".to_string(), false)
+        .await
+        .unwrap();
+
+    // consumer-a reads the message
+    let entries = redis::xreadgroup(
+        &mut conn,
+        key.clone(),
+        "grp".to_string(),
+        "consumer-a".to_string(),
+        ">".to_string(),
+        Some(10),
+    )
+    .await
+    .unwrap();
+    assert_eq!(entries.len(), 1);
+    let msg_id = entries[0].id.clone();
+
+    // XCLAIM: consumer-b claims the message (min_idle_ms=0 to avoid waiting)
+    let claimed = redis::xclaim(
+        &mut conn,
+        key.clone(),
+        "grp".to_string(),
+        "consumer-b".to_string(),
+        0,
+        vec![msg_id.clone()],
+    )
+    .await
+    .unwrap();
+    assert_eq!(claimed.len(), 1, "should claim 1 entry");
+    assert_eq!(claimed[0].id, msg_id);
+
+    // Verify ownership changed via XPENDING detail
+    let detail = redis::xpending(
+        &mut conn,
+        key.clone(),
+        "grp".to_string(),
+        Some("-".to_string()),
+        Some("+".to_string()),
+        Some(10),
+        None,
+    )
+    .await
+    .unwrap();
+    match &detail {
+        RedisXPendingResult::Entries(entries) => {
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].consumer, "consumer-b");
+        }
+        _ => panic!("expected entries"),
+    }
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn xtrim_maxlen() {
+    let form = noauth();
+    let key = redis_context::unique_name("xtrim_maxlen");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    // Create stream with 50 entries
+    let entries: Vec<RedisStreamEntry> = (0..50)
+        .map(|i| {
+            let mut fields = BTreeMap::new();
+            fields.insert("idx".to_string(), i.to_string());
+            RedisStreamEntry {
+                id: "*".to_string(),
+                fields,
+            }
+        })
+        .collect();
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::Stream(entries),
+        ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    // XTRIM MAXLEN 10
+    let trimmed = redis::xtrim(
+        &mut conn,
+        key.clone(),
+        "MAXLEN".to_string(),
+        "10".to_string(),
+    )
+    .await
+    .unwrap();
+    assert!(trimmed > 0, "should have trimmed entries");
+
+    // Verify length
+    let kv = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    let info = kv.extra.unwrap().stream_info.unwrap();
+    assert!(info.length <= 10, "stream length should be <= 10, got {}", info.length);
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn xtrim_minid() {
+    let form = noauth();
+    let key = redis_context::unique_name("xtrim_minid");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    // Create stream with entries and known IDs
+    let entries: Vec<RedisStreamEntry> = (0..10)
+        .map(|i| {
+            let mut fields = BTreeMap::new();
+            fields.insert("idx".to_string(), i.to_string());
+            RedisStreamEntry {
+                id: format!("{}-0", i + 1), // 1-0, 2-0, ..., 10-0
+                fields,
+            }
+        })
+        .collect();
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::Stream(entries),
+        ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    // XTRIM MINID 6-0 (remove entries with ID < 6-0)
+    let trimmed = redis::xtrim(
+        &mut conn,
+        key.clone(),
+        "MINID".to_string(),
+        "6-0".to_string(),
+    )
+    .await
+    .unwrap();
+    assert!(trimmed > 0, "should have trimmed entries");
+
+    // Verify remaining entries all have ID >= 6-0
+    let view = redis::get_stream_view(&mut conn, key.clone(), "-".to_string(), "+".to_string(), 100)
+        .await
+        .unwrap();
+    for entry in &view.entries {
+        let id_num: u64 = entry.id.split('-').next().unwrap().parse().unwrap();
+        assert!(id_num >= 6, "entry {} should have ID >= 6-0", entry.id);
+    }
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn xgroup_create_idempotent_error() {
+    let form = noauth();
+    let key = redis_context::unique_name("xgroup_dup");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    // Create stream
+    let mut fields = BTreeMap::new();
+    fields.insert("x".to_string(), "1".to_string());
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::Stream(vec![RedisStreamEntry {
+            id: "*".to_string(),
+            fields,
+        }]),
+        ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    // First create succeeds
+    redis::xgroup_create(&mut conn, key.clone(), "dup".to_string(), "0".to_string(), false)
+        .await
+        .unwrap();
+
+    // Second create should fail with BUSYGROUP
+    let result = redis::xgroup_create(
+        &mut conn,
+        key.clone(),
+        "dup".to_string(),
+        "0".to_string(),
+        false,
+    )
+    .await;
+    assert!(result.is_err(), "duplicate group creation should fail");
+    let err = result.unwrap_err();
+    assert!(
+        err.to_lowercase().contains("busygroup") || err.to_lowercase().contains("already exists"),
+        "error should mention BUSYGROUP, got: {}",
+        err
+    );
+
+    cleanup(&form, &key).await;
 }

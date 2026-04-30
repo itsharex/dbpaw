@@ -188,6 +188,27 @@ export interface RedisStreamView {
   groups: RedisStreamGroup[];
 }
 
+export interface RedisXPendingSummary {
+  count: number;
+  minId: string;
+  maxId: string;
+  consumers: [string, number][];
+}
+
+export interface RedisXPendingEntry {
+  id: string;
+  consumer: string;
+  idleMs: number;
+  deliveryCount: number;
+}
+
+export interface RedisXClaimEntry {
+  id: string;
+  fields: Record<string, string>;
+  idleMs?: number;
+  deliveryCount?: number;
+}
+
 export interface RedisKeyPatchPayload {
   key: string;
   ttlSeconds: number | null;
@@ -936,6 +957,81 @@ export const api = {
         startId,
         endId,
         count,
+      }),
+    xgroupCreate: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      group: string,
+      startId: string,
+      mkstream?: boolean,
+    ) =>
+      invoke<boolean>("redis_xgroup_create", { id, database, key, group, startId, mkstream }),
+    xgroupDel: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      group: string,
+    ) =>
+      invoke<boolean>("redis_xgroup_del", { id, database, key, group }),
+    xgroupSetId: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      group: string,
+      startId: string,
+    ) =>
+      invoke<boolean>("redis_xgroup_setid", { id, database, key, group, startId }),
+    xack: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      group: string,
+      ids: string[],
+    ) =>
+      invoke<number>("redis_xack", { id, database, key, group, ids }),
+    xpending: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      group: string,
+      start?: string,
+      end?: string,
+      count?: number,
+      consumer?: string,
+    ) =>
+      invoke<RedisXPendingSummary | RedisXPendingEntry[]>("redis_xpending", {
+        id, database, key, group, start, end, count, consumer,
+      }),
+    xclaim: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      group: string,
+      consumer: string,
+      minIdleMs: number,
+      ids: string[],
+    ) =>
+      invoke<RedisXClaimEntry[]>("redis_xclaim", { id, database, key, group, consumer, minIdleMs, ids }),
+    xtrim: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      strategy: string,
+      threshold: string,
+    ) =>
+      invoke<number>("redis_xtrim", { id, database, key, strategy, threshold }),
+    xreadgroup: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      group: string,
+      consumer: string,
+      startId: string,
+      count?: number,
+    ) =>
+      invoke<RedisStreamEntry[]>("redis_xreadgroup", {
+        id, database, key, group, consumer, startId, count,
       }),
     executeRaw: (id: number, database: string | undefined, command: string) =>
       invoke<RedisRawResult>("redis_execute_raw", { id, database, command }),
