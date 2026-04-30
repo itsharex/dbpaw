@@ -13,17 +13,9 @@ import { toast } from "sonner";
 import { cn } from "@/components/ui/utils";
 import { RedisKeyView } from "./RedisKeyView";
 import { isRedisClusterDatabaseList } from "./redis-utils";
+import { TYPE_COLORS, TYPE_DISPLAY_LABEL } from "./redis-type-colors";
 
 const SCAN_LIMIT = 200;
-
-const TYPE_COLORS: Record<string, string> = {
-  string:
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
-  hash: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  list: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
-  set: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400",
-  zset: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400",
-};
 
 function formatTtlShort(ttl: number): string {
   if (ttl <= -2) return "exp";
@@ -240,7 +232,7 @@ export function RedisBrowserView({ connectionId, database, onOpenConsole }: Prop
                         "bg-muted text-muted-foreground",
                     )}
                   >
-                    {k.keyType}
+                    {TYPE_DISPLAY_LABEL[k.keyType] ?? k.keyType}
                   </span>
                   <span
                     className="flex-1 truncate font-mono text-foreground"
