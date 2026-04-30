@@ -335,6 +335,22 @@ pub struct RedisKeyPatchPayload {
     pub string_incr_by: Option<String>,
     pub hash_incr_by: Option<BTreeMap<String, String>>,
     pub zset_incr_by: Option<Vec<RedisZSetMember>>,
+    pub string_incr_by_int: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedisZRangeByScoreResult {
+    pub members: Vec<RedisZSetMember>,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RedisSetOperation {
+    Inter,
+    Union,
+    Diff,
 }
 
 fn parse_database(database: Option<&str>) -> Result<i64, String> {
@@ -1936,6 +1952,11 @@ pub async fn patch_key(
         cmd.arg(key).arg(amount);
         conn.query::<String>(cmd).await?;
     }
+    if let Some(amount) = payload.string_incr_by_int {
+        let mut cmd = redis::cmd("INCRBY");
+        cmd.arg(key).arg(amount);
+        conn.query::<i64>(cmd).await?;
+    }
     if let Some(ref fields) = payload.hash_incr_by {
         for (field, amount) in fields {
             let mut cmd = redis::cmd("HINCRBYFLOAT");
@@ -2394,6 +2415,116 @@ fn format_redis_value(value: Value) -> String {
         Value::BigNumber(n) => format!("(big number) {n}"),
         Value::ServerError(e) => format!("(error) {:?}", e),
     }
+}
+
+pub async fn zrangebyscore(
+    conn: &mut RedisConnection,
+    key: String,
+    min: String,
+    max: String,
+    offset: Option<u64>,
+    limit: Option<u64>,
+) -> Result<RedisZRangeByScoreResult, String> {
+    validate_key(&key)?;
+
+    let mut count_cmd = redis::cmd("ZCOUNT");
+    count_cmd.arg(&key).arg(&min).arg(&max);
+    let total: u64 = conn.query(count_cmd).await?;
+
+    let mut cmd = redis::cmd("ZRANGEBYSCORE");
+    cmd.arg(&key).arg(&min).arg(&max).arg("WITHSCORES");
+    if let (Some(off), Some(lim)) = (offset, limit) {
+        cmd.arg("LIMIT").arg(off).arg(lim);
+    }
+    let raw: Vec<String> = conn.query(cmd).await?;
+
+    let mut members = Vec::new();
+    let mut iter = raw.iter();
+    while let Some(member) = iter.next() {
+        if let Some(score_str) = iter.next() {
+            let score: f64 = score_str
+                .parse()
+                .map_err(|_| format!("[REDIS_ERROR] Cannot parse score: {score_str}"))?;
+            members.push(RedisZSetMember {
+                member: member.clone(),
+                score,
+            });
+        }
+    }
+
+    Ok(RedisZRangeByScoreResult { members, total })
+}
+
+pub async fn zrank(
+    conn: &mut RedisConnection,
+    key: String,
+    member: String,
+    reverse: bool,
+) -> Result<Option<i64>, String> {
+    validate_key(&key)?;
+
+    let cmd_name = if reverse { "ZREVRANK" } else { "ZRANK" };
+    let mut cmd = redis::cmd(cmd_name);
+    cmd.arg(&key).arg(&member);
+    let rank: Option<i64> = conn.query(cmd).await?;
+
+    Ok(rank)
+}
+
+pub async fn set_operation(
+    conn: &mut RedisConnection,
+    keys: Vec<String>,
+    op: RedisSetOperation,
+) -> Result<Vec<String>, String> {
+    if keys.is_empty() {
+        return Err("[VALIDATION_ERROR] At least one key is required".to_string());
+    }
+    for k in &keys {
+        validate_key(k)?;
+    }
+
+    let cmd_name = match op {
+        RedisSetOperation::Inter => "SINTER",
+        RedisSetOperation::Union => "SUNION",
+        RedisSetOperation::Diff => "SDIFF",
+    };
+    let mut cmd = redis::cmd(cmd_name);
+    for k in &keys {
+        cmd.arg(k);
+    }
+    let members: Vec<String> = conn.query(cmd).await?;
+
+    Ok(members)
+}
+
+pub async fn sismember(
+    conn: &mut RedisConnection,
+    key: String,
+    member: String,
+) -> Result<bool, String> {
+    validate_key(&key)?;
+
+    let mut cmd = redis::cmd("SISMEMBER");
+    cmd.arg(&key).arg(&member);
+    let exists: bool = conn.query(cmd).await?;
+
+    Ok(exists)
+}
+
+pub async fn smove(
+    conn: &mut RedisConnection,
+    source: String,
+    destination: String,
+    member: String,
+) -> Result<bool, String> {
+    validate_key(&source)?;
+    validate_key(&destination)?;
+
+    let mut cmd = redis::cmd("SMOVE");
+    cmd.arg(&source).arg(&destination).arg(&member);
+    let moved: bool = conn.query(cmd).await?;
+
+    Ok(moved)
 }
 
 pub async fn execute_raw(

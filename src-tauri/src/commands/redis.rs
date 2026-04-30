@@ -1,7 +1,8 @@
 use crate::datasources::redis::{
     self, RedisDatabaseInfo, RedisGeoMember, RedisGeoPosition, RedisGeoSearchResult,
     RedisKeyPatchPayload, RedisKeyValue, RedisMutationResult, RedisRawResult, RedisScanResponse,
-    RedisServerInfo, RedisSetKeyPayload, RedisSlowlogEntry, RedisStreamEntry, RedisStreamView,
+    RedisServerInfo, RedisSetKeyPayload, RedisSetOperation, RedisSlowlogEntry, RedisStreamEntry,
+    RedisStreamView, RedisZRangeByScoreResult,
 };
 use crate::datasources::redis::{connect, RedisConnection};
 use crate::models::ConnectionForm;
@@ -655,6 +656,119 @@ pub async fn redis_slowlog_get(
             evict(&state, id, &form, db).await;
             let mut conn = acquire(&state, id, &form, db).await?;
             redis::slowlog_get(&mut conn, n).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_zrangebyscore(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    min: String,
+    max: String,
+    offset: Option<u64>,
+    limit: Option<u64>,
+) -> Result<RedisZRangeByScoreResult, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::zrangebyscore(&mut conn, key.clone(), min.clone(), max.clone(), offset, limit)
+        .await
+    {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::zrangebyscore(&mut conn, key, min, max, offset, limit).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_zrank(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    member: String,
+    reverse: Option<bool>,
+) -> Result<Option<i64>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    let rev = reverse.unwrap_or(false);
+    match redis::zrank(&mut conn, key.clone(), member.clone(), rev).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::zrank(&mut conn, key, member, rev).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_set_operation(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    keys: Vec<String>,
+    op: RedisSetOperation,
+) -> Result<Vec<String>, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::set_operation(&mut conn, keys.clone(), op.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::set_operation(&mut conn, keys, op).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_sismember(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    key: String,
+    member: String,
+) -> Result<bool, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::sismember(&mut conn, key.clone(), member.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::sismember(&mut conn, key, member).await
+        }
+        r => r,
+    }
+}
+
+#[tauri::command]
+pub async fn redis_smove(
+    state: State<'_, AppState>,
+    id: i64,
+    database: Option<String>,
+    source: String,
+    destination: String,
+    member: String,
+) -> Result<bool, String> {
+    let form = connection_form(&state, id).await?;
+    let db = database.as_deref();
+    let mut conn = acquire(&state, id, &form, db).await?;
+    match redis::smove(&mut conn, source.clone(), destination.clone(), member.clone()).await {
+        Err(ref e) if is_io_error(e) => {
+            evict(&state, id, &form, db).await;
+            let mut conn = acquire(&state, id, &form, db).await?;
+            redis::smove(&mut conn, source, destination, member).await
         }
         r => r,
     }

@@ -20,6 +20,7 @@ interface Props {
   isBinary?: boolean;
   extra?: RedisKeyExtra | null;
   onIncrBy?: (amount: string) => void;
+  onIncrByInt?: (amount: number) => void;
 }
 
 function tryParseJson(s: string): unknown | null {
@@ -38,12 +39,20 @@ function isNumericValue(s: string): boolean {
   return !isNaN(Number(trimmed)) && isFinite(Number(trimmed));
 }
 
+function isIntegerValue(s: string): boolean {
+  const trimmed = s.trim();
+  if (!trimmed) return false;
+  const n = Number(trimmed);
+  return !isNaN(n) && isFinite(n) && Number.isInteger(n);
+}
+
 export function RedisStringViewer({
   value,
   onChange,
   isBinary,
   extra,
   onIncrBy,
+  onIncrByInt,
 }: Props) {
   const [formatted, setFormatted] = useState(false);
   const [editAsText, setEditAsText] = useState(false);
@@ -56,6 +65,8 @@ export function RedisStringViewer({
   const isHll = extra?.subtype === "hyperloglog";
   const isJsonMissing = extra?.subtype === "json-module-missing";
   const isNumeric = isNumericValue(value) && !isBinary && !isJson;
+  const isInteger = isIntegerValue(value) && !isBinary && !isJson;
+  const useIntIncr = isInteger && onIncrByInt;
 
   const displayValue =
     formatted && isJson ? JSON.stringify(parsed, null, 2) : value;
@@ -121,7 +132,7 @@ export function RedisStringViewer({
         </div>
       </div>
 
-      {isNumeric && onIncrBy && (
+      {isNumeric && (onIncrBy || onIncrByInt) && (
         <div className="flex items-center gap-2 rounded-md border bg-muted/20 p-2">
           <span className="text-xs text-muted-foreground shrink-0">
             Counter:
@@ -130,7 +141,14 @@ export function RedisStringViewer({
             variant="outline"
             size="sm"
             className="h-7 px-2"
-            onClick={() => onIncrBy(`-${step || "1"}`)}
+            onClick={() => {
+              const n = Number(step || "1");
+              if (useIntIncr) {
+                onIncrByInt!(-Math.abs(Math.trunc(n)));
+              } else {
+                onIncrBy!(`-${step || "1"}`);
+              }
+            }}
           >
             <Minus className="w-3 h-3" />
           </Button>
@@ -144,12 +162,18 @@ export function RedisStringViewer({
             variant="outline"
             size="sm"
             className="h-7 px-2"
-            onClick={() => onIncrBy(step || "1")}
+            onClick={() => {
+              if (useIntIncr) {
+                onIncrByInt!(Math.abs(Math.trunc(Number(step || "1"))));
+              } else {
+                onIncrBy!(step || "1");
+              }
+            }}
           >
             <Plus className="w-3 h-3" />
           </Button>
           <span className="text-xs text-muted-foreground ml-1">
-            INCRBYFLOAT
+            {useIntIncr ? "INCRBY" : "INCRBYFLOAT"}
           </span>
         </div>
       )}

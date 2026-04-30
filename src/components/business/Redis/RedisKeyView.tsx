@@ -901,6 +901,21 @@ export function RedisKeyView({
                   });
                 }
               }}
+              onIncrByInt={async (amount) => {
+                try {
+                  await api.redis.patchKey(connectionId, database, {
+                    key: redisKey,
+                    ttlSeconds: null,
+                    stringIncrByInt: amount,
+                  });
+                  toast.success("Value incremented");
+                  await load();
+                } catch (e) {
+                  toast.error("Failed to increment", {
+                    description: e instanceof Error ? e.message : String(e),
+                  });
+                }
+              }}
             />
           )}
           {value.kind === "hash" && (
@@ -934,6 +949,41 @@ export function RedisKeyView({
             <RedisSetViewer
               value={value.value}
               onChange={(v) => setValue({ kind: "set", value: v })}
+              onSismember={async (member) => {
+                const exists = await api.redis.sismember(
+                  connectionId,
+                  database,
+                  redisKey,
+                  member,
+                );
+                return exists;
+              }}
+              onSetOperation={async (keys, op) => {
+                const allKeys = [redisKey, ...keys];
+                const results = await api.redis.setOperation(
+                  connectionId,
+                  database,
+                  allKeys,
+                  op,
+                );
+                return results;
+              }}
+              onSmove={async (destination, member) => {
+                const moved = await api.redis.smove(
+                  connectionId,
+                  database,
+                  redisKey,
+                  destination,
+                  member,
+                );
+                if (moved) {
+                  toast.success(`Member moved to "${destination}"`);
+                  await load();
+                } else {
+                  toast.warning("Member does not exist in source set");
+                }
+                return moved;
+              }}
             />
           )}
           {value.kind === "zSet" && record?.extra?.subtype === "geo" && (
@@ -966,6 +1016,26 @@ export function RedisKeyView({
                     description: e instanceof Error ? e.message : String(e),
                   });
                 }
+              }}
+              onZRangeByScore={async (min, max) => {
+                const result = await api.redis.zrangebyscore(
+                  connectionId,
+                  database,
+                  redisKey,
+                  min,
+                  max,
+                );
+                return result;
+              }}
+              onZRank={async (member, reverse) => {
+                const rank = await api.redis.zrank(
+                  connectionId,
+                  database,
+                  redisKey,
+                  member,
+                  reverse,
+                );
+                return rank;
               }}
             />
           )}

@@ -3,7 +3,8 @@ mod redis_context;
 
 use dbpaw_lib::datasources::redis;
 use dbpaw_lib::datasources::redis::{
-    RedisKeyPatchPayload, RedisSetKeyPayload, RedisStreamEntry, RedisValue, RedisZSetMember,
+    RedisKeyPatchPayload, RedisSetKeyPayload, RedisSetOperation, RedisStreamEntry, RedisValue,
+    RedisZRangeByScoreResult, RedisZSetMember,
 };
 use std::collections::BTreeMap;
 
@@ -65,6 +66,10 @@ async fn scan_keys_cursor_works() {
             key: format!("{prefix}:{i}"),
             value: RedisValue::String(format!("v{i}")),
             ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
         };
         redis::set_key(&mut conn, payload).await.unwrap();
     }
@@ -108,6 +113,10 @@ async fn crud_string() {
         key: key.clone(),
         value: RedisValue::String("hello".to_string()),
         ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
@@ -120,6 +129,10 @@ async fn crud_string() {
         key: key.clone(),
         value: RedisValue::String("world".to_string()),
         ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload2).await.unwrap();
     let got2 = redis::get_key(&mut conn, key.clone()).await.unwrap();
@@ -148,6 +161,10 @@ async fn crud_hash() {
         key: key.clone(),
         value: RedisValue::Hash(fields),
         ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
@@ -177,6 +194,10 @@ async fn crud_hash_pagination_uses_scan_cursor() {
         key: key.clone(),
         value: RedisValue::Hash(fields),
         ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
@@ -209,6 +230,10 @@ async fn crud_list_pagination() {
         key: key.clone(),
         value: RedisValue::List(items),
         ttl_seconds: Some(120),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
@@ -248,6 +273,10 @@ async fn crud_set_pagination() {
         key: key.clone(),
         value: RedisValue::Set(members),
         ttl_seconds: Some(120),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
@@ -277,6 +306,10 @@ async fn crud_set_initial_page_exposes_scan_cursor() {
         key: key.clone(),
         value: RedisValue::Set(members),
         ttl_seconds: Some(120),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
@@ -313,6 +346,10 @@ async fn crud_zset_pagination() {
         key: key.clone(),
         value: RedisValue::ZSet(members),
         ttl_seconds: Some(120),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
@@ -352,6 +389,10 @@ async fn rename_key() {
         key: old.clone(),
         value: RedisValue::String("data".to_string()),
         ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
@@ -380,6 +421,10 @@ async fn set_ttl_and_persist() {
         key: key.clone(),
         value: RedisValue::String("ephemeral".to_string()),
         ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
@@ -417,6 +462,10 @@ async fn cluster_scan_is_partial() {
             key: format!("{prefix}:{i}"),
             value: RedisValue::String(format!("v{i}")),
             ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
         };
         redis::set_key(&mut conn, payload).await.unwrap();
     }
@@ -497,6 +546,10 @@ async fn crud_stream() {
             fields,
         }]),
         ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
@@ -535,6 +588,10 @@ async fn crud_stream_patch_add_and_del() {
             fields,
         }]),
         ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
@@ -606,6 +663,10 @@ async fn crud_stream_range_pagination() {
         key: key.clone(),
         value: RedisValue::Stream(entries),
         ttl_seconds: Some(120),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
@@ -653,6 +714,10 @@ async fn stream_view_supports_range_and_groups() {
         key: key.clone(),
         value: RedisValue::Stream(entries),
         ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
@@ -714,6 +779,10 @@ async fn crud_json() {
         key: key.clone(),
         value: RedisValue::Json(r#"{"name":"alice","age":30}"#.to_string()),
         ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
 
     match redis::set_key(&mut conn, payload).await {
@@ -743,6 +812,10 @@ async fn json_write_rejects_invalid_payload() {
         key: key.clone(),
         value: RedisValue::Json("{bad json}".to_string()),
         ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
     };
 
     let err = redis::set_key(&mut conn, payload).await.unwrap_err();
@@ -798,4 +871,378 @@ async fn geo_detection() {
     );
 
     cleanup(&form, &key).await;
+}
+
+// ── Round 2: string INCRBY ───────────────────────────────────────────────────
+
+#[tokio::test]
+async fn string_incr_by_int() {
+    let form = noauth();
+    let key = redis_context::unique_name("incr_int");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::String("100".to_string()),
+        ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    let patch = RedisKeyPatchPayload {
+        key: key.clone(),
+        string_incr_by_int: Some(25),
+        ..Default::default()
+    };
+    redis::patch_key(&mut conn, patch).await.unwrap();
+
+    let got = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    assert!(
+        matches!(&got.value, RedisValue::String(v) if v == "125"),
+        "expected '125' after INCRBY 25, got {:?}",
+        got.value
+    );
+
+    // Negative decrement
+    let patch2 = RedisKeyPatchPayload {
+        key: key.clone(),
+        string_incr_by_int: Some(-50),
+        ..Default::default()
+    };
+    redis::patch_key(&mut conn, patch2).await.unwrap();
+
+    let got2 = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    assert!(
+        matches!(&got2.value, RedisValue::String(v) if v == "75"),
+        "expected '75' after DECRBY 50, got {:?}",
+        got2.value
+    );
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn string_incr_by_int_rejects_non_integer() {
+    let form = noauth();
+    let key = redis_context::unique_name("incr_bad");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::String("not-a-number".to_string()),
+        ttl_seconds: None,
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    let patch = RedisKeyPatchPayload {
+        key: key.clone(),
+        string_incr_by_int: Some(1),
+        ..Default::default()
+    };
+    let err = redis::patch_key(&mut conn, patch).await.unwrap_err();
+    assert!(
+        err.contains("not an integer"),
+        "unexpected error: {err}"
+    );
+
+    cleanup(&form, &key).await;
+}
+
+// ── Round 2: ZRANGEBYSCORE / ZCOUNT ──────────────────────────────────────────
+
+#[tokio::test]
+async fn zrangebyscore_and_zcount() {
+    let form = noauth();
+    let key = redis_context::unique_name("zrange_score");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let members: Vec<RedisZSetMember> = (1..=10)
+        .map(|i| RedisZSetMember {
+            member: format!("m{i}"),
+            score: i as f64 * 10.0, // 10, 20, ..., 100
+        })
+        .collect();
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::ZSet(members),
+        ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    // Score range [20, 50] → m2, m3, m4, m5
+    let result: RedisZRangeByScoreResult = redis::zrangebyscore(
+        &mut conn,
+        key.clone(),
+        "20".to_string(),
+        "50".to_string(),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.total, 4, "expected 4 members in [20,50]");
+    assert_eq!(result.members.len(), 4);
+    assert_eq!(result.members[0].member, "m2");
+    assert_eq!(result.members[3].member, "m5");
+
+    // Exclusive boundaries (20, 50) → m3, m4
+    let result2: RedisZRangeByScoreResult = redis::zrangebyscore(
+        &mut conn,
+        key.clone(),
+        "(20".to_string(),
+        "(50".to_string(),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(result2.total, 2, "expected 2 members in (20,50)");
+    assert_eq!(result2.members[0].member, "m3");
+    assert_eq!(result2.members[1].member, "m4");
+
+    // With offset/limit
+    let result3: RedisZRangeByScoreResult = redis::zrangebyscore(
+        &mut conn,
+        key.clone(),
+        "10".to_string(),
+        "100".to_string(),
+        Some(2),
+        Some(3),
+    )
+    .await
+    .unwrap();
+    assert_eq!(result3.members.len(), 3, "expected 3 members with LIMIT 2 3");
+
+    cleanup(&form, &key).await;
+}
+
+// ── Round 2: ZRANK / ZREVRANK ────────────────────────────────────────────────
+
+#[tokio::test]
+async fn zrank_and_zrevrank() {
+    let form = noauth();
+    let key = redis_context::unique_name("zrank_test");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let members: Vec<RedisZSetMember> = vec![
+        RedisZSetMember { member: "a".to_string(), score: 1.0 },
+        RedisZSetMember { member: "b".to_string(), score: 2.0 },
+        RedisZSetMember { member: "c".to_string(), score: 3.0 },
+    ];
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::ZSet(members),
+        ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    // ZRANK
+    let rank_a = redis::zrank(&mut conn, key.clone(), "a".to_string(), false)
+        .await
+        .unwrap();
+    assert_eq!(rank_a, Some(0), "a should be rank 0");
+
+    let rank_c = redis::zrank(&mut conn, key.clone(), "c".to_string(), false)
+        .await
+        .unwrap();
+    assert_eq!(rank_c, Some(2), "c should be rank 2");
+
+    // ZREVRANK
+    let revrank_a = redis::zrank(&mut conn, key.clone(), "a".to_string(), true)
+        .await
+        .unwrap();
+    assert_eq!(revrank_a, Some(2), "a should be rev-rank 2");
+
+    let revrank_c = redis::zrank(&mut conn, key.clone(), "c".to_string(), true)
+        .await
+        .unwrap();
+    assert_eq!(revrank_c, Some(0), "c should be rev-rank 0");
+
+    // Non-existent member
+    let rank_none = redis::zrank(&mut conn, key.clone(), "z".to_string(), false)
+        .await
+        .unwrap();
+    assert_eq!(rank_none, None, "non-existent member should return None");
+
+    cleanup(&form, &key).await;
+}
+
+// ── Round 2: SINTER / SUNION / SDIFF ─────────────────────────────────────────
+
+#[tokio::test]
+async fn set_operations_sinter_sunion_sdiff() {
+    let form = noauth();
+    let key_a = redis_context::unique_name("setop_a");
+    let key_b = redis_context::unique_name("setop_b");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    // Create set A = {1, 2, 3}
+    let payload_a = RedisSetKeyPayload {
+        key: key_a.clone(),
+        value: RedisValue::Set(vec!["1".into(), "2".into(), "3".into()]),
+        ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload_a).await.unwrap();
+
+    // Create set B = {2, 3, 4}
+    let payload_b = RedisSetKeyPayload {
+        key: key_b.clone(),
+        value: RedisValue::Set(vec!["2".into(), "3".into(), "4".into()]),
+        ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload_b).await.unwrap();
+
+    // SINTER → {2, 3}
+    let inter = redis::set_operation(
+        &mut conn,
+        vec![key_a.clone(), key_b.clone()],
+        RedisSetOperation::Inter,
+    )
+    .await
+    .unwrap();
+    assert_eq!(inter.len(), 2, "SINTER should have 2 members");
+    assert!(inter.contains(&"2".to_string()));
+    assert!(inter.contains(&"3".to_string()));
+
+    // SUNION → {1, 2, 3, 4}
+    let union = redis::set_operation(
+        &mut conn,
+        vec![key_a.clone(), key_b.clone()],
+        RedisSetOperation::Union,
+    )
+    .await
+    .unwrap();
+    assert_eq!(union.len(), 4, "SUNION should have 4 members");
+
+    // SDIFF A B → {1}
+    let diff = redis::set_operation(
+        &mut conn,
+        vec![key_a.clone(), key_b.clone()],
+        RedisSetOperation::Diff,
+    )
+    .await
+    .unwrap();
+    assert_eq!(diff.len(), 1, "SDIFF should have 1 member");
+    assert_eq!(diff[0], "1");
+
+    cleanup(&form, &key_a).await;
+    cleanup(&form, &key_b).await;
+}
+
+// ── Round 2: SISMEMBER ───────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn sismember_check() {
+    let form = noauth();
+    let key = redis_context::unique_name("sismember");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let payload = RedisSetKeyPayload {
+        key: key.clone(),
+        value: RedisValue::Set(vec!["alpha".into(), "beta".into(), "gamma".into()]),
+        ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload).await.unwrap();
+
+    let is_member = redis::sismember(&mut conn, key.clone(), "beta".to_string())
+        .await
+        .unwrap();
+    assert!(is_member, "beta should be a member");
+
+    let not_member = redis::sismember(&mut conn, key.clone(), "delta".to_string())
+        .await
+        .unwrap();
+    assert!(!not_member, "delta should not be a member");
+
+    cleanup(&form, &key).await;
+}
+
+// ── Round 2: SMOVE ───────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn smove_between_sets() {
+    let form = noauth();
+    let src = redis_context::unique_name("smove_src");
+    let dst = redis_context::unique_name("smove_dst");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    let payload_src = RedisSetKeyPayload {
+        key: src.clone(),
+        value: RedisValue::Set(vec!["a".into(), "b".into(), "c".into()]),
+        ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload_src).await.unwrap();
+
+    let payload_dst = RedisSetKeyPayload {
+        key: dst.clone(),
+        value: RedisValue::Set(vec!["x".into(), "y".into()]),
+        ttl_seconds: Some(60),
+        set_nx: None,
+        set_xx: None,
+        set_px: None,
+        set_keepttl: None,
+    };
+    redis::set_key(&mut conn, payload_dst).await.unwrap();
+
+    // SMOVE src dst "b" → true, src loses "b", dst gains "b"
+    let moved = redis::smove(&mut conn, src.clone(), dst.clone(), "b".to_string())
+        .await
+        .unwrap();
+    assert!(moved, "SMOVE should return true for existing member");
+
+    let src_after = redis::get_key(&mut conn, src.clone()).await.unwrap();
+    if let RedisValue::Set(members) = &src_after.value {
+        assert_eq!(members.len(), 2, "source should have 2 members after SMOVE");
+        assert!(!members.contains(&"b".to_string()));
+    } else {
+        panic!("expected Set");
+    }
+
+    let dst_after = redis::get_key(&mut conn, dst.clone()).await.unwrap();
+    if let RedisValue::Set(members) = &dst_after.value {
+        assert_eq!(members.len(), 3, "dest should have 3 members after SMOVE");
+        assert!(members.contains(&"b".to_string()));
+    } else {
+        panic!("expected Set");
+    }
+
+    // SMOVE with non-existent member → false
+    let not_moved = redis::smove(&mut conn, src.clone(), dst.clone(), "z".to_string())
+        .await
+        .unwrap();
+    assert!(!not_moved, "SMOVE should return false for non-existent member");
+
+    cleanup(&form, &src).await;
+    cleanup(&form, &dst).await;
 }

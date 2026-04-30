@@ -209,11 +209,19 @@ export interface RedisKeyPatchPayload {
   stringIncrBy?: string;
   hashIncrBy?: Record<string, string>;
   zsetIncrBy?: { member: string; score: number }[];
+  stringIncrByInt?: number;
 }
 
 export interface RedisRawResult {
   output: string;
 }
+
+export interface RedisZRangeByScoreResult {
+  members: { member: string; score: number }[];
+  total: number;
+}
+
+export type RedisSetOperation = "inter" | "union" | "diff";
 
 export interface ElasticsearchConnectionInfo {
   clusterName?: string | null;
@@ -959,6 +967,54 @@ export const api = {
       invoke<Record<string, string>>("redis_server_config", { id, database }),
     slowlogGet: (id: number, database: string | undefined, count?: number) =>
       invoke<RedisSlowlogEntry[]>("redis_slowlog_get", { id, database, count }),
+    zrangebyscore: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      min: string,
+      max: string,
+      offset?: number,
+      limit?: number,
+    ) =>
+      invoke<RedisZRangeByScoreResult>("redis_zrangebyscore", {
+        id,
+        database,
+        key,
+        min,
+        max,
+        offset,
+        limit,
+      }),
+    zrank: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      member: string,
+      reverse?: boolean,
+    ) =>
+      invoke<number | null>("redis_zrank", { id, database, key, member, reverse }),
+    setOperation: (
+      id: number,
+      database: string | undefined,
+      keys: string[],
+      op: RedisSetOperation,
+    ) =>
+      invoke<string[]>("redis_set_operation", { id, database, keys, op }),
+    sismember: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      member: string,
+    ) =>
+      invoke<boolean>("redis_sismember", { id, database, key, member }),
+    smove: (
+      id: number,
+      database: string | undefined,
+      source: string,
+      destination: string,
+      member: string,
+    ) =>
+      invoke<boolean>("redis_smove", { id, database, source, destination, member }),
   },
   elasticsearch: {
     testConnection: (id: number) =>

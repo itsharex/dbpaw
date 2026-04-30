@@ -1,7 +1,34 @@
 import { useState } from "react";
-import { Check, Plus, Search, Trash2, X } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Loader2,
+  MoveRight,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  Trash2,
+  X,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -10,21 +37,103 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import type { RedisSetOperation } from "@/services/api";
 
 interface Props {
   value: string[];
   onChange: (v: string[]) => void;
+  onSismember?: (member: string) => Promise<boolean>;
+  onSetOperation?: (
+    keys: string[],
+    op: RedisSetOperation,
+  ) => Promise<string[]>;
+  onSmove?: (destination: string, member: string) => Promise<boolean>;
 }
 
-export function RedisSetViewer({ value, onChange }: Props) {
+export function RedisSetViewer({
+  value,
+  onChange,
+  onSismember,
+  onSetOperation,
+  onSmove,
+}: Props) {
   const [filter, setFilter] = useState("");
   const [showNewRow, setShowNewRow] = useState(false);
   const [newMember, setNewMember] = useState("");
   const [duplicateWarning, setDuplicateWarning] = useState(false);
 
+  // Operations panel state
+  const [showOpsPanel, setShowOpsPanel] = useState(false);
+
+  // SISMEMBER state
+  const [sismemberInput, setSismemberInput] = useState("");
+  const [sismemberResult, setSismemberResult] = useState<boolean | null>(null);
+  const [isCheckingMember, setIsCheckingMember] = useState(false);
+
+  // Set algebra state
+  const [setOpType, setSetOpType] = useState<RedisSetOperation>("inter");
+  const [setOpKeys, setSetOpKeys] = useState("");
+  const [setOpResults, setSetOpResults] = useState<string[] | null>(null);
+  const [isRunningOp, setIsRunningOp] = useState(false);
+
+  // SMOVE dialog state
+  const [smoveMember, setSmoveMember] = useState<string | null>(null);
+  const [smoveDest, setSmoveDest] = useState("");
+  const [isSmoveing, setIsSmoveing] = useState(false);
+
   const filtered = filter.trim()
     ? value.filter((m) => m.includes(filter.trim()))
     : value;
+
+  const hasOpsCapability = onSismember || onSetOperation || onSmove;
+
+  const handleSismember = async () => {
+    if (!onSismember || !sismemberInput.trim()) return;
+    setIsCheckingMember(true);
+    try {
+      const exists = await onSismember(sismemberInput.trim());
+      setSismemberResult(exists);
+    } catch {
+      setSismemberResult(null);
+    } finally {
+      setIsCheckingMember(false);
+    }
+  };
+
+  const handleSetOp = async () => {
+    if (!onSetOperation || !setOpKeys.trim()) return;
+    const keys = setOpKeys
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    if (keys.length === 0) return;
+    setIsRunningOp(true);
+    try {
+      const results = await onSetOperation(keys, setOpType);
+      setSetOpResults(results);
+    } catch {
+      setSetOpResults(null);
+    } finally {
+      setIsRunningOp(false);
+    }
+  };
+
+  const handleSmove = async () => {
+    if (!onSmove || !smoveMember || !smoveDest.trim()) return;
+    setIsSmoveing(true);
+    try {
+      const moved = await onSmove(smoveDest.trim(), smoveMember);
+      if (moved) {
+        onChange(value.filter((m) => m !== smoveMember));
+      }
+      setSmoveMember(null);
+      setSmoveDest("");
+    } catch {
+      // Error handled by caller
+    } finally {
+      setIsSmoveing(false);
+    }
+  };
 
   const commitAdd = () => {
     const m = newMember.trim();
@@ -49,8 +158,15 @@ export function RedisSetViewer({ value, onChange }: Props) {
     onChange(value.filter((m) => m !== member));
   };
 
+  const copyResults = () => {
+    if (setOpResults) {
+      void navigator.clipboard.writeText(setOpResults.join("\n"));
+    }
+  };
+
   return (
     <div className="space-y-2">
+      {/* Toolbar */}
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm text-muted-foreground shrink-0">
           {value.length} members
@@ -66,18 +182,171 @@ export function RedisSetViewer({ value, onChange }: Props) {
             />
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 shrink-0"
-          onClick={() => setShowNewRow(true)}
-          disabled={showNewRow}
-        >
-          <Plus className="w-3 h-3 mr-1" />
-          Add member
-        </Button>
+        <div className="flex gap-1.5 shrink-0">
+          {hasOpsCapability && (
+            <Button
+              variant={showOpsPanel ? "secondary" : "outline"}
+              size="sm"
+              className="h-7"
+              onClick={() => setShowOpsPanel((v) => !v)}
+            >
+              <SlidersHorizontal className="w-3 h-3 mr-1" />
+              Operations
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7"
+            onClick={() => setShowNewRow(true)}
+            disabled={showNewRow}
+          >
+            <Plus className="w-3 h-3 mr-1" />
+            Add member
+          </Button>
+        </div>
       </div>
 
+      {/* Operations Panel */}
+      {showOpsPanel && (
+        <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+          {/* SISMEMBER */}
+          {onSismember && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">
+                SISMEMBER
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  className="h-7 font-mono text-xs w-48"
+                  value={sismemberInput}
+                  onChange={(e) => {
+                    setSismemberInput(e.target.value);
+                    setSismemberResult(null);
+                  }}
+                  placeholder="member value"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleSismember();
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7"
+                  onClick={() => void handleSismember()}
+                  disabled={isCheckingMember || !sismemberInput.trim()}
+                >
+                  {isCheckingMember ? (
+                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  ) : null}
+                  Check
+                </Button>
+              </div>
+              {sismemberResult !== null && (
+                <div className="text-xs">
+                  {sismemberResult ? (
+                    <span className="text-green-600 dark:text-green-400">
+                      ✓ Member exists in this set
+                    </span>
+                  ) : (
+                    <span className="text-red-500 dark:text-red-400">
+                      ✗ Member does not exist
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Set Algebra */}
+          {onSetOperation && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">
+                Set Algebra
+              </div>
+              <div className="flex items-center gap-2">
+                <Select
+                  value={setOpType}
+                  onValueChange={(v) => setSetOpType(v as RedisSetOperation)}
+                >
+                  <SelectTrigger className="h-7 w-28 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="inter">SINTER</SelectItem>
+                    <SelectItem value="union">SUNION</SelectItem>
+                    <SelectItem value="diff">SDIFF</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  className="h-7 font-mono text-xs flex-1"
+                  value={setOpKeys}
+                  onChange={(e) => {
+                    setSetOpKeys(e.target.value);
+                    setSetOpResults(null);
+                  }}
+                  placeholder="other key1, key2, ..."
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleSetOp();
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7"
+                  onClick={() => void handleSetOp()}
+                  disabled={isRunningOp || !setOpKeys.trim()}
+                >
+                  {isRunningOp ? (
+                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  ) : null}
+                  Execute
+                </Button>
+              </div>
+              {setOpResults !== null && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-xs">
+                      {setOpResults.length} members
+                    </Badge>
+                    {setOpResults.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 px-1.5 text-xs"
+                        onClick={copyResults}
+                      >
+                        <Copy className="w-3 h-3 mr-1" />
+                        Copy
+                      </Button>
+                    )}
+                  </div>
+                  {setOpResults.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {setOpResults.map((m) => (
+                        <Badge
+                          key={m}
+                          variant="outline"
+                          className="font-mono text-xs"
+                        >
+                          {m}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  {setOpResults.length === 0 && (
+                    <div className="text-xs text-muted-foreground">
+                      (empty result)
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Data table */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -155,20 +424,93 @@ export function RedisSetViewer({ value, onChange }: Props) {
                   {member}
                 </TableCell>
                 <TableCell className="py-1.5">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={() => deleteMember(member)}
-                  >
-                    <Trash2 className="w-3 h-3 text-destructive" />
-                  </Button>
+                  <div className="flex items-center gap-0.5">
+                    {onSmove && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={() => {
+                          setSmoveMember(member);
+                          setSmoveDest("");
+                        }}
+                        title="Move to another set"
+                      >
+                        <MoveRight className="w-3 h-3" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={() => deleteMember(member)}
+                    >
+                      <Trash2 className="w-3 h-3 text-destructive" />
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
+
+      {/* SMOVE Dialog */}
+      <Dialog
+        open={smoveMember !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSmoveMember(null);
+            setSmoveDest("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Move member to another set</DialogTitle>
+            <DialogDescription>
+              Move{" "}
+              <code className="font-mono text-xs bg-muted px-1 py-0.5 rounded">
+                {smoveMember}
+              </code>{" "}
+              to a destination set using SMOVE.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label className="text-sm">Destination key</Label>
+            <Input
+              value={smoveDest}
+              onChange={(e) => setSmoveDest(e.target.value)}
+              placeholder="destination set key"
+              className="font-mono text-sm"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleSmove();
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSmoveMember(null);
+                setSmoveDest("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => void handleSmove()}
+              disabled={isSmoveing || !smoveDest.trim()}
+            >
+              {isSmoveing && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+              Move
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

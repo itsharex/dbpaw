@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { ArrowUpDown, Check, Info, Minus, Plus, Trash2, X } from "lucide-react";
+import {
+  ArrowUpDown,
+  Check,
+  Info,
+  Loader2,
+  Minus,
+  Plus,
+  SlidersHorizontal,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { RedisKeyExtra } from "@/services/api";
+import type { RedisKeyExtra, RedisZRangeByScoreResult } from "@/services/api";
 import { parseRedisZSetScore } from "../redis-utils";
 
 interface ZSetMember {
@@ -24,9 +34,21 @@ interface Props {
   onChange: (v: ZSetMember[]) => void;
   extra?: RedisKeyExtra | null;
   onZsetIncrBy?: (member: string, amount: number) => void;
+  onZRangeByScore?: (
+    min: string,
+    max: string,
+  ) => Promise<RedisZRangeByScoreResult>;
+  onZRank?: (member: string, reverse: boolean) => Promise<number | null>;
 }
 
-export function RedisZSetViewer({ value, onChange, extra, onZsetIncrBy }: Props) {
+export function RedisZSetViewer({
+  value,
+  onChange,
+  extra,
+  onZsetIncrBy,
+  onZRangeByScore,
+  onZRank,
+}: Props) {
   const [sortAsc, setSortAsc] = useState(true);
   const [editingMember, setEditingMember] = useState<string | null>(null);
   const [editingScore, setEditingScore] = useState("");
@@ -36,9 +58,64 @@ export function RedisZSetViewer({ value, onChange, extra, onZsetIncrBy }: Props)
   const [scoreError, setScoreError] = useState<string | null>(null);
   const isGeo = extra?.subtype === "geo";
 
-  const sorted = [...value].sort((a, b) =>
-    sortAsc ? a.score - b.score : b.score - a.score,
+  // Query panel state
+  const [showQueryPanel, setShowQueryPanel] = useState(false);
+  const [filterMin, setFilterMin] = useState("-inf");
+  const [filterMax, setFilterMax] = useState("+inf");
+  const [filterActive, setFilterActive] = useState(false);
+  const [filteredMembers, setFilteredMembers] = useState<ZSetMember[] | null>(
+    null,
   );
+  const [filterTotal, setFilterTotal] = useState<number | null>(null);
+  const [isFiltering, setIsFiltering] = useState(false);
+
+  // Rank lookup state
+  const [rankMember, setRankMember] = useState("");
+  const [rankResult, setRankResult] = useState<{
+    rank: number;
+    reverse: boolean;
+  } | null>(null);
+  const [isRanking, setIsRanking] = useState(false);
+
+  const displayMembers = filterActive && filteredMembers
+    ? filteredMembers
+    : [...value].sort((a, b) =>
+        sortAsc ? a.score - b.score : b.score - a.score,
+      );
+
+  const handleFilter = async () => {
+    if (!onZRangeByScore) return;
+    setIsFiltering(true);
+    try {
+      const result = await onZRangeByScore(filterMin, filterMax);
+      setFilteredMembers(result.members);
+      setFilterTotal(result.total);
+      setFilterActive(true);
+    } catch {
+      // Error handled by caller
+    } finally {
+      setIsFiltering(false);
+    }
+  };
+
+  const clearFilter = () => {
+    setFilterActive(false);
+    setFilteredMembers(null);
+    setFilterTotal(null);
+  };
+
+  const handleRankLookup = async (reverse: boolean) => {
+    if (!onZRank || !rankMember.trim()) return;
+    setIsRanking(true);
+    try {
+      const rank = await onZRank(rankMember.trim(), reverse);
+      setRankResult(rank !== null ? { rank, reverse } : null);
+    } catch {
+      setRankResult(null);
+    } finally {
+      setIsRanking(false);
+    }
+  };
 
   const commitEdit = (member: string) => {
     let score: number;
@@ -94,20 +171,27 @@ export function RedisZSetViewer({ value, onChange, extra, onZsetIncrBy }: Props)
     setScoreError(null);
   };
 
+  const hasQueryCapability = onZRangeByScore || onZRank;
+
   return (
     <div className="space-y-2">
       {isGeo && (
         <div className="flex items-center gap-2 text-xs text-teal-700 bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900 rounded px-3 py-2">
           <Info className="w-3.5 h-3.5 shrink-0" />
           <span>
-            Geo spatial index detected. Scores are geohash values.
-            Use Console for GEOPOS / GEODIST / GEORADIUS operations.
+            Geo spatial index detected. Scores are geohash values. Use Console
+            for GEOPOS / GEODIST / GEORADIUS operations.
           </span>
-          <Badge variant="outline" className="text-xs text-teal-600 border-teal-200 ml-auto">
+          <Badge
+            variant="outline"
+            className="text-xs text-teal-600 border-teal-200 ml-auto"
+          >
             Geo
           </Badge>
         </div>
       )}
+
+      {/* Toolbar */}
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
           {value.length} members
@@ -122,6 +206,17 @@ export function RedisZSetViewer({ value, onChange, extra, onZsetIncrBy }: Props)
             <ArrowUpDown className="w-3 h-3 mr-1" />
             Score {sortAsc ? "↑" : "↓"}
           </Button>
+          {hasQueryCapability && (
+            <Button
+              variant={showQueryPanel ? "secondary" : "outline"}
+              size="sm"
+              className="h-7"
+              onClick={() => setShowQueryPanel((v) => !v)}
+            >
+              <SlidersHorizontal className="w-3 h-3 mr-1" />
+              Query
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -135,6 +230,154 @@ export function RedisZSetViewer({ value, onChange, extra, onZsetIncrBy }: Props)
         </div>
       </div>
 
+      {/* Query Panel */}
+      {showQueryPanel && (
+        <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+          {/* Score Range Filter */}
+          {onZRangeByScore && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">
+                Score Range
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  className="h-7 font-mono text-xs w-28"
+                  value={filterMin}
+                  onChange={(e) => setFilterMin(e.target.value)}
+                  placeholder="-inf"
+                />
+                <span className="text-xs text-muted-foreground">~</span>
+                <Input
+                  className="h-7 font-mono text-xs w-28"
+                  value={filterMax}
+                  onChange={(e) => setFilterMax(e.target.value)}
+                  placeholder="+inf"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7"
+                  onClick={() => void handleFilter()}
+                  disabled={isFiltering}
+                >
+                  {isFiltering ? (
+                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  ) : null}
+                  Filter
+                </Button>
+                {filterActive && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-muted-foreground"
+                    onClick={clearFilter}
+                  >
+                    <X className="w-3 h-3 mr-1" />
+                    Clear
+                  </Button>
+                )}
+              </div>
+              {filterActive && filterTotal !== null && (
+                <div className="text-xs text-muted-foreground">
+                  <Badge variant="secondary" className="text-xs mr-1.5">
+                    ZCOUNT: {filterTotal}
+                  </Badge>
+                  Showing {filteredMembers?.length ?? 0} members matching score ∈{" "}
+                  [{filterMin}, {filterMax}]
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Rank Lookup */}
+          {onZRank && (
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-muted-foreground">
+                Member Rank
+              </div>
+              <div className="flex items-center gap-2">
+                <Input
+                  className="h-7 font-mono text-xs w-48"
+                  value={rankMember}
+                  onChange={(e) => {
+                    setRankMember(e.target.value);
+                    setRankResult(null);
+                  }}
+                  placeholder="member name"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void handleRankLookup(false);
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7"
+                  onClick={() => void handleRankLookup(false)}
+                  disabled={isRanking || !rankMember.trim()}
+                >
+                  {isRanking ? (
+                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  ) : null}
+                  ZRANK
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7"
+                  onClick={() => void handleRankLookup(true)}
+                  disabled={isRanking || !rankMember.trim()}
+                >
+                  {isRanking ? (
+                    <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                  ) : null}
+                  ZREVRANK
+                </Button>
+              </div>
+              {rankResult !== null && (
+                <div className="text-xs">
+                  <Badge variant="secondary" className="text-xs mr-1.5">
+                    {rankResult.reverse ? "ZREVRANK" : "ZRANK"}
+                  </Badge>
+                  <span className="text-muted-foreground">
+                    Rank{" "}
+                    <span className="font-mono text-foreground">
+                      #{rankResult.rank}
+                    </span>
+                  </span>
+                </div>
+              )}
+              {rankResult === null &&
+                rankMember.trim() &&
+                !isRanking && (
+                  <div className="text-xs text-muted-foreground">
+                    Member not found
+                  </div>
+                )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Filter banner */}
+      {filterActive && (
+        <div className="flex items-center gap-2 text-xs rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 px-3 py-1.5">
+          <SlidersHorizontal className="w-3 h-3 text-blue-500" />
+          <span className="text-blue-700 dark:text-blue-300">
+            Filtered: score ∈ [{filterMin}, {filterMax}] —{" "}
+            {filteredMembers?.length ?? 0} results
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 px-1.5 ml-auto text-xs text-blue-600 dark:text-blue-400"
+            onClick={clearFilter}
+          >
+            Show all
+          </Button>
+        </div>
+      )}
+
+      {/* Data table */}
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -204,18 +447,20 @@ export function RedisZSetViewer({ value, onChange, extra, onZsetIncrBy }: Props)
               </TableRow>
             )}
 
-            {sorted.length === 0 && !showNewRow && (
+            {displayMembers.length === 0 && !showNewRow && (
               <TableRow>
                 <TableCell
                   colSpan={3}
                   className="text-center text-muted-foreground text-sm py-6"
                 >
-                  Empty sorted set
+                  {filterActive
+                    ? "No members match the score range"
+                    : "Empty sorted set"}
                 </TableCell>
               </TableRow>
             )}
 
-            {sorted.map(({ member, score }) => (
+            {displayMembers.map(({ member, score }) => (
               <TableRow key={member} className="group">
                 <TableCell
                   className="font-mono text-xs py-1.5 truncate max-w-0"
