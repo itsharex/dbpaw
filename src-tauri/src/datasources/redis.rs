@@ -395,6 +395,20 @@ pub enum RedisSetOperation {
     Diff,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RedisLInsertPosition {
+    Before,
+    After,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RedisLMoveDirection {
+    Left,
+    Right,
+}
+
 // ── Batch operations types ──────────────────────────────────────────────────
 
 /// A single batch key operation request.
@@ -956,8 +970,7 @@ pub async fn connect(
         let db = selected_database(form, database)?;
         let node_info = build_sentinel_node_info(form, db);
 
-        let mut sentinel = Sentinel::build(sentinel_nodes)
-            .map_err(|e| conn_failed_error(&e))?;
+        let mut sentinel = Sentinel::build(sentinel_nodes).map_err(|e| conn_failed_error(&e))?;
 
         let client = sentinel
             .async_master_for(&service_name, Some(&node_info))
@@ -2017,7 +2030,9 @@ pub async fn patch_key(
     if let Some(bits) = payload.bitmap_set {
         for bit in bits {
             let mut cmd = redis::cmd("SETBIT");
-            cmd.arg(key).arg(bit.offset).arg(if bit.value { 1 } else { 0 });
+            cmd.arg(key)
+                .arg(bit.offset)
+                .arg(if bit.value { 1 } else { 0 });
             conn.query::<i64>(cmd).await?;
         }
     }
@@ -2255,7 +2270,12 @@ pub async fn geo_pos(
         .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
     Ok(positions
         .into_iter()
-        .map(|p| p.map(|(lon, lat)| RedisGeoPosition { longitude: lon, latitude: lat }))
+        .map(|p| {
+            p.map(|(lon, lat)| RedisGeoPosition {
+                longitude: lon,
+                latitude: lat,
+            })
+        })
         .collect())
 }
 
@@ -2301,7 +2321,9 @@ pub async fn geo_search(
     } else if let (Some(lon), Some(lat)) = (longitude, latitude) {
         cmd.arg("FROMLONLAT").arg(lon).arg(lat);
     } else {
-        return Err("[VALIDATION_ERROR] Either member or longitude+latitude is required".to_string());
+        return Err(
+            "[VALIDATION_ERROR] Either member or longitude+latitude is required".to_string(),
+        );
     }
 
     cmd.arg("BYRADIUS").arg(radius).arg(&unit);
@@ -2330,8 +2352,8 @@ pub async fn geo_search(
             if inner.is_empty() {
                 continue;
             }
-            let member_name = from_redis_value::<String>(&inner[0])
-                .map_err(|e| format!("[REDIS_ERROR] {e}"))?;
+            let member_name =
+                from_redis_value::<String>(&inner[0]).map_err(|e| format!("[REDIS_ERROR] {e}"))?;
             let mut result = RedisGeoSearchResult {
                 member: member_name,
                 distance: None,
@@ -2736,6 +2758,108 @@ pub async fn smove(
     Ok(moved)
 }
 
+// ── List advanced operations ────────────────────────────────────────────────
+
+pub async fn lindex(
+    conn: &mut RedisConnection,
+    key: String,
+    index: i64,
+) -> Result<Option<String>, String> {
+    validate_key(&key)?;
+
+    let mut cmd = redis::cmd("LINDEX");
+    cmd.arg(&key).arg(index);
+    let value: Option<String> = conn.query(cmd).await?;
+
+    Ok(value)
+}
+
+pub async fn lpos(
+    conn: &mut RedisConnection,
+    key: String,
+    element: String,
+    rank: Option<i64>,
+    count: Option<u64>,
+    maxlen: Option<u64>,
+) -> Result<Vec<i64>, String> {
+    validate_key(&key)?;
+
+    let mut cmd = redis::cmd("LPOS");
+    cmd.arg(&key).arg(&element);
+    if let Some(r) = rank {
+        cmd.arg("RANK").arg(r);
+    }
+    // Always send COUNT so Redis returns an array (not a bare integer).
+    // Default to 1 when caller omits count.
+    cmd.arg("COUNT").arg(count.unwrap_or(1));
+    if let Some(ml) = maxlen {
+        cmd.arg("MAXLEN").arg(ml);
+    }
+    let positions: Vec<i64> = conn.query(cmd).await?;
+
+    Ok(positions)
+}
+
+pub async fn ltrim(
+    conn: &mut RedisConnection,
+    key: String,
+    start: i64,
+    stop: i64,
+) -> Result<bool, String> {
+    validate_key(&key)?;
+
+    let mut cmd = redis::cmd("LTRIM");
+    cmd.arg(&key).arg(start).arg(stop);
+    let _: () = conn.query(cmd).await?;
+
+    Ok(true)
+}
+
+pub async fn linsert(
+    conn: &mut RedisConnection,
+    key: String,
+    position: RedisLInsertPosition,
+    pivot: String,
+    element: String,
+) -> Result<i64, String> {
+    validate_key(&key)?;
+
+    let pos_str = match position {
+        RedisLInsertPosition::Before => "BEFORE",
+        RedisLInsertPosition::After => "AFTER",
+    };
+    let mut cmd = redis::cmd("LINSERT");
+    cmd.arg(&key).arg(pos_str).arg(&pivot).arg(&element);
+    let len: i64 = conn.query(cmd).await?;
+
+    Ok(len)
+}
+
+pub async fn lmove(
+    conn: &mut RedisConnection,
+    source: String,
+    destination: String,
+    src_direction: RedisLMoveDirection,
+    dst_direction: RedisLMoveDirection,
+) -> Result<Option<String>, String> {
+    validate_key(&source)?;
+    validate_key(&destination)?;
+
+    let src_dir = match src_direction {
+        RedisLMoveDirection::Left => "LEFT",
+        RedisLMoveDirection::Right => "RIGHT",
+    };
+    let dst_dir = match dst_direction {
+        RedisLMoveDirection::Left => "LEFT",
+        RedisLMoveDirection::Right => "RIGHT",
+    };
+    let mut cmd = redis::cmd("LMOVE");
+    cmd.arg(&source).arg(&destination).arg(src_dir).arg(dst_dir);
+    let value: Option<String> = conn.query(cmd).await?;
+
+    Ok(value)
+}
+
 // ── Stream Consumer Group operations ────────────────────────────────────────
 
 pub async fn xgroup_create(
@@ -2903,10 +3027,7 @@ pub async fn xclaim(
     }
 
     let mut cmd = redis::cmd("XCLAIM");
-    cmd.arg(&key)
-        .arg(&group)
-        .arg(&consumer)
-        .arg(min_idle_ms);
+    cmd.arg(&key).arg(&group).arg(&consumer).arg(min_idle_ms);
     for id in &ids {
         cmd.arg(id);
     }
@@ -2943,7 +3064,8 @@ fn parse_stream_fields(val: &Value) -> BTreeMap<String, String> {
     if let Value::Array(ref items) = val {
         let mut iter = items.iter();
         while let (Some(k), Some(v)) = (iter.next(), iter.next()) {
-            if let (Ok(key), Ok(val)) = (from_redis_value::<String>(k), from_redis_value::<String>(v))
+            if let (Ok(key), Ok(val)) =
+                (from_redis_value::<String>(k), from_redis_value::<String>(v))
             {
                 map.insert(key, val);
             }
@@ -3157,9 +3279,7 @@ pub async fn mset_keys(
     })
 }
 
-pub async fn cluster_info(
-    conn: &mut RedisConnection,
-) -> Result<RedisClusterInfo, String> {
+pub async fn cluster_info(conn: &mut RedisConnection) -> Result<RedisClusterInfo, String> {
     let mut pipe = redis::pipe();
     pipe.cmd("CLUSTER").arg("INFO");
     pipe.cmd("CLUSTER").arg("NODES");
@@ -3466,7 +3586,10 @@ mod tests {
         let info = parse_cluster_info_text(raw);
         assert_eq!(info.get("cluster_state").map(String::as_str), Some("ok"));
         assert_eq!(info.get("cluster_slots").map(String::as_str), Some("16384"));
-        assert_eq!(info.get("cluster_known_nodes").map(String::as_str), Some("3"));
+        assert_eq!(
+            info.get("cluster_known_nodes").map(String::as_str),
+            Some("3")
+        );
     }
 
     #[test]

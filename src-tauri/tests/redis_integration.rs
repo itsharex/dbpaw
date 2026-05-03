@@ -3,9 +3,9 @@ mod redis_context;
 
 use dbpaw_lib::datasources::redis;
 use dbpaw_lib::datasources::redis::{
-    RedisBatchKeyOp, RedisKeyPatchPayload, RedisMgetEntry, RedisSetKeyPayload,
-    RedisSetOperation, RedisStreamEntry, RedisValue, RedisXPendingResult,
-    RedisZRangeByScoreResult, RedisZSetMember,
+    RedisBatchKeyOp, RedisKeyPatchPayload, RedisLInsertPosition, RedisLMoveDirection,
+    RedisMgetEntry, RedisSetKeyPayload, RedisSetOperation, RedisStreamEntry, RedisValue,
+    RedisXPendingResult, RedisZRangeByScoreResult, RedisZSetMember,
 };
 use std::collections::BTreeMap;
 
@@ -948,10 +948,7 @@ async fn string_incr_by_int_rejects_non_integer() {
         ..Default::default()
     };
     let err = redis::patch_key(&mut conn, patch).await.unwrap_err();
-    assert!(
-        err.contains("not an integer"),
-        "unexpected error: {err}"
-    );
+    assert!(err.contains("not an integer"), "unexpected error: {err}");
 
     cleanup(&form, &key).await;
 }
@@ -1023,7 +1020,11 @@ async fn zrangebyscore_and_zcount() {
     )
     .await
     .unwrap();
-    assert_eq!(result3.members.len(), 3, "expected 3 members with LIMIT 2 3");
+    assert_eq!(
+        result3.members.len(),
+        3,
+        "expected 3 members with LIMIT 2 3"
+    );
 
     cleanup(&form, &key).await;
 }
@@ -1037,9 +1038,18 @@ async fn zrank_and_zrevrank() {
     let mut conn = redis::connect(&form, None).await.unwrap();
 
     let members: Vec<RedisZSetMember> = vec![
-        RedisZSetMember { member: "a".to_string(), score: 1.0 },
-        RedisZSetMember { member: "b".to_string(), score: 2.0 },
-        RedisZSetMember { member: "c".to_string(), score: 3.0 },
+        RedisZSetMember {
+            member: "a".to_string(),
+            score: 1.0,
+        },
+        RedisZSetMember {
+            member: "b".to_string(),
+            score: 2.0,
+        },
+        RedisZSetMember {
+            member: "c".to_string(),
+            score: 3.0,
+        },
     ];
     let payload = RedisSetKeyPayload {
         key: key.clone(),
@@ -1242,7 +1252,10 @@ async fn smove_between_sets() {
     let not_moved = redis::smove(&mut conn, src.clone(), dst.clone(), "z".to_string())
         .await
         .unwrap();
-    assert!(!not_moved, "SMOVE should return false for non-existent member");
+    assert!(
+        !not_moved,
+        "SMOVE should return false for non-existent member"
+    );
 
     cleanup(&form, &src).await;
     cleanup(&form, &dst).await;
@@ -1288,7 +1301,10 @@ async fn xgroup_create_and_del() {
     // Verify group exists via get_key
     let kv = redis::get_key(&mut conn, key.clone()).await.unwrap();
     let groups = kv.extra.unwrap().stream_groups.unwrap_or_default();
-    assert!(groups.iter().any(|g| g.name == "test-group"), "group should exist");
+    assert!(
+        groups.iter().any(|g| g.name == "test-group"),
+        "group should exist"
+    );
 
     // XGROUP DEL
     let deleted = redis::xgroup_del(&mut conn, key.clone(), "test-group".to_string())
@@ -1299,7 +1315,10 @@ async fn xgroup_create_and_del() {
     // Verify group removed
     let kv = redis::get_key(&mut conn, key.clone()).await.unwrap();
     let groups = kv.extra.unwrap().stream_groups.unwrap_or_default();
-    assert!(!groups.iter().any(|g| g.name == "test-group"), "group should be gone");
+    assert!(
+        !groups.iter().any(|g| g.name == "test-group"),
+        "group should be gone"
+    );
 
     cleanup(&form, &key).await;
 }
@@ -1333,9 +1352,15 @@ async fn xgroup_setid() {
     redis::set_key(&mut conn, payload).await.unwrap();
 
     // Create group
-    redis::xgroup_create(&mut conn, key.clone(), "g1".to_string(), "$".to_string(), false)
-        .await
-        .unwrap();
+    redis::xgroup_create(
+        &mut conn,
+        key.clone(),
+        "g1".to_string(),
+        "$".to_string(),
+        false,
+    )
+    .await
+    .unwrap();
 
     // SETID to "0" (reset to beginning)
     let ok = redis::xgroup_setid(&mut conn, key.clone(), "g1".to_string(), "0".to_string())
@@ -1376,9 +1401,15 @@ async fn xack_and_xpending() {
     redis::set_key(&mut conn, payload).await.unwrap();
 
     // Create group starting at "0"
-    redis::xgroup_create(&mut conn, key.clone(), "grp".to_string(), "0".to_string(), false)
-        .await
-        .unwrap();
+    redis::xgroup_create(
+        &mut conn,
+        key.clone(),
+        "grp".to_string(),
+        "0".to_string(),
+        false,
+    )
+    .await
+    .unwrap();
 
     // XREADGROUP to consume the message (makes it pending)
     let entries = redis::xreadgroup(
@@ -1464,9 +1495,15 @@ async fn xclaim() {
     };
     redis::set_key(&mut conn, payload).await.unwrap();
 
-    redis::xgroup_create(&mut conn, key.clone(), "grp".to_string(), "0".to_string(), false)
-        .await
-        .unwrap();
+    redis::xgroup_create(
+        &mut conn,
+        key.clone(),
+        "grp".to_string(),
+        "0".to_string(),
+        false,
+    )
+    .await
+    .unwrap();
 
     // consumer-a reads the message
     let entries = redis::xreadgroup(
@@ -1562,7 +1599,11 @@ async fn xtrim_maxlen() {
     // Verify length
     let kv = redis::get_key(&mut conn, key.clone()).await.unwrap();
     let info = kv.extra.unwrap().stream_info.unwrap();
-    assert!(info.length <= 10, "stream length should be <= 10, got {}", info.length);
+    assert!(
+        info.length <= 10,
+        "stream length should be <= 10, got {}",
+        info.length
+    );
 
     cleanup(&form, &key).await;
 }
@@ -1608,9 +1649,15 @@ async fn xtrim_minid() {
     assert!(trimmed > 0, "should have trimmed entries");
 
     // Verify remaining entries all have ID >= 6-0
-    let view = redis::get_stream_view(&mut conn, key.clone(), "-".to_string(), "+".to_string(), 100)
-        .await
-        .unwrap();
+    let view = redis::get_stream_view(
+        &mut conn,
+        key.clone(),
+        "-".to_string(),
+        "+".to_string(),
+        100,
+    )
+    .await
+    .unwrap();
     for entry in &view.entries {
         let id_num: u64 = entry.id.split('-').next().unwrap().parse().unwrap();
         assert!(id_num >= 6, "entry {} should have ID >= 6-0", entry.id);
@@ -1643,9 +1690,15 @@ async fn xgroup_create_idempotent_error() {
     redis::set_key(&mut conn, payload).await.unwrap();
 
     // First create succeeds
-    redis::xgroup_create(&mut conn, key.clone(), "dup".to_string(), "0".to_string(), false)
-        .await
-        .unwrap();
+    redis::xgroup_create(
+        &mut conn,
+        key.clone(),
+        "dup".to_string(),
+        "0".to_string(),
+        false,
+    )
+    .await
+    .unwrap();
 
     // Second create should fail with BUSYGROUP
     let result = redis::xgroup_create(
@@ -1706,7 +1759,9 @@ async fn batch_del_keys() {
 
     // Verify keys are gone
     for i in 0..5u32 {
-        let got = redis::get_key(&mut conn, format!("{prefix}:{i}")).await.unwrap();
+        let got = redis::get_key(&mut conn, format!("{prefix}:{i}"))
+            .await
+            .unwrap();
         assert_eq!(got.key_type, "none", "key {prefix}:{i} should be deleted");
     }
 }
@@ -1745,7 +1800,9 @@ async fn batch_unlink_keys() {
     }
 
     for i in 0..3u32 {
-        let got = redis::get_key(&mut conn, format!("{prefix}:{i}")).await.unwrap();
+        let got = redis::get_key(&mut conn, format!("{prefix}:{i}"))
+            .await
+            .unwrap();
         assert_eq!(got.key_type, "none");
     }
 }
@@ -1909,26 +1966,44 @@ async fn zscore_basic() {
     let mut conn = redis::connect(&form, None).await.unwrap();
 
     let members = vec![
-        RedisZSetMember { member: "a".into(), score: 1.5 },
-        RedisZSetMember { member: "b".into(), score: 2.5 },
-        RedisZSetMember { member: "c".into(), score: 3.5 },
+        RedisZSetMember {
+            member: "a".into(),
+            score: 1.5,
+        },
+        RedisZSetMember {
+            member: "b".into(),
+            score: 2.5,
+        },
+        RedisZSetMember {
+            member: "c".into(),
+            score: 3.5,
+        },
     ];
-    redis::set_key(&mut conn, RedisSetKeyPayload {
-        key: key.clone(),
-        value: RedisValue::ZSet(members),
-        ttl_seconds: Some(60),
-        set_nx: None,
-        set_xx: None,
-        set_px: None,
-        set_keepttl: None,
-    }).await.unwrap();
+    redis::set_key(
+        &mut conn,
+        RedisSetKeyPayload {
+            key: key.clone(),
+            value: RedisValue::ZSet(members),
+            ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
+        },
+    )
+    .await
+    .unwrap();
 
     // existing member
-    let score = redis::zscore(&mut conn, key.clone(), "b".into()).await.unwrap();
+    let score = redis::zscore(&mut conn, key.clone(), "b".into())
+        .await
+        .unwrap();
     assert_eq!(score, Some(2.5));
 
     // non-existing member
-    let score = redis::zscore(&mut conn, key.clone(), "z".into()).await.unwrap();
+    let score = redis::zscore(&mut conn, key.clone(), "z".into())
+        .await
+        .unwrap();
     assert_eq!(score, None);
 
     cleanup(&form, &key).await;
@@ -1941,34 +2016,48 @@ async fn zmscore_basic() {
     let mut conn = redis::connect(&form, None).await.unwrap();
 
     let members = vec![
-        RedisZSetMember { member: "a".into(), score: 10.0 },
-        RedisZSetMember { member: "b".into(), score: 20.0 },
-        RedisZSetMember { member: "c".into(), score: 30.0 },
+        RedisZSetMember {
+            member: "a".into(),
+            score: 10.0,
+        },
+        RedisZSetMember {
+            member: "b".into(),
+            score: 20.0,
+        },
+        RedisZSetMember {
+            member: "c".into(),
+            score: 30.0,
+        },
     ];
-    redis::set_key(&mut conn, RedisSetKeyPayload {
-        key: key.clone(),
-        value: RedisValue::ZSet(members),
-        ttl_seconds: Some(60),
-        set_nx: None,
-        set_xx: None,
-        set_px: None,
-        set_keepttl: None,
-    }).await.unwrap();
+    redis::set_key(
+        &mut conn,
+        RedisSetKeyPayload {
+            key: key.clone(),
+            value: RedisValue::ZSet(members),
+            ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
+        },
+    )
+    .await
+    .unwrap();
 
     // mix of existing and non-existing
     let scores = redis::zmscore(
         &mut conn,
         key.clone(),
         vec!["a".into(), "z".into(), "c".into()],
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
     assert_eq!(scores, vec![Some(10.0), None, Some(30.0)]);
 
     // single member
-    let scores = redis::zmscore(
-        &mut conn,
-        key.clone(),
-        vec!["b".into()],
-    ).await.unwrap();
+    let scores = redis::zmscore(&mut conn, key.clone(), vec!["b".into()])
+        .await
+        .unwrap();
     assert_eq!(scores, vec![Some(20.0)]);
 
     cleanup(&form, &key).await;
@@ -1995,63 +2084,86 @@ async fn zrangebylex_and_zlexcount() {
 
     // All members must share the same score for ZRANGEBYLEX to work
     let members = vec![
-        RedisZSetMember { member: "a".into(), score: 0.0 },
-        RedisZSetMember { member: "b".into(), score: 0.0 },
-        RedisZSetMember { member: "c".into(), score: 0.0 },
-        RedisZSetMember { member: "d".into(), score: 0.0 },
-        RedisZSetMember { member: "e".into(), score: 0.0 },
+        RedisZSetMember {
+            member: "a".into(),
+            score: 0.0,
+        },
+        RedisZSetMember {
+            member: "b".into(),
+            score: 0.0,
+        },
+        RedisZSetMember {
+            member: "c".into(),
+            score: 0.0,
+        },
+        RedisZSetMember {
+            member: "d".into(),
+            score: 0.0,
+        },
+        RedisZSetMember {
+            member: "e".into(),
+            score: 0.0,
+        },
     ];
-    redis::set_key(&mut conn, RedisSetKeyPayload {
-        key: key.clone(),
-        value: RedisValue::ZSet(members),
-        ttl_seconds: Some(60),
-        set_nx: None,
-        set_xx: None,
-        set_px: None,
-        set_keepttl: None,
-    }).await.unwrap();
+    redis::set_key(
+        &mut conn,
+        RedisSetKeyPayload {
+            key: key.clone(),
+            value: RedisValue::ZSet(members),
+            ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
+        },
+    )
+    .await
+    .unwrap();
 
     // closed range [b, d]
-    let result = redis::zrangebylex(
-        &mut conn, key.clone(),
-        "[b".into(), "[d".into(),
-        None, None,
-    ).await.unwrap();
+    let result = redis::zrangebylex(&mut conn, key.clone(), "[b".into(), "[d".into(), None, None)
+        .await
+        .unwrap();
     assert_eq!(result.members, vec!["b", "c", "d"]);
     assert_eq!(result.total, 3);
 
     // open range (a, c — excludes a, includes up to c
-    let result = redis::zrangebylex(
-        &mut conn, key.clone(),
-        "(a".into(), "[c".into(),
-        None, None,
-    ).await.unwrap();
+    let result = redis::zrangebylex(&mut conn, key.clone(), "(a".into(), "[c".into(), None, None)
+        .await
+        .unwrap();
     assert_eq!(result.members, vec!["b", "c"]);
     assert_eq!(result.total, 2);
 
     // full range -, +
-    let result = redis::zrangebylex(
-        &mut conn, key.clone(),
-        "-".into(), "+".into(),
-        None, None,
-    ).await.unwrap();
+    let result = redis::zrangebylex(&mut conn, key.clone(), "-".into(), "+".into(), None, None)
+        .await
+        .unwrap();
     assert_eq!(result.members, vec!["a", "b", "c", "d", "e"]);
     assert_eq!(result.total, 5);
 
     // with LIMIT
     let result = redis::zrangebylex(
-        &mut conn, key.clone(),
-        "-".into(), "+".into(),
-        Some(1), Some(2),
-    ).await.unwrap();
+        &mut conn,
+        key.clone(),
+        "-".into(),
+        "+".into(),
+        Some(1),
+        Some(2),
+    )
+    .await
+    .unwrap();
     assert_eq!(result.members, vec!["b", "c"]);
     assert_eq!(result.total, 5); // total is ZLEXCOUNT, unaffected by LIMIT
 
     // ZLEXCOUNT standalone
-    let count = redis::zlexcount(&mut conn, key.clone(), "[b".into(), "[d".into()).await.unwrap();
+    let count = redis::zlexcount(&mut conn, key.clone(), "[b".into(), "[d".into())
+        .await
+        .unwrap();
     assert_eq!(count, 3);
 
-    let count = redis::zlexcount(&mut conn, key.clone(), "-".into(), "+".into()).await.unwrap();
+    let count = redis::zlexcount(&mut conn, key.clone(), "-".into(), "+".into())
+        .await
+        .unwrap();
     assert_eq!(count, 5);
 
     cleanup(&form, &key).await;
@@ -2064,19 +2176,33 @@ async fn zpopmin_basic() {
     let mut conn = redis::connect(&form, None).await.unwrap();
 
     let members = vec![
-        RedisZSetMember { member: "a".into(), score: 10.0 },
-        RedisZSetMember { member: "b".into(), score: 20.0 },
-        RedisZSetMember { member: "c".into(), score: 30.0 },
+        RedisZSetMember {
+            member: "a".into(),
+            score: 10.0,
+        },
+        RedisZSetMember {
+            member: "b".into(),
+            score: 20.0,
+        },
+        RedisZSetMember {
+            member: "c".into(),
+            score: 30.0,
+        },
     ];
-    redis::set_key(&mut conn, RedisSetKeyPayload {
-        key: key.clone(),
-        value: RedisValue::ZSet(members),
-        ttl_seconds: Some(60),
-        set_nx: None,
-        set_xx: None,
-        set_px: None,
-        set_keepttl: None,
-    }).await.unwrap();
+    redis::set_key(
+        &mut conn,
+        RedisSetKeyPayload {
+            key: key.clone(),
+            value: RedisValue::ZSet(members),
+            ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
+        },
+    )
+    .await
+    .unwrap();
 
     // pop 1 (default)
     let popped = redis::zpopmin(&mut conn, key.clone(), None).await.unwrap();
@@ -2092,7 +2218,9 @@ async fn zpopmin_basic() {
     }
 
     // pop 2 at once
-    let popped = redis::zpopmin(&mut conn, key.clone(), Some(2)).await.unwrap();
+    let popped = redis::zpopmin(&mut conn, key.clone(), Some(2))
+        .await
+        .unwrap();
     assert_eq!(popped.len(), 2);
     assert_eq!(popped[0].member, "b");
     assert_eq!(popped[1].member, "c");
@@ -2111,19 +2239,33 @@ async fn zpopmax_basic() {
     let mut conn = redis::connect(&form, None).await.unwrap();
 
     let members = vec![
-        RedisZSetMember { member: "a".into(), score: 10.0 },
-        RedisZSetMember { member: "b".into(), score: 20.0 },
-        RedisZSetMember { member: "c".into(), score: 30.0 },
+        RedisZSetMember {
+            member: "a".into(),
+            score: 10.0,
+        },
+        RedisZSetMember {
+            member: "b".into(),
+            score: 20.0,
+        },
+        RedisZSetMember {
+            member: "c".into(),
+            score: 30.0,
+        },
     ];
-    redis::set_key(&mut conn, RedisSetKeyPayload {
-        key: key.clone(),
-        value: RedisValue::ZSet(members),
-        ttl_seconds: Some(60),
-        set_nx: None,
-        set_xx: None,
-        set_px: None,
-        set_keepttl: None,
-    }).await.unwrap();
+    redis::set_key(
+        &mut conn,
+        RedisSetKeyPayload {
+            key: key.clone(),
+            value: RedisValue::ZSet(members),
+            ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
+        },
+    )
+    .await
+    .unwrap();
 
     // pop 1 max
     let popped = redis::zpopmax(&mut conn, key.clone(), None).await.unwrap();
@@ -2132,7 +2274,9 @@ async fn zpopmax_basic() {
     assert_eq!(popped[0].score, 30.0);
 
     // pop all remaining
-    let popped = redis::zpopmax(&mut conn, key.clone(), Some(5)).await.unwrap();
+    let popped = redis::zpopmax(&mut conn, key.clone(), Some(5))
+        .await
+        .unwrap();
     assert_eq!(popped.len(), 2);
     assert_eq!(popped[0].member, "b");
     assert_eq!(popped[1].member, "a");
@@ -2142,4 +2286,278 @@ async fn zpopmax_basic() {
     assert!(matches!(remaining.value, RedisValue::None));
 
     cleanup(&form, &key).await;
+}
+
+// ── List advanced operations ─────────────────────────────────────────────────
+
+#[tokio::test]
+async fn list_lindex_and_lpos() {
+    let form = noauth();
+    let key = redis_context::unique_name("list_idx");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    // Create list: ["alpha", "beta", "gamma", "beta", "delta"]
+    redis::set_key(
+        &mut conn,
+        RedisSetKeyPayload {
+            key: key.clone(),
+            value: RedisValue::List(vec![
+                "alpha".into(),
+                "beta".into(),
+                "gamma".into(),
+                "beta".into(),
+                "delta".into(),
+            ]),
+            ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // LINDEX: get element at index 0, 2, -1
+    let v0 = redis::lindex(&mut conn, key.clone(), 0).await.unwrap();
+    assert_eq!(v0.as_deref(), Some("alpha"));
+
+    let v2 = redis::lindex(&mut conn, key.clone(), 2).await.unwrap();
+    assert_eq!(v2.as_deref(), Some("gamma"));
+
+    let v_last = redis::lindex(&mut conn, key.clone(), -1).await.unwrap();
+    assert_eq!(v_last.as_deref(), Some("delta"));
+
+    // LINDEX out of range → None
+    let v_oor = redis::lindex(&mut conn, key.clone(), 100).await.unwrap();
+    assert!(v_oor.is_none());
+
+    // LPOS: find all positions of "beta" (COUNT=0 returns all)
+    let positions = redis::lpos(&mut conn, key.clone(), "beta".into(), None, Some(0), None)
+        .await
+        .unwrap();
+    assert_eq!(positions, vec![1, 3]);
+
+    // LPOS: find first position of "beta" (default count=1)
+    let first = redis::lpos(&mut conn, key.clone(), "beta".into(), None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(first, vec![1]);
+
+    // LPOS: find second occurrence using RANK=2
+    let second = redis::lpos(&mut conn, key.clone(), "beta".into(), Some(2), None, None)
+        .await
+        .unwrap();
+    assert_eq!(second, vec![3]);
+
+    // LPOS: non-existent element → empty
+    let missing = redis::lpos(&mut conn, key.clone(), "nope".into(), None, Some(0), None)
+        .await
+        .unwrap();
+    assert!(missing.is_empty());
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn list_ltrim() {
+    let form = noauth();
+    let key = redis_context::unique_name("list_trim");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    redis::set_key(
+        &mut conn,
+        RedisSetKeyPayload {
+            key: key.clone(),
+            value: RedisValue::List(vec![
+                "a".into(),
+                "b".into(),
+                "c".into(),
+                "d".into(),
+                "e".into(),
+            ]),
+            ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // LTRIM 1 3 → keep ["b", "c", "d"]
+    redis::ltrim(&mut conn, key.clone(), 1, 3).await.unwrap();
+
+    let record = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    match record.value {
+        RedisValue::List(items) => {
+            assert_eq!(items, vec!["b", "c", "d"]);
+        }
+        _ => panic!("Expected List"),
+    }
+
+    // LTRIM 0 0 → keep only first element
+    redis::ltrim(&mut conn, key.clone(), 0, 0).await.unwrap();
+
+    let record = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    match record.value {
+        RedisValue::List(items) => {
+            assert_eq!(items, vec!["b"]);
+        }
+        _ => panic!("Expected List"),
+    }
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn list_linsert() {
+    let form = noauth();
+    let key = redis_context::unique_name("list_ins");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    redis::set_key(
+        &mut conn,
+        RedisSetKeyPayload {
+            key: key.clone(),
+            value: RedisValue::List(vec!["a".into(), "b".into(), "c".into()]),
+            ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // LINSERT BEFORE "b" "x" → ["a", "x", "b", "c"]
+    let len = redis::linsert(
+        &mut conn,
+        key.clone(),
+        RedisLInsertPosition::Before,
+        "b".into(),
+        "x".into(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(len, 4);
+
+    let record = redis::get_key(&mut conn, key.clone()).await.unwrap();
+    match record.value {
+        RedisValue::List(items) => {
+            assert_eq!(items, vec!["a", "x", "b", "c"]);
+        }
+        _ => panic!("Expected List"),
+    }
+
+    // LINSERT AFTER "c" "z" → ["a", "x", "b", "c", "z"]
+    let len = redis::linsert(
+        &mut conn,
+        key.clone(),
+        RedisLInsertPosition::After,
+        "c".into(),
+        "z".into(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(len, 5);
+
+    // LINSERT with non-existent pivot → returns -1 (unchanged)
+    let len = redis::linsert(
+        &mut conn,
+        key.clone(),
+        RedisLInsertPosition::Before,
+        "nope".into(),
+        "w".into(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(len, -1);
+
+    cleanup(&form, &key).await;
+}
+
+#[tokio::test]
+async fn list_lmove() {
+    let form = noauth();
+    let src = redis_context::unique_name("lmove_src");
+    let dst = redis_context::unique_name("lmove_dst");
+    let mut conn = redis::connect(&form, None).await.unwrap();
+
+    // Create source: ["a", "b", "c"]
+    redis::set_key(
+        &mut conn,
+        RedisSetKeyPayload {
+            key: src.clone(),
+            value: RedisValue::List(vec!["a".into(), "b".into(), "c".into()]),
+            ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Create destination: ["x", "y"]
+    redis::set_key(
+        &mut conn,
+        RedisSetKeyPayload {
+            key: dst.clone(),
+            value: RedisValue::List(vec!["x".into(), "y".into()]),
+            ttl_seconds: Some(60),
+            set_nx: None,
+            set_xx: None,
+            set_px: None,
+            set_keepttl: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // LMOVE src dst RIGHT LEFT → pop "c" from right, push to left of dst
+    let moved = redis::lmove(
+        &mut conn,
+        src.clone(),
+        dst.clone(),
+        RedisLMoveDirection::Right,
+        RedisLMoveDirection::Left,
+    )
+    .await
+    .unwrap();
+    assert_eq!(moved.as_deref(), Some("c"));
+
+    // Verify source: ["a", "b"]
+    let record = redis::get_key(&mut conn, src.clone()).await.unwrap();
+    match record.value {
+        RedisValue::List(items) => assert_eq!(items, vec!["a", "b"]),
+        _ => panic!("Expected List"),
+    }
+
+    // Verify destination: ["c", "x", "y"]
+    let record = redis::get_key(&mut conn, dst.clone()).await.unwrap();
+    match record.value {
+        RedisValue::List(items) => assert_eq!(items, vec!["c", "x", "y"]),
+        _ => panic!("Expected List"),
+    }
+
+    // LMOVE from non-existent source → None
+    redis::delete_key(&mut conn, src.clone()).await.unwrap();
+
+    let moved = redis::lmove(
+        &mut conn,
+        src.clone(),
+        dst.clone(),
+        RedisLMoveDirection::Left,
+        RedisLMoveDirection::Left,
+    )
+    .await
+    .unwrap();
+    assert!(moved.is_none());
+
+    cleanup(&form, &src).await;
+    cleanup(&form, &dst).await;
 }

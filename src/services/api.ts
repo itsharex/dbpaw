@@ -249,6 +249,10 @@ export interface RedisZRangeByLexResult {
 
 export type RedisSetOperation = "inter" | "union" | "diff";
 
+export type RedisLInsertPosition = "before" | "after";
+
+export type RedisLMoveDirection = "left" | "right";
+
 export interface RedisBatchKeyOp {
   op: "del" | "unlink" | "expire" | "persist";
   key: string;
@@ -1187,6 +1191,43 @@ export const api = {
       invoke<{ member: string; score: number }[]>("redis_zpopmin", { id, database, key, count }),
     zpopmax: (id: number, database: string | undefined, key: string, count?: number) =>
       invoke<{ member: string; score: number }[]>("redis_zpopmax", { id, database, key, count }),
+    lindex: (id: number, database: string | undefined, key: string, index: number) =>
+      invoke<string | null>("redis_lindex", { id, database, key, index }),
+    lpos: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      element: string,
+      rank?: number,
+      count?: number,
+      maxlen?: number,
+    ) => invoke<number[]>("redis_lpos", { id, database, key, element, rank, count, maxlen }),
+    ltrim: (id: number, database: string | undefined, key: string, start: number, stop: number) =>
+      invoke<boolean>("redis_ltrim", { id, database, key, start, stop }),
+    linsert: (
+      id: number,
+      database: string | undefined,
+      key: string,
+      position: RedisLInsertPosition,
+      pivot: string,
+      element: string,
+    ) => invoke<number>("redis_linsert", { id, database, key, position, pivot, element }),
+    lmove: (
+      id: number,
+      database: string | undefined,
+      source: string,
+      destination: string,
+      srcDirection: RedisLMoveDirection,
+      dstDirection: RedisLMoveDirection,
+    ) =>
+      invoke<string | null>("redis_lmove", {
+        id,
+        database,
+        source,
+        destination,
+        srcDirection,
+        dstDirection,
+      }),
   },
   elasticsearch: {
     testConnection: (id: number) =>

@@ -906,6 +906,70 @@ export function RedisKeyView({
             <RedisListViewer
               value={value.value}
               onChange={(v) => setValue({ kind: "list", value: v })}
+              onLindex={async (index) => {
+                const result = await api.redis.lindex(
+                  connectionId,
+                  database,
+                  redisKey,
+                  index,
+                );
+                return result;
+              }}
+              onLpos={async (element, rank, count, maxlen) => {
+                const positions = await api.redis.lpos(
+                  connectionId,
+                  database,
+                  redisKey,
+                  element,
+                  rank,
+                  count,
+                  maxlen,
+                );
+                return positions;
+              }}
+              onLtrim={async (start, stop) => {
+                await api.redis.ltrim(
+                  connectionId,
+                  database,
+                  redisKey,
+                  start,
+                  stop,
+                );
+                toast.success("List trimmed");
+                await load();
+              }}
+              onLinsert={async (position, pivot, element) => {
+                const len = await api.redis.linsert(
+                  connectionId,
+                  database,
+                  redisKey,
+                  position,
+                  pivot,
+                  element,
+                );
+                toast.success(`Element inserted (new length: ${len})`);
+                await load();
+                return len;
+              }}
+              onLmove={async (destination, srcDirection, dstDirection) => {
+                const moved = await api.redis.lmove(
+                  connectionId,
+                  database,
+                  redisKey,
+                  destination,
+                  srcDirection,
+                  dstDirection,
+                );
+                if (moved !== null) {
+                  toast.success(
+                    `Moved "${moved}" to "${destination}"`,
+                  );
+                  await load();
+                } else {
+                  toast.warning("Source list is empty");
+                }
+                return moved;
+              }}
             />
           )}
           {value.kind === "set" && (
