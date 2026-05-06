@@ -29,11 +29,11 @@ English | [简体中文](README_CN.md) | [日本語](README_JA.md)
 
 </div>
 
-**DbPaw** helps you connect to PostgreSQL, MySQL, MariaDB (MySQL-compatible), TiDB (MySQL-compatible), SQLite, SQL Server, ClickHouse (preview), DuckDB (testing), StarRocks (testing), Doris (testing), and Oracle (testing), write and run SQL efficiently, and inspect data in a clean desktop UI.
+**DbPaw** helps you connect to PostgreSQL, MySQL, MariaDB (MySQL-compatible), TiDB (MySQL-compatible), SQLite, SQL Server, ClickHouse (preview), DuckDB, StarRocks, Doris, Oracle, and Redis, write and run SQL efficiently, and inspect data in a clean desktop UI.
 
 ## ✅ What You Can Do
 
-- Connect to PostgreSQL, MySQL, MariaDB (MySQL-compatible), TiDB (MySQL-compatible), SQLite, SQL Server, ClickHouse (preview, currently read-only), DuckDB (testing), StarRocks (testing), Doris (testing), and Oracle (testing)
+- Connect to PostgreSQL, MySQL, MariaDB (MySQL-compatible), TiDB (MySQL-compatible), SQLite, SQL Server, ClickHouse (preview, currently read-only), DuckDB, StarRocks, Doris, Oracle, and Redis (Standalone / Cluster / Sentinel)
 - Write and run SQL with syntax highlighting, auto-completion, and one-click formatting
 - Browse query results in a data grid with filtering, sorting, and pagination
 - Export table data and query results as **CSV, JSON, or SQL** (DDL only / DML only / DDL+DML); choose current page, filtered rows, or the full table
@@ -45,6 +45,7 @@ English | [简体中文](README_CN.md) | [日本語](README_JA.md)
 - Save and reuse frequently used SQL scripts with Saved Queries
 - Use the AI sidebar to draft SQL and explain queries (optional)
 - Access remote databases through SSH tunneling
+- Browse and manage Redis data: keys, Strings, Hashes, Lists, Sets, Sorted Sets, Streams, and JSON — with Cluster and Sentinel support
 
 ## 🖼️ Screenshots
 
@@ -65,7 +66,7 @@ English | [简体中文](README_CN.md) | [日本語](README_JA.md)
 - **Tiny footprint**: installer ≈10 MB, on-disk ≈80 MB, and very low idle memory (much lighter than Electron-based tools).
 - **Truly modern**: goodbye to DBeaver-style “cockpit” UIs—we cut the 99% you’ll never use, focus on common workflows, and make every action smoother and more intuitive.
 - **Cross-platform**: runs on macOS, Windows, and Linux (no more one app at work and another at home).
-- **Database compatibility**: currently supports MySQL, MariaDB (MySQL-compatible), PostgreSQL, ClickHouse, TiDB, SQL Server, SQLite, DuckDB (testing), StarRocks (testing), Doris (testing), and Oracle (testing) — actively expanding.
+- **Database compatibility**: currently supports MySQL, MariaDB (MySQL-compatible), PostgreSQL, ClickHouse, TiDB, SQL Server, SQLite, DuckDB, StarRocks, Doris, Oracle, and Redis (Standalone / Cluster / Sentinel) — actively expanding.
 - **Rich data transfer**: export to CSV / JSON / SQL (DDL, DML, or both) with flexible scope; import SQL files with transactional rollback; dump entire databases as SQL.
 - **Schema explorer**: browse tables, view structure and DDL, and create or alter tables through a visual UI—no hand-crafted DDL required.
 - **Looks great**: lots of themes (dark/light and a range of high/low saturation styles).

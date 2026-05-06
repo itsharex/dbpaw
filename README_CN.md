@@ -29,11 +29,11 @@
 
 </div>
 
-**DbPaw** 帮助你连接 PostgreSQL、MySQL、MariaDB（MySQL 兼容）、TiDB（MySQL 兼容）、SQLite、SQL Server、ClickHouse（预览版）、DuckDB（测试中）、StarRocks（测试中）、Doris（测试中）与 Oracle（测试中），高效编写和执行 SQL，并在清爽的桌面 UI 中查看与探索数据。
+**DbPaw** 帮助你连接 PostgreSQL、MySQL、MariaDB（MySQL 兼容）、TiDB（MySQL 兼容）、SQLite、SQL Server、ClickHouse（预览版）、DuckDB、StarRocks、Doris、Oracle 与 Redis，高效编写和执行 SQL，并在清爽的桌面 UI 中查看与探索数据。
 
 ## ✅ 你可以用它做什么
 
-- 连接 PostgreSQL、MySQL、MariaDB（MySQL 兼容）、TiDB（MySQL 兼容）、SQLite、SQL Server、ClickHouse（预览版，当前只读）、DuckDB（测试中）、StarRocks（测试中）、Doris（测试中）、Oracle（测试中）与 Redis
+- 连接 PostgreSQL、MySQL、MariaDB（MySQL 兼容）、TiDB（MySQL 兼容）、SQLite、SQL Server、ClickHouse（预览版，当前只读）、DuckDB、StarRocks、Doris、Oracle 与 Redis（单机 / 集群 / 哨兵）
 - 编写与执行 SQL：语法高亮、自动补全、一键格式化
 - 在数据网格中浏览结果，支持过滤、排序与分页
 - 将表数据和查询结果导出为 **CSV、JSON 或 SQL**（仅 DDL / 仅 DML / DDL+DML），支持当前页、过滤行或全表三种导出范围
@@ -45,6 +45,7 @@
 - 使用 Saved Queries 保存并复用常用 SQL 脚本
 - 使用 AI 侧边栏辅助写 SQL、解释查询（可选）
 - 通过 SSH 隧道访问远程数据库
+- 浏览与管理 Redis 数据：Key、String、Hash、List、Set、Sorted Set、Stream 及 JSON，支持集群与哨兵模式
 
 ## 🖼️ 界面预览
 
@@ -65,7 +66,7 @@
 - **极致轻量**：安装包只有 ≈10MB，安装后占用 ≈80MB，内存常驻极低（甩开 Electron 系工具几条街）。
 - **真正现代化**：告别 DBeaver 那种”飞机驾驶舱”式复杂界面，精简掉 99% 开发者一辈子用不上的功能，专注常用场景，操作更直观、更丝滑。
 - **跨平台**：支持 macOS、Windows、Linux 多平台（再也不用公司一套、回家一套）。
-- **数据库兼容**：当前支持 MySQL、MariaDB（MySQL 兼容）、PostgreSQL、ClickHouse、TiDB、SQL Server、SQLite、DuckDB（测试中）、StarRocks（测试中）、Doris（测试中）与 Oracle（测试中）——仍在加速适配中。
+- **数据库兼容**：当前支持 MySQL、MariaDB（MySQL 兼容）、PostgreSQL、ClickHouse、TiDB、SQL Server、SQLite、DuckDB、StarRocks、Doris、Oracle 与 Redis（单机 / 集群 / 哨兵）——仍在加速适配中。
 - **完整数据导入导出**：支持 CSV / JSON / SQL（DDL、DML 或完整）多格式导出，范围可选；支持事务性 SQL 导入与回滚；支持整库 SQL 导出。
 - **结构管理**：可视化浏览表结构与 DDL，通过 GUI 建表和改表，无需手写 DDL。
 - **颜值在线**：支持超多主题配色（暗黑、浅色、各种高饱和/低饱和风格）。
